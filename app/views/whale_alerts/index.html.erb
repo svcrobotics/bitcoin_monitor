@@ -1,0 +1,181 @@
+<!-- app/views/whale_alerts/index.html.erb -->
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="flex items-center justify-between gap-4 mb-6">
+    <h1 class="text-2xl font-bold text-gray-100">Whale Alerts</h1>
+
+    <div class="text-sm text-gray-400">
+      Seuil: <span class="font-mono"><%= ENV.fetch("WHALE_MIN_BTC", "50") %> BTC</span>
+    </div>
+
+    <div class="mt-4 flex flex-wrap items-center gap-3">
+        <%= link_to "⬅️ Retour au dashboard",
+                    dashboard_path,
+                    class: "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900/70 border border-gray-700 text-gray-100 text-sm hover:bg-gray-700 transition" %>
+    </div>
+  </div>
+
+  <form class="bg-gray-900/40 border border-gray-800 rounded-2xl p-4 mb-6">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-3">
+      <select name="mode" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100">
+        <option value="interesting" <%= "selected" if @mode == "interesting" %>>Interesting</option>
+        <option value="all" <%= "selected" if @mode == "all" %>>Tout</option>
+      </select>
+
+      <select name="type" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100">
+        <option value="">Tous les types</option>
+        <% types =
+          if @mode == "interesting"
+            WhaleAlert::TYPES - ["other"]
+          else
+            WhaleAlert::TYPES
+          end
+        %>
+        <% types.each do |t| %>
+          <option value="<%= t %>" <%= "selected" if @type == t %>><%= t %></option>
+        <% end %>
+      </select>
+
+      <input name="min_btc" value="<%= @min_btc %>" placeholder="min BTC (ex: 200)"
+             class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100" />
+
+      <select name="sort" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100">
+        <option value="recent" <%= "selected" if @sort == "recent" %>>Plus récent</option>
+        <option value="score" <%= "selected" if @sort == "score" %>>Score (desc)</option>
+      </select>
+
+      <input name="min_score" value="<%= @min_score %>" placeholder="score min (ex: 70)"
+             class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100" />
+
+      <button class="w-full bg-white/10 hover:bg-white/15 border border-gray-700 rounded-xl px-4 py-2 text-gray-100">
+        Filtrer
+      </button>
+    </div>
+
+    <% if @counts.present? %>
+      <div class="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-400">
+        <% @counts.each do |k,v| %>
+          <span><span class="font-mono text-gray-200"><%= v %></span> <%= k %></span>
+        <% end %>
+      </div>
+    <% end %>
+  </form>
+
+  <div class="mt-4 bg-gray-900/40 border border-gray-800 rounded-2xl p-4 prose prose-invert max-w-none text-sm">
+    <%= raw MarkdownRenderer.to_html(<<~MD) %>
+  ### À quoi servent les Whale Alerts
+
+  Les Whale Alerts permettent d’observer **le comportement des gros portefeuilles**
+  Elles ne prédisent pas le prix
+  Elles montrent **ce que font les acteurs importants sur la blockchain**
+
+  ---
+
+  ### Les différents comportements observés
+
+  **Consolidation**  
+  Des fonds dispersés sont regroupés en une ou deux sorties  
+  Indique souvent une phase de préparation ou de réorganisation  
+  Ce n’est pas une vente
+
+  **Distribution**  
+  Un montant important est réparti vers de nombreuses sorties  
+  Correspond à une phase d’exécution ou de dispersion  
+  Peut inclure paiements ou ventes fractionnées
+
+  **Batching**  
+  Un grand nombre de sorties dans une seule transaction  
+  Comportement typique de services ou plateformes  
+  Signal d’activité opérationnelle, pas de sentiment de marché
+
+  **Other**  
+  Transaction importante sans comportement identifiable  
+  Représente le bruit normal de la blockchain  
+  La majorité des transactions entrent dans cette catégorie
+
+  ---
+
+  ### Modes d’affichage
+
+  **Interesting**  
+  Affiche uniquement les comportements intentionnels  
+  Consolidation Distribution Batching  
+  Permet de se concentrer sur ce qui mérite une attention particulière
+
+  **Tout**  
+  Affiche toutes les transactions importantes  
+  Inclut aussi **Other** pour une vision complète
+
+  ---
+
+  ### Lexique des métriques
+
+  **inputs**  
+  Nombre d’entrées de la transaction  
+  Plus il y en a, plus la transaction combine des fonds venant de plusieurs UTXOs
+
+  **outputs**  
+  Nombre de sorties de la transaction  
+  Chaque output est une destination potentielle
+
+  **nonzero**  
+  Nombre de sorties dont la valeur est strictement supérieure à 0 BTC  
+  Utile pour ignorer certaines sorties techniques selon les cas
+
+  **largest**  
+  La plus grosse sortie de la transaction en BTC  
+  Donne une idée de la destination principale
+
+  **ratio**  
+  largest ÷ total_out  
+  Proche de 100% signifie qu’une seule sortie “domine” la transaction
+
+  **score**  
+  Note simple de 0 à 100 pour trier les alertes  
+  Plus le montant est grand, plus il y a d’inputs ou d’outputs, plus le ratio est élevé, plus le score monte  
+  Le score ne prédit pas le prix  
+  Il sert uniquement à repérer les transactions les plus “marquantes”
+
+    MD
+  </div>
+
+  <div class="space-y-3">
+    <% @alerts.each do |a| %>
+      <div class="bg-gray-900/40 border border-gray-800 rounded-2xl p-4">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div class="flex items-center gap-3">
+            <span class="text-xs px-2 py-1 rounded-full border border-gray-700 text-gray-200">
+              <%= a.alert_type %>
+            </span>
+            <span class="text-xs px-2 py-1 rounded-full bg-white/10 text-gray-200">
+              score <%= a.score %>
+            </span>
+            <span class="text-sm text-gray-400">
+              <%= a.block_time ? a.block_time.strftime("%Y-%m-%d %H:%M:%S UTC") : "mempool" %>
+            </span>
+          </div>
+
+          <div class="text-sm text-gray-300 font-mono">
+            <%= a.total_out_btc.to_s("F") %> BTC
+            <% if @btc_eur %>
+              <span class="text-gray-500">
+                · <%= eur_fr(a.total_out_btc.to_d * @btc_eur) %>
+              </span>
+            <% end %>
+          </div>
+        </div>
+
+        <div class="mt-2 text-sm text-gray-400">
+          inputs: <span class="font-mono text-gray-200"><%= a.inputs_count %></span>
+          · outputs: <span class="font-mono text-gray-200"><%= a.outputs_count %></span>
+          · nonzero: <span class="font-mono text-gray-200"><%= a.outputs_nonzero_count %></span>
+          · largest: <span class="font-mono text-gray-200"><%= a.largest_output_btc.to_s("F") %> BTC</span>
+          · ratio: <span class="font-mono text-gray-200"><%= (a.largest_output_ratio.to_d * 100).round(2) %>%</span>
+        </div>
+
+        <div class="mt-2 text-xs text-gray-500 font-mono break-all">
+          <%= a.txid %>
+        </div>
+      </div>
+    <% end %>
+  </div>
+</div>

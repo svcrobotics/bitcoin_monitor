@@ -1,0 +1,163 @@
+<div class="max-w-2xl mx-auto mt-12 px-6 py-8 bg-zinc-900 text-zinc-100 rounded-xl shadow-lg border border-zinc-800">
+
+  <h1 class="text-2xl font-bold mb-4">
+    🔐 Accès protégé aux Vaults
+  </h1>
+
+  <p class="text-zinc-400 mb-6">
+    Cette section est sécurisée par <strong>signature cryptographique Bitcoin</strong>.
+    <br>
+    Aucune clé privée n’est transmise, aucun bitcoin n’est déplacé.
+  </p>
+
+  <!-- Étape 1 -->
+  <div class="mb-8">
+    <h2 class="font-semibold mb-2">
+      1️⃣ Générer le message à signer
+    </h2>
+
+    <button
+      id="btnChallenge"
+      class="px-4 py-2 bg-orange-600 hover:bg-orange-500 rounded-md text-white font-medium"
+    >
+      Générer le message
+    </button>
+  </div>
+
+  <!-- Message -->
+  <div class="mb-8">
+    <h2 class="font-semibold mb-2">
+      2️⃣ Message à signer dans Sparrow
+    </h2>
+
+    <p class="text-sm text-zinc-400 mb-2">
+      Dans Sparrow :
+      <strong>Wallet → Sign Message</strong><br>
+      Copie exactement ce message, puis signe avec ton Ledger.
+    </p>
+
+    <textarea
+      id="message"
+      rows="8"
+      readonly
+      class="w-full bg-zinc-800 border border-zinc-700 rounded-md p-3 font-mono text-sm text-zinc-100"
+      placeholder="Clique sur « Générer le message »"
+    ></textarea>
+
+    <!-- Bouton Copier -->
+    <div class="flex items-center gap-3 mt-3">
+      <button
+        type="button"
+        id="btnCopyMessage"
+        class="px-3 py-2 bg-zinc-700 hover:bg-zinc-600 rounded-md text-sm font-medium disabled:opacity-40 disabled:cursor-not-allowed"
+        disabled
+      >
+        📋 Copier le message
+      </button>
+
+      <span id="copyStatus" class="text-sm text-emerald-400"></span>
+    </div>
+  </div>
+
+  <!-- Étape 3 -->
+  <div class="mb-6">
+    <h2 class="font-semibold mb-2">
+      3️⃣ Coller la signature
+    </h2>
+
+    <form method="post" action="/vaults/verify" class="space-y-4">
+      <%= hidden_field_tag :authenticity_token, form_authenticity_token %>
+      <input type="hidden" name="challenge_id" id="challenge_id">
+
+      <div>
+        <label class="block text-sm text-zinc-400 mb-1">
+          Adresse Bitcoin utilisée pour signer
+        </label>
+        <input
+          type="text"
+          name="address"
+          placeholder="1..."
+          class="w-full bg-zinc-800 border border-zinc-700 rounded-md p-2 text-zinc-100 font-mono"
+          required
+        >
+      </div>
+
+      <div>
+        <label class="block text-sm text-zinc-400 mb-1">
+          Signature générée par Sparrow
+        </label>
+        <textarea
+          name="signature"
+          rows="3"
+          placeholder="H8f3...="
+          class="w-full bg-zinc-800 border border-zinc-700 rounded-md p-2 font-mono text-zinc-100"
+          required
+        ></textarea>
+      </div>
+
+      <button
+        type="submit"
+        class="w-full mt-4 px-4 py-3 bg-emerald-600 hover:bg-emerald-500 rounded-md text-white font-semibold"
+      >
+        Se connecter aux Vaults
+      </button>
+    </form>
+  </div>
+
+  <!-- Footer sécurité -->
+  <div class="text-xs text-zinc-500 mt-8 border-t border-zinc-800 pt-4">
+    ✔ Authentification par signature Bitcoin<br>
+    ✔ Compatible Ledger / Sparrow<br>
+    ✔ Résistant au phishing (nonce + expiration)
+  </div>
+</div>
+<script>
+  const btnChallenge = document.getElementById("btnChallenge");
+  const btnCopy     = document.getElementById("btnCopyMessage");
+  const msgEl       = document.getElementById("message");
+  const statusEl    = document.getElementById("copyStatus");
+  const challengeId = document.getElementById("challenge_id");
+
+  function setStatus(text) {
+    statusEl.textContent = text;
+    if (text) setTimeout(() => statusEl.textContent = "", 1500);
+  }
+
+  async function copyText(text) {
+    if (navigator.clipboard && window.isSecureContext) {
+      await navigator.clipboard.writeText(text);
+    } else {
+      msgEl.focus();
+      msgEl.select();
+      document.execCommand("copy");
+    }
+  }
+
+  btnCopy.addEventListener("click", async () => {
+    const text = msgEl.value;
+    if (!text) return;
+
+    try {
+      await copyText(text);
+      setStatus("✔ Message copié");
+    } catch (e) {
+      setStatus("✖ Impossible de copier");
+    }
+  });
+
+  btnChallenge.addEventListener("click", async () => {
+    const res = await fetch("/vaults/challenge", {
+      method: "POST",
+      headers: {
+        "X-CSRF-Token": "<%= form_authenticity_token %>",
+        "Accept": "application/json"
+      }
+    });
+
+    const data = await res.json();
+    challengeId.value = data.challenge_id;
+    msgEl.value = data.message;
+
+    btnCopy.disabled = false;
+  });
+</script>

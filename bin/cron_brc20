@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -e
+
+# Dossier de l'app
+cd /home/victor/bitcoin_monitor
+
+# Initialiser rbenv (important pour avoir le bon ruby + les bons gems)
+export RBENV_ROOT="$HOME/.rbenv"
+export PATH="$RBENV_ROOT/bin:$PATH"
+eval "$(rbenv init - bash)"
+
+# Lancer la tâche rake / rails
+bundle exec rails brc20:scan_new_blocks

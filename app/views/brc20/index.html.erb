@@ -1,0 +1,361 @@
+<div class="px-4 py-8 sm:px-6 lg:px-8">
+  <div class="mx-auto w-full max-w-5xl">
+    <!-- Header -->
+    <header class="mb-8">
+      <h1 class="text-3xl sm:text-4xl font-bold tracking-tight mb-2">
+        Analyse des tokens BRC-20
+      </h1>
+      <p class="text-gray-400 text-sm sm:text-base">
+        Cette page affiche une sélection de tokens <span class="font-mono">BRC-20</span> jugés sérieux,
+        basée sur un indexeur développé en interne et connecté à notre nœud Bitcoin complet.
+      </p>
+
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <%= link_to "⬅️ Retour au dashboard",
+                    dashboard_path,
+                    class: "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900/70 border border-gray-700 text-gray-100 text-sm hover:bg-gray-700 transition" %>
+
+        <%= link_to "📦 Explorer les blocs Bitcoin",
+                    blocks_path,
+                    class: "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900/70 border border-violet-500/70 text-violet-100 text-sm hover:bg-violet-600/20 hover:border-violet-400 transition" %>
+      </div>
+    </header>
+
+    <% if @brc20_tokens.present? %>
+      <section id="brc20-main" class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-4 sm:p-8 shadow-xl w-full max-w-full">
+        <h2 class="text-lg sm:text-2xl font-semibold mb-4 break-words">
+          Tokens BRC-20 publics jugés dignes d'intérêt depuis le bloc <%= @brc20_window_from %>
+        </h2>
+
+        <p class="text-gray-300 text-sm leading-relaxed mb-3 break-words">
+          Le tableau ci-dessous est déjà <strong>filtré</strong> : il ne montre que les tokens BRC-20
+          qui passent une série de règles de sérieux. Concrètement, un token est conservé uniquement si&nbsp;:
+          <br>
+          • son <strong>tick</strong> est propre (exactement 4 caractères, uniquement <code>a–z 0–9</code>) ;<br>
+          • il n’a qu’<strong>un seul deploy</strong> ;<br>
+          • sa <strong>max supply</strong> est raisonnable (entre 10 et 100&nbsp;000&nbsp;000) ;<br>
+          • le <strong>volume minté</strong> ne dépasse jamais la max supply ;<br>
+          • au moins <strong>60&nbsp;% de la supply</strong> a déjà été mintée ;<br>
+          • il y a au moins <strong>un transfert</strong> on-chain ;<br>
+          • il y a au moins <strong>3 holders</strong> avec un solde non nul ;<br>
+          • le token n’est pas contrôlé par une seule baleine (pas plus de 90&nbsp;% chez le top&nbsp;1, ni 99&nbsp;% chez le top&nbsp;10) ;<br>
+          • il a eu au moins <strong>un transfert dans les 30 derniers jours</strong> ;<br>
+          • et son <strong>score global</strong> (distribution + activité + progression du mint) est d’au moins <strong>30/100</strong>.
+        </p>
+        
+        <% if @brc20_last_sync_run.present? %>
+          <p class="text-gray-400 text-xs mb-4">
+            Dernière mise à jour de cet index :
+            <strong><%= l @brc20_last_sync_run, format: :default %></strong>.
+            Les chiffres peuvent évoluer à chaque nouvelle synchronisation ou rescan.
+          </p>
+          
+          <p class="text-gray-300 text-sm leading-relaxed mb-6 break-words">
+            <strong>Mise à jour des données :</strong> toutes les informations affichées dans ce tableau
+            proviennent d’un indexeur BRC-20 développé en interne.
+          </p>
+          
+          <p class="text-gray-300 text-sm leading-relaxed mb-6 break-words">
+            Une tâche automatique (<strong>cron</strong>) exécute un scan incrémental toutes les <strong>10 minutes</strong>. Lors de chaque exécution, seuls les blocs Bitcoin nouvellement minés sont analysés. Les tables internes (événements, soldes, statistiques journalières et regroupées) sont
+            ensuite mises à jour pour refléter l’activité réelle de l’écosystème BRC-20.
+          </p>
+          
+          <p class="text-gray-300 text-sm leading-relaxed mb-6 break-words">
+            Pour garantir la transparence, la source des données est indiquée : ici, toutes les informations
+            affichées couvrent la période <strong>depuis le bloc <%= @brc20_window_from %></strong> jusqu’au dernier bloc analysé
+            (<%= @brc20_last_sync_run ? l(@brc20_last_sync_run, format: :default) : "-" %>).  
+            Cette approche permet d’éviter tout biais, car l’ensemble des données provient directement de la
+            blockchain, sans API tierce, sans filtrage opaque et sans agrégation externe.
+          </p>
+        <% end %>
+
+        <!-- Carte contenant le tableau principal -->
+        <div class="mt-6 bg-gray-900/70 border border-gray-700 rounded-xl p-3 sm:p-4 w-full max-w-full">
+          <% if @brc20_tokens.any? %>
+            <div class="w-full overflow-x-auto">
+              <table class="min-w-[900px] border-collapse text-sm text-gray-200">
+                <thead>
+                  <tr class="bg-gray-800/50 border-b border-gray-700 text-gray-300">
+
+                    <th class="px-3 py-2 text-left border-r border-gray-700">
+                      Tick
+                    </th>
+
+                    <th class="px-4 py-2 text-right border-r border-gray-800">
+                      Deploy
+                      <%= info_bulle("
+                          Date du déploiement.
+                        ") %>
+                    </th>
+
+                    <th class="px-4 py-2 text-right border-r border-gray-800">
+                      Max Supply
+                    </th>
+
+                    <th class="px-4 py-2 text-right border-r border-gray-800">
+                      Lim<br><span class="text-[10px] text-gray-400">(max/mint)</span>
+                    </th>
+
+                    <th class="px-4 py-2 text-right border-r border-gray-700">
+                      Mints
+                    </th>
+
+                    <th class="px-4 py-2 text-right border-r border-gray-800">
+                      Vol. mint
+                    </th>
+
+                    <th class="px-4 py-2 text-right border-r border-gray-700">
+                      Transferts
+                    </th>
+
+                    <th class="px-3 py-2 text-right border-r border-gray-700">
+                      Vol. transferts
+                    </th>
+
+                    <th class="px-4 py-2 text-right border-r border-gray-800">
+                      Holders
+                    </th>
+
+                    <th class="px-3 py-2 text-right border-r border-gray-700">
+                        Score
+                        <%= info_bulle("
+                          Ce score sur 100 mesure la qualité réelle d’un token BRC-20 :
+
+                            1) Distribution (0–40 pts)
+                               → basé sur le nombre de holders uniques.
+                               Plus le token est distribué, plus le score est élevé.
+
+                            2) Activité (0–40 pts)
+                               → basé sur le nombre total d’opérations (deploy + mint + transfer)
+                                 et sur la quantité d’activité récente.
+                               Un token très actif gagne davantage de points.
+
+                            3) Ratio de mint (0–20 pts)
+                               → proportion de supply déjà mintée (mint_volume / max_supply).
+                               Un token proche d’être entièrement minté est mieux noté.
+
+                            Ce score indique l’activité réelle et la santé du token,
+                            pas son prix ni sa valeur spéculative.
+
+                        ") %>
+                    </th>
+
+                  </tr>
+                </thead>
+
+                <tbody>
+                  <% @brc20_tokens.each_with_index do |t, idx| %>
+                    <tr class="<%= idx.odd? ? 'bg-gray-800/20' : 'bg-gray-800/10' %> border-b border-gray-800">
+
+                      <!-- Tick -->
+                      <td class="px-3 py-2 font-semibold text-violet-300 border-r border-gray-700 whitespace-nowrap">
+                        <%= t[:tick] %>
+                      </td>
+
+                      <!-- Deploy -->
+                      <td class="px-4 py-2 text-right border-r border-gray-800">
+                        <% count = t[:deploy_count].to_i %>
+                        <% time  = t[:deploy_time] %>
+
+                        <span>
+                          <%= count %>
+                          <% if time.present? %>
+                            <span class="text-xs text-gray-400">
+                              (<%= l time.to_date %>)
+                            </span>
+                          <% end %>
+                        </span>
+                      </td>
+
+                      <!-- Max Supply -->
+                      <td class="px-4 py-2 text-right border-r border-gray-800"><%= t[:max_supply] %></td>
+
+                      <!-- Lim -->
+                      <td class="px-4 py-2 text-right border-r border-gray-800">
+                        <%= t[:mint_limit].presence || "-" %>
+                      </td>
+
+                      <!-- Mints -->
+                      <td class="px-4 py-2 text-right border-r border-gray-700"><%= t[:mint_count] %></td>
+
+                      <!-- Vol mint + (%) -->
+                      <td class="px-4 py-2 text-right border-r border-gray-800">
+                        <% minted     = t[:mint_volume].to_i %>
+                        <% max_supply = t[:max_supply].to_i %>
+                        <% mint_ratio = max_supply.positive? ? ((minted.to_f / max_supply) * 100).round(2) : nil %>
+
+                        <%= minted %>
+                        <% if mint_ratio %>
+                          <span class="text-xs text-gray-400">(<%= mint_ratio %>%)</span>
+                        <% end %>
+                      </td>
+
+                      <!-- Transferts + flèche -->
+                      <td class="px-4 py-2 text-right border-r border-gray-700">
+                        <div class="flex items-center justify-end gap-1">
+                          <%= t[:transfer_count] %>
+                          <%= trend_icon(t[:transfer_count], t[:yesterday_transfers]) %>
+                          <%= variation_badge(t[:transfer_count], t[:yesterday_transfers]) %>
+                        </div>
+                      </td>
+
+                      <td class="px-3 py-2 text-right border-r border-gray-700">
+                        <div class="flex items-center justify-end gap-1">
+                          <%= t[:transfer_volume] %>
+                          <%= trend_icon(t[:transfer_volume], t[:yesterday_transfer_volume]) %>
+                          <%= variation_badge(t[:transfer_volume], t[:yesterday_transfer_volume]) %>
+                        </div>
+                      </td>
+
+                      <!-- Holders -->
+                      <td class="px-4 py-2 text-right border-r border-gray-800">
+                        <div class="flex items-center justify-end gap-1">
+                          <%= t[:holders_count] %>
+
+                          <!-- Flèche ▲ / ▼ -->
+                          <%= trend_icon(t[:holders_count], t[:yesterday_holders]) %>
+
+                          <!-- Variation (+12, -3…) -->
+                          <%= variation_number(t[:holders_count], t[:yesterday_holders]) %>
+                        </div>
+                      </td>
+
+                      <!-- Score -->
+                      <td class="px-4 py-2 text-right border-r border-gray-700">
+                        <div class="flex items-center justify-end gap-2 text-sm">
+                          <%= seriousness_icon(t[:score]) %>
+                          <span><%= t[:score] %>/100</span>
+                        </div>
+                      </td>
+
+                    </tr>
+                  <% end %>
+                  </tbody>
+              </table>
+            </div>
+          <% else %>
+            <p class="text-gray-400 text-sm">
+              Aucune activité BRC-20 jugée sérieuse sur la fenêtre récente.
+            </p>
+          <% end %>
+        </div>
+      </section>
+    <% else %>
+      <p class="text-gray-400 text-sm mt-4">
+        Aucun token BRC-20 jugé sérieux n’a été trouvé sur la plage analysée actuellement.
+      </p>
+    <% end %>
+    <br>
+    <% if @brc20_recent_deploys.present? %>
+      <section class="mt-8 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 shadow-xl">
+        <h2 class="text-lg sm:text-xl font-semibold text-gray-100 mb-2">
+          Ticks déployés sur les 30 derniers jours
+        </h2>
+        <p class="text-xs text-gray-400 mb-4">
+          Liste des tokens <span class="font-mono">BRC-20</span> ayant au moins un
+          <span class="font-mono">deploy</span> entre
+          <%= 30.days.ago.to_date.strftime("%d/%m/%Y") %> et
+          <%= Time.current.to_date.strftime("%d/%m/%Y") %>.
+        </p>
+
+        <div class="overflow-x-auto">
+          <table class="min-w-full text-sm text-gray-100">
+            <thead>
+              <tr class="border-b border-gray-700 text-xs uppercase tracking-wide text-gray-400">
+                <th class="px-4 py-2 text-left">Tick</th>
+                <th class="px-4 py-2 text-right">Deploys (30j)</th>
+                <th class="px-4 py-2 text-right">1er deploy</th>
+                <th class="px-4 py-2 text-right">Bloc</th>
+                <th class="px-4 py-2 text-right">Tx</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% @brc20_recent_deploys.each do |r| %>
+                <tr class="border-b border-gray-800 hover:bg-gray-900/70">
+                  <td class="px-4 py-1.5 font-mono text-sm">
+                    🔵 <%= r.tick.to_s.downcase %>
+                  </td>
+
+                  <td class="px-4 py-1.5 text-right">
+                    <%= r.deploy_events_count.to_i %>
+                  </td>
+
+                  <td class="px-4 py-1.5 text-right text-xs text-gray-300">
+                    <% time = r.first_deploy_time&.in_time_zone("Europe/Paris") %>
+                    <%= time ? time.strftime("%d/%m/%Y %H:%M") : "—" %>
+                  </td>
+
+                  <!-- Lien vers le bloc -->
+                  <td class="px-4 py-1.5 text-right">
+                    <% if r.first_deploy_block.present? %>
+                      <%= link_to r.first_deploy_block,
+                                  block_path(r.first_deploy_block),
+                                  class: "text-emerald-400 hover:text-emerald-300 font-mono" %>
+                    <% else %>
+                      —
+                    <% end %>
+                  </td>
+
+                  <!-- Lien vers la transaction -->
+                  <td class="px-4 py-1.5 text-right">
+                    <% if r.first_deploy_txid.present? %>
+                      <%= link_to r.first_deploy_txid[0, 12] + "…",
+                        transaction_path(r.first_deploy_txid, block_height: r.first_deploy_block),
+                        class: "text-blue-400 hover:text-blue-300 font-mono text-xs" %>
+                    <% else %>
+                      —
+                    <% end %>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    <% end %>
+    <br>
+    <% if @brc20_scan_stats.present? %>
+      <section class="mt-8 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl backdrop-blur">
+        <h2 class="text-xl sm:text-2xl font-semibold mb-4">
+          État du scan BRC-20
+        </h2>
+
+        <div class="grid gap-4 sm:grid-cols-2">
+          <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-4">
+            <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              Statut
+            </h3>
+            <p class="text-gray-200">
+              <% if @brc20_scan_done %>
+                Scan BRC-20 :
+                <span class="inline-flex items-center gap-1 font-semibold text-green-300">
+                  🟢 Synchronisé
+                </span>
+              <% else %>
+                Scan BRC-20 :
+                <span class="inline-flex items-center gap-1 font-semibold text-red-400">
+                  🔴 En cours…
+                </span>
+              <% end %>
+            </p>
+          </div>
+
+          <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-4">
+            <h3 class="text-sm font-semibold text-gray-400 uppercase tracking-wide mb-2">
+              Informations techniques
+            </h3>
+            <p class="text-xs text-gray-300">
+              Ces statistiques sont calculées à partir des blocs analysés par la tâche de scan.
+              Elles reflètent l’état de la base de données interne (événements, soldes, agrégats).
+            </p>
+          </div>
+        </div>
+      </section>
+    <% end %>
+
+    <!-- Footer -->
+    <footer class="mt-10 text-center text-gray-500 text-xs sm:text-sm">
+      Projet auto-hébergé • Royan 🇫🇷 • Page BRC-20 • Version 0.3 — UI responsive & pédagogique • svcrobotics@gmail.com
+    </footer>
+  </div>
+</div>

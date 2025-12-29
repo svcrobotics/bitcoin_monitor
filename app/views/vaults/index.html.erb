@@ -1,0 +1,220 @@
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+  <!-- HEADER -->
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-8">
+    <div>
+      <h1 class="text-2xl sm:text-3xl font-semibold text-gray-100 tracking-wide">
+        Wallets Bitcoin (P2WSH 2-of-2)
+      </h1>
+      <p class="text-sm text-gray-400 mt-1">
+        Chaque wallet est un <strong>multisig A + B</strong> (<span class="font-mono text-xs">2-of-2</span>)
+        <strong>créé dans Sparrow</strong> puis <strong>importé ici via descriptor</strong>.
+      </p>
+    </div>
+
+    <div class="flex flex-col sm:flex-row items-stretch sm:items-center gap-3 sm:gap-4">
+      <%= link_to "⬅️ Retour au dashboard",
+                  dashboard_path,
+                  class: "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900/70 border border-gray-700 text-gray-100 text-sm hover:bg-gray-700 transition" %>
+
+      <%= link_to "➕ Importer un wallet (Sparrow)",
+            new_vault_path,
+            class: "inline-flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg shadow-lg text-sm" %>
+    </div>
+  </div>
+
+  <% if @vaults.empty? %>
+    <!-- ÉTAT VIDE -->
+    <div class="mt-4 bg-gray-900/70 border border-dashed border-gray-700 rounded-xl p-8 text-center">
+      <p class="text-gray-300 text-sm mb-3">
+        Aucun wallet importé pour le moment.
+      </p>
+      <p class="text-xs text-gray-500 mb-4 leading-relaxed">
+        Workflow recommandé :
+        <br>1) Crée un wallet multisig <span class="font-mono">2-of-2</span> dans <strong>Sparrow</strong> (Ledger A + Ledger B)
+        <br>2) Exporte le <strong>descriptor</strong> (<span class="font-mono">wsh(sortedmulti(...))#checksum</span>)
+        <br>3) Colle-le ici pour activer l’observation (scan UTXO, solde, historique).
+      </p>
+
+      <%= link_to "➕ Importer mon premier wallet",
+                  new_vault_path,
+                  class: "inline-flex items-center justify-center px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-lg text-sm" %>
+    </div>
+  <% else %>
+
+    <!-- ✅ MOBILE + TABLETTE : CARTES (robuste) -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 lg:hidden">
+      <% @vaults.each do |vault| %>
+        <% status_class =
+          case vault.status.to_s
+          when "draft"  then "bg-yellow-900/50 text-yellow-200 border border-yellow-700/60"
+          when "active" then "bg-emerald-900/50 text-emerald-200 border border-emerald-700/60"
+          when "closed" then "bg-gray-800 text-gray-200 border border-gray-700"
+          else               "bg-gray-800 text-gray-200 border border-gray-700"
+          end
+        %>
+
+        <% scan_text, scan_class =
+          if vault.last_scanned_at.present?
+            if vault.respond_to?(:last_scan_ok?) && vault.last_scan_ok?
+              ["✓ OK", "bg-emerald-900/50 text-emerald-200 border border-emerald-700/60"]
+            else
+              ["⚠ Erreur", "bg-red-900/50 text-red-200 border border-red-700/60"]
+            end
+          else
+            ["Jamais scanné", "bg-gray-800 text-gray-300 border border-gray-700"]
+          end
+        %>
+
+        <div class="bg-gray-900/60 backdrop-blur border border-gray-700 rounded-2xl p-4 shadow-lg">
+          <!-- Top -->
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <p class="text-sm font-semibold text-gray-100 truncate">
+                <%= vault.label.presence || "Wallet ##{vault.id}" %>
+              </p>
+              <p class="text-[11px] text-gray-400 mt-0.5">
+                Réseau : <span class="text-gray-200"><%= vault.network.to_s.capitalize %></span>
+              </p>
+            </div>
+
+            <span class="shrink-0 px-2 py-0.5 rounded-full text-[11px] font-semibold <%= status_class %>">
+              <%= vault.status.to_s.capitalize %>
+            </span>
+          </div>
+
+          <!-- Stats -->
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="bg-gray-950/40 border border-gray-800 rounded-xl p-3">
+              <p class="text-[11px] text-gray-500">Solde</p>
+              <p class="font-mono text-sm text-gray-100 mt-0.5">
+                <%= format_btc(vault.balance_btc) %> BTC
+              </p>
+            </div>
+
+            <div class="bg-gray-950/40 border border-gray-800 rounded-xl p-3">
+              <p class="text-[11px] text-gray-500">UTXOs</p>
+
+              <% if vault.respond_to?(:has_address?) && vault.has_address? %>
+                <div class="mt-0.5 flex items-center gap-2 flex-wrap">
+                  <span class="font-mono text-sm text-gray-100"><%= vault.utxos_count.to_i %></span>
+
+                  <% if vault.utxos_unconfirmed_count.to_i.positive? %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-yellow-900/50 text-yellow-200 text-[10px] border border-yellow-700/60">
+                      <%= vault.utxos_unconfirmed_count.to_i %> en attente
+                    </span>
+                  <% end %>
+                </div>
+              <% else %>
+                <p class="text-sm text-gray-500 italic mt-0.5">—</p>
+              <% end %>
+            </div>
+          </div>
+
+          <!-- Scan + date -->
+          <div class="mt-4 flex items-center justify-between gap-3">
+            <div>
+              <p class="text-[11px] text-gray-500">Scan</p>
+              <span class="inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold <%= scan_class %>">
+                <%= scan_text %>
+              </span>
+            </div>
+
+            <div class="text-right">
+              <p class="text-[11px] text-gray-500">Créé le</p>
+              <p class="text-[11px] text-gray-300"><%= l(vault.created_at, format: :short) %></p>
+            </div>
+          </div>
+
+          <!-- Action -->
+          <div class="mt-4">
+            <%= link_to vault_path(vault),
+              class: "w-full inline-flex items-center justify-center gap-2 px-4 py-3 rounded-xl
+                      bg-blue-600 hover:bg-blue-700 text-white font-semibold text-sm shadow" do %>
+              Voir le wallet <span class="opacity-80">→</span>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+    </div>
+
+    <!-- 🖥️ PC : TABLEAU (inchangé) -->
+    <div class="hidden lg:block overflow-x-auto bg-gray-900/60 backdrop-blur border border-gray-700 rounded-xl shadow-lg">
+      <table class="table-auto min-w-full text-sm">
+        <thead class="bg-gray-800/50">
+          <tr>
+            <th class="text-left py-2 px-3 font-semibold text-gray-300 whitespace-nowrap">Label</th>
+            <th class="text-left py-2 px-3 font-semibold text-gray-300 whitespace-nowrap">Réseau</th>
+            <th class="text-left py-2 px-3 font-semibold text-gray-300 whitespace-nowrap">Statut</th>
+            <th class="text-left py-2 px-3 font-semibold text-gray-300 whitespace-nowrap">Solde</th>
+            <th class="text-left py-2 px-3 font-semibold text-gray-300 whitespace-nowrap">UTXOs</th>
+            <th class="text-left py-2 px-3 font-semibold text-gray-300 whitespace-nowrap">Scan</th>
+            <th class="text-left py-2 px-3 font-semibold text-gray-300 whitespace-nowrap">Créé le</th>
+            <th class="py-2 px-3"></th>
+          </tr>
+        </thead>
+
+        <tbody>
+          <% @vaults.each do |vault| %>
+            <tr class="border-b border-gray-800 hover:bg-gray-800/30 transition">
+              <td class="py-2 px-3 font-medium text-gray-200 whitespace-nowrap"><%= vault.label %></td>
+
+              <td class="py-2 px-3 text-gray-300 whitespace-nowrap"><%= vault.network.capitalize %></td>
+
+              <td class="py-2 px-3 text-gray-300 whitespace-nowrap">
+                <span class="px-2 py-0.5 rounded text-xs
+                  <%=
+                    case vault.status
+                    when "draft"  then "bg-yellow-700 text-yellow-200"
+                    when "active" then "bg-green-700 text-green-200"
+                    when "closed" then "bg-gray-600 text-gray-200"
+                    else "bg-gray-700 text-gray-200"
+                    end
+                  %>">
+                  <%= vault.status.capitalize %>
+                </span>
+              </td>
+
+              <td class="py-2 px-3 text-gray-200 font-mono whitespace-nowrap">
+                <%= format_btc(vault.balance_btc) %> BTC
+              </td>
+
+              <td class="py-2 px-3 text-gray-300 text-xs whitespace-nowrap">
+                <% if vault.has_address? %>
+                  <span class="font-mono"><%= vault.utxos_count %></span>
+                  <% if vault.utxos_unconfirmed_count.to_i.positive? %>
+                    <span class="ml-1 px-2 py-0.5 rounded-full bg-yellow-800 text-yellow-100">
+                      <%= vault.utxos_unconfirmed_count %> en attente
+                    </span>
+                  <% end %>
+                <% else %>
+                  <span class="text-gray-500 italic">—</span>
+                <% end %>
+              </td>
+
+              <td class="py-2 px-3 text-xs whitespace-nowrap">
+                <% if vault.last_scanned_at.present? %>
+                  <% if vault.last_scan_ok? %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-emerald-900/60 text-emerald-300">✓ OK</span>
+                  <% else %>
+                    <span class="inline-flex items-center px-2 py-0.5 rounded-full bg-red-900/60 text-red-200">⚠ Erreur</span>
+                  <% end %>
+                <% else %>
+                  <span class="text-gray-500 italic">Jamais scanné (watch-only)</span>
+                <% end %>
+              </td>
+
+              <td class="py-2 px-3 text-gray-400 whitespace-nowrap"><%= l(vault.created_at, format: :short) %></td>
+
+              <td class="py-2 px-3 text-right whitespace-nowrap">
+                <%= link_to "Voir", vault_path(vault), class: "text-blue-400 hover:text-blue-300 font-medium text-sm" %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+
+  <% end %>
+
+</div>

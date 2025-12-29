@@ -1,0 +1,2 @@
+[console_scripts]
+ledgercomm-send = ledgercomm.cli.send:main

@@ -1,0 +1,9 @@
+<%# app/views/guides/_markdown_panel.html.erb %>
+<div class="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+  <h2 class="text-lg font-bold text-gray-100 mb-4"><%= title %></h2>
+
+  <div class="prose prose-invert prose-slate max-w-none">
+    <%= raw MarkdownRenderer.to_html(markdown) %>
+  </div>
+</div>
+

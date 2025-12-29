@@ -1,0 +1,206 @@
+<!-- app/views/vaults/edit.html.erb -->
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+  <h1 class="text-2xl sm:text-3xl font-bold text-gray-100 mb-2">
+    Modifier le wallet
+  </h1>
+
+  <p class="text-sm text-gray-400 mb-8 leading-relaxed">
+    Ce wallet est <strong>watch-only</strong> dans l’app.
+    La source de vérité est <strong>Sparrow</strong>.
+    <br>
+    Ici, tu ajustes la fiche (label/réseau/statut) et tu peux remplacer les
+    <strong>descriptors Bitcoin Core</strong> (<span class="font-mono text-xs">/0/*</span> receive,
+    <span class="font-mono text-xs">/1/*</span> change).
+  </p>
+
+  <% if @vault.errors.any? %>
+    <div class="mb-6 bg-red-900/40 border border-red-700 rounded-xl p-4">
+      <h2 class="text-sm font-semibold text-red-200 mb-2">
+        ⚠️ Impossible d’enregistrer :
+      </h2>
+      <ul class="text-xs text-red-200 list-disc list-inside space-y-1">
+        <% @vault.errors.full_messages.each do |msg| %>
+          <li><%= msg %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <%= form_with model: @vault, local: true, class: "space-y-8" do |f| %>
+
+    <!-- PARAMÈTRES -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+      <h2 class="text-lg font-semibold text-gray-100 mb-2">Paramètres</h2>
+
+      <div>
+        <%= f.label :label, "Nom", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.text_field :label,
+              class: "w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm",
+              placeholder: "Ex : Wallet multisig A+B (Sparrow)" %>
+      </div>
+
+      <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+        <div>
+          <%= f.label :network, "Réseau", class: "block text-sm text-gray-300 mb-1" %>
+          <%= f.select :network,
+                [["Mainnet", "mainnet"], ["Testnet", "testnet"], ["Regtest", "regtest"], ["Signet", "signet"]],
+                {},
+                class: "w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm" %>
+          <p class="text-[11px] text-gray-500 mt-1">
+            ⚠️ Ne change pas le réseau si des fonds ont déjà été reçus.
+          </p>
+        </div>
+
+        <div>
+          <%= f.label :status, "Statut (UI)", class: "block text-sm text-gray-300 mb-1" %>
+          <%= f.select :status,
+                [["Brouillon", "draft"], ["Actif", "active"], ["Fermé", "closed"]],
+                {},
+                class: "w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm" %>
+          <p class="text-[11px] text-gray-500 mt-1">
+            Statut applicatif uniquement (aucun impact on-chain).
+          </p>
+        </div>
+      </div>
+
+      <div>
+        <%= f.label :scan_range, "Scan range (profondeur de dérivation)", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.number_field :scan_range,
+              min: 0,
+              class: "w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-sm",
+              placeholder: "200" %>
+        <p class="text-[11px] text-gray-500 mt-1">
+          Nombre d’index à dériver pour <span class="font-mono">/0/*</span> et <span class="font-mono">/1/*</span>.
+          (200 = bon défaut)
+        </p>
+      </div>
+
+      <div>
+        <%= f.label :address, "Adresse de référence (optionnel)", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.text_field :address,
+              class: "w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-xs font-mono",
+              placeholder: "bc1q... (optionnel)" %>
+        <p class="text-[11px] text-gray-500 mt-1">
+          Purement pour l’affichage. Le suivi complet se fait via les descriptors.
+        </p>
+      </div>
+    </div>
+
+    <!-- DESCRIPTORS -->
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 space-y-4">
+      <div class="flex items-center justify-between gap-3">
+        <h2 class="text-lg font-semibold text-gray-100">Descriptors (Bitcoin Core)</h2>
+      </div>
+
+      <div class="bg-gray-800/50 border border-gray-700 rounded-lg p-4">
+        <p class="text-xs text-gray-300 leading-relaxed">
+          Dans Sparrow : copie les strings “<strong>Bitcoin Core descriptor</strong>”.
+          Tu dois avoir 2 lignes distinctes :
+          <br>
+          • Receive : <span class="font-mono">.../0/*))#checksum</span><br>
+          • Change : <span class="font-mono">.../1/*))#checksum</span><br>
+          <br>
+          ⚠️ Colle-les <strong>sans les modifier</strong> (checksum inclus).
+        </p>
+      </div>
+
+      <!-- RECEIVE -->
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <%= f.label :receive_descriptor, "Receive descriptor (/0/*)", class: "block text-sm text-gray-300" %>
+
+          <% if @vault.receive_descriptor.present? %>
+            <button type="button"
+              class="copy-btn text-xs px-3 py-1.5 rounded-md border border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white transition"
+              data-value="<%= @vault.receive_descriptor %>">
+              📋 Copier
+            </button>
+          <% end %>
+        </div>
+
+        <%= f.text_area :receive_descriptor,
+              rows: 5,
+              class: "w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-xs font-mono",
+              placeholder: "wsh(sortedmulti(2,[FPR/path]xpub.../0/*,[FPR/path]xpub.../0/*))#checksum" %>
+      </div>
+
+      <!-- CHANGE -->
+      <div>
+        <div class="flex items-center justify-between mb-1">
+          <%= f.label :change_descriptor, "Change descriptor (/1/*)", class: "block text-sm text-gray-300" %>
+
+          <% if @vault.change_descriptor.present? %>
+            <button type="button"
+              class="copy-btn text-xs px-3 py-1.5 rounded-md border border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white transition"
+              data-value="<%= @vault.change_descriptor %>">
+              📋 Copier
+            </button>
+          <% end %>
+        </div>
+
+        <%= f.text_area :change_descriptor,
+              rows: 5,
+              class: "w-full rounded-md bg-gray-800 border border-gray-700 text-gray-100 px-3 py-2 text-xs font-mono",
+              placeholder: "wsh(sortedmulti(2,[FPR/path]xpub.../1/*,[FPR/path]xpub.../1/*))#checksum" %>
+      </div>
+
+      <p class="text-[11px] text-gray-500">
+        ✅ Conseil : garde le <strong>checksum</strong> (<span class="font-mono">#...</span>).
+      </p>
+    </div>
+
+    <!-- ACTIONS -->
+    <div class="flex items-center gap-4">
+      <%= f.submit "Enregistrer",
+            class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-semibold" %>
+
+      <%= link_to "Annuler",
+            vault_path(@vault),
+            class: "px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-semibold" %>
+    </div>
+
+  <% end %>
+</div>
+
+<script>
+  function setupCopyButton(btn) {
+    if (!btn) return;
+
+    btn.addEventListener("click", () => {
+      const value = btn.dataset.value;
+      if (!value) return;
+
+      const setFeedback = () => {
+        const oldText = btn.textContent;
+        btn.textContent = "✓ Copié !";
+        btn.classList.add("text-emerald-400");
+        setTimeout(() => {
+          btn.textContent = oldText;
+          btn.classList.remove("text-emerald-400");
+        }, 1200);
+      };
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(value).then(setFeedback).catch(() => {});
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = value;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try { document.execCommand("copy"); setFeedback(); } catch(e) {}
+        document.body.removeChild(textarea);
+      }
+    });
+  }
+
+  const initCopyButtons = () => {
+    document.querySelectorAll("button[data-value]").forEach((btn) => setupCopyButton(btn));
+  };
+
+  document.addEventListener("turbo:load", initCopyButtons);
+  document.addEventListener("DOMContentLoaded", initCopyButtons);
+</script>

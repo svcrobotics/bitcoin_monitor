@@ -1,0 +1,329 @@
+<div class="px-6 py-8">
+  <div class="max-w-5xl mx-auto">
+
+    <% if @error %>
+      <div class="bg-red-900/40 border border-red-700 text-red-200 p-4 rounded-xl">
+        Erreur : <%= @error %>
+      </div>
+    <% else %>
+
+      <!-- HEADER -->
+      <header class="mb-6">
+        <h1 class="text-2xl sm:text-3xl font-bold text-gray-100 mb-2">
+          Transaction
+          <span class="block sm:inline font-mono text-violet-300 text-sm sm:text-base break-all">
+            <%= @tx["txid"] %>
+          </span>
+        </h1>
+
+        <!-- Statut global -->
+        <% if @confirmed %>
+          <p class="text-sm text-gray-400">
+            Inclus dans le bloc
+            <%= link_to @block_height,
+                        block_path(@block_height),
+                        class: "text-violet-300 underline" %>
+            —
+            <%= Time.at(@tx["blocktime"] || @tx["time"])
+                    .in_time_zone("Europe/Paris")
+                    .strftime("%d/%m/%Y %H:%M:%S") %>
+          </p>
+        <% else %>
+          <p class="text-sm text-gray-400">
+            🕒 Non confirmée (pas encore incluse dans un bloc)
+          </p>
+        <% end %>
+      </header>
+
+      <!-- RÉSUMÉ -->
+      <section class="grid gap-4 sm:grid-cols-3 mb-6">
+        <!-- Statut -->
+        <div class="bg-gray-800/80 border border-gray-700 rounded-xl p-4">
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+            Statut
+          </h3>
+          <p class="text-sm text-gray-200">
+            <% if @confirmed %>
+              <span class="inline-flex items-center gap-2 text-emerald-300 font-semibold">
+                Confirmée
+                <span class="text-xs text-gray-300">
+                  (<%= @confirmations %> confirmations)
+                </span>
+              </span>
+            <% else %>
+              <span class="inline-flex items-center gap-2 text-amber-300 font-semibold">
+                Non confirmée
+              </span>
+            <% end %>
+          </p>
+        </div>
+
+        <!-- Montants -->
+        <div class="bg-gray-800/80 border border-gray-700 rounded-xl p-4">
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+            Montants
+          </h3>
+          <p class="text-xs text-gray-300">
+            <strong>Entrées :</strong>
+            <% if @total_in_btc %>
+              <%= sprintf("%.8f BTC", @total_in_btc) %>
+            <% else %>
+              n/d
+            <% end %><br>
+
+            <strong>Sorties :</strong>
+            <% if @total_out_btc %>
+              <%= sprintf("%.8f BTC", @total_out_btc) %>
+            <% else %>
+              n/d
+            <% end %><br>
+
+            <strong>Frais :</strong>
+            <% if @fee_btc %>
+              <%= sprintf("%.8f BTC", @fee_btc) %>
+              <% if @fee_sats %>
+                (<%= @fee_sats %> sats)
+              <% end %>
+            <% else %>
+              n/d
+            <% end %>
+          </p>
+        </div>
+
+        <!-- Taille / feerate -->
+        <div class="bg-gray-800/80 border border-gray-700 rounded-xl p-4">
+          <h3 class="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">
+            Poids & frais
+          </h3>
+          <p class="text-xs text-gray-300">
+            <strong>Taille virtuelle :</strong>
+            <%= @tx["vsize"] || "n/d" %> vB<br>
+
+            <strong>Poids :</strong>
+            <%= @tx["weight"] || "n/d" %><br>
+
+            <strong>Feerate :</strong>
+            <% if @feerate_sat_vb %>
+              <%= @feerate_sat_vb %> sat/vB
+            <% else %>
+              n/d
+            <% end %>
+          </p>
+        </div>
+      </section>
+
+      <!-- BRC-20 (si présent) -->
+      <% if @inscriptions.any? %>
+        <section class="mb-8">
+          <h2 class="text-lg font-semibold text-gray-200 mb-3">
+            Inscriptions BRC-20 détectées
+          </h2>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-sm text-gray-100">
+              <thead>
+                <tr class="border-b border-gray-700 text-xs uppercase tracking-wide text-gray-400">
+                  <th class="px-4 py-2 text-left">Tick</th>
+                  <th class="px-4 py-2 text-left">Op</th>
+                  <th class="px-4 py-2 text-left">Amt / Max</th>
+                  <th class="px-4 py-2 text-left">Adresse</th>
+                  <th class="px-4 py-2 text-left">Inscription</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% @inscriptions.each do |ev| %>
+                  <tr class="border-b border-gray-800">
+                    <!-- Tick -->
+                    <td class="px-4 py-1.5 font-mono">
+                      <% if ev.tick.present? %>
+                        <%= link_to ev.tick.to_s.downcase,
+                                    brc20_token_path(ev.tick.to_s.downcase),
+                                    class: "text-emerald-300 hover:text-emerald-200 underline" %>
+                      <% else %>
+                        —
+                      <% end %>
+                    </td>
+
+                    <!-- Op -->
+                    <td class="px-4 py-1.5">
+                      <%= ev.op.presence || "—" %>
+                    </td>
+
+                    <!-- Amt / Max -->
+                    <td class="px-4 py-1.5 font-mono text-xs">
+                      <% max = ev.payload.is_a?(Hash) ? (ev.payload["max"] || ev.payload[:max]) : nil %>
+                      <% if ev.amount && max %>
+                        <%= ev.amount %> / <%= max %>
+                      <% elsif max %>
+                        max = <%= max %>
+                      <% elsif ev.amount %>
+                        <%= ev.amount %>
+                      <% else %>
+                        —
+                      <% end %>
+                    </td>
+
+                    <!-- Adresse (to_address ou from_address) -->
+                    <td class="px-4 py-1.5 font-mono text-xs">
+                      <% addr = ev.to_address.presence || ev.from_address.presence %>
+
+                      <% if addr.present? %>
+                        <% short_addr = "#{addr[0, 6]}…#{addr[-6, 6]}" %>
+
+                        <span title="<%= addr %>">
+                          <%= short_addr %>
+                        </span>
+                      <% else %>
+                        —
+                      <% end %>
+                    </td>
+
+                    <!-- Inscription (on utilise inscription_id, sinon fallback sur txid) -->
+                    <td class="px-3 py-1.5 font-mono text-xs">
+                      <% full_insc = ev.inscription_id.presence || ev.txid %>
+
+                      <% if full_insc.present? %>
+                        <% tx_part, *rest = full_insc.split(":") %>
+                        <% short_tx = "#{tx_part[0, 10]}…#{tx_part[-4, 4]}" %>
+                        <% short_insc = rest.any? ? "#{short_tx}:#{rest.join(':')}" : short_tx %>
+
+                        <span title="<%= full_insc %>">
+                          <%= short_insc %>
+                        </span>
+                      <% else %>
+                        —
+                      <% end %>
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      <% end %>
+
+      <!-- INPUTS -->
+      <section class="mb-6">
+        <h2 class="text-lg font-semibold text-gray-200 mb-2">Entrées (vin)</h2>
+        <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-4">
+          <% if @tx["vin"].blank? %>
+            <p class="text-sm text-gray-400">Aucune entrée (cas très rare).</p>
+          <% else %>
+            <% @tx["vin"].each_with_index do |vin, idx| %>
+              <div class="text-xs text-gray-300 mb-3 pb-3 border-b border-gray-800 last:border-b-0 last:pb-0">
+                <p class="font-semibold text-gray-200 mb-1">
+                  Entrée #<%= idx %>
+                </p>
+
+                <% if vin["coinbase"] %>
+                  <p class="text-amber-300">
+                    Coinbase (récompense de bloc)
+                  </p>
+
+                  <% short_coinbase = vin["coinbase"].to_s[0..20] + "…" %>
+
+                  <details class="mt-2">
+                    <summary class="cursor-pointer text-xs text-gray-400 hover:text-gray-200">
+                      <span class="font-mono text-gray-300"><%= short_coinbase %></span>
+                    </summary>
+                    <pre class="mt-1 bg-gray-800 p-2 rounded text-[10px] text-gray-200 overflow-x-auto"><%= vin["coinbase"] %>
+                    </pre>
+                  </details>
+                <% else %>
+                  <p>
+                    TXID précédent :
+                    <span class="font-mono text-violet-300">
+                      <%= vin["txid"] %>
+                    </span>
+                    (vout <%= vin["vout"] %>)
+                  </p>
+
+                  <% if vin["prevout"] %>
+                    <% prev = vin["prevout"] %>
+                    <p>
+                      Montant original :
+                      <span class="font-mono text-emerald-300">
+                        <%= sprintf("%.8f BTC", prev["value"].to_f) %>
+                      </span>
+                    </p>
+                    <% addr = prev.dig("scriptPubKey", "address") || prev.dig("scriptPubKey", "addresses")&.first %>
+                    <% if addr %>
+                      <p>
+                        Adresse source :
+                        <span class="font-mono text-gray-200"><%= addr %></span>
+                      </p>
+                    <% end %>
+                  <% end %>
+
+                  <% if vin["txinwitness"].present? %>
+                    <details class="mt-1">
+                      <summary class="cursor-pointer text-xs text-gray-400 hover:text-gray-200">
+                        Voir witness (SegWit)
+                      </summary>
+                      <pre class="mt-1 bg-gray-800 p-2 rounded text-[10px] text-gray-200 overflow-x-auto"><%= vin["txinwitness"].join("\n") %>
+                      </pre>
+                    </details>
+                  <% end %>
+                <% end %>
+              </div>
+            <% end %>
+          <% end %>
+        </div>
+      </section>
+
+      <!-- OUTPUTS -->
+      <section>
+        <h2 class="text-lg font-semibold text-gray-200 mb-2">Sorties (vout)</h2>
+        <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-4">
+          <% @tx["vout"].each_with_index do |vo, idx| %>
+            <% spk = vo["scriptPubKey"] || {} %>
+            <% addr = spk["address"] || spk["addresses"]&.first %>
+            <% type = spk["type"] %>
+
+            <div class="text-xs text-gray-300 mb-3 pb-3 border-b border-gray-800 last:border-b-0 last:pb-0">
+              <p class="font-semibold text-gray-200 mb-1">
+                Sortie #<%= idx %>
+              </p>
+
+              <p>
+                Montant :
+                <span class="font-mono ">
+                  <%= sprintf("%.8f BTC", vo["value"].to_f) %>
+                </span>
+              </p>
+
+              <p>
+                Type :
+                <span class="font-mono text-gray-200"><%= type %></span>
+              </p>
+
+              <% if addr.present? %>
+                <p>
+                  Adresse :
+                  <span class="font-mono text-violet-300"><%= addr %></span>
+                </p>
+              <% elsif type == "nulldata" %>
+                <p class="text-amber-300">
+                  Données (nulldata / OP_RETURN / potentiel contenu Ordinals / BRC-20)
+                </p>
+              <% end %>
+
+              <% if spk["hex"].present? && type == "nulldata" %>
+                <details class="mt-1">
+                  <summary class="cursor-pointer text-xs text-gray-400 hover:text-gray-200">
+                    Voir scriptPubKey (hex)
+                  </summary>
+                  <pre class="mt-1 bg-gray-800 p-2 rounded text-[10px] text-gray-200 overflow-x-auto">
+                    <%= spk["hex"] %>
+                  </pre>
+                </details>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      </section>
+
+    <% end %>
+
+  </div>
+</div>

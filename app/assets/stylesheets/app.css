@@ -1,0 +1,23 @@
+@import "tailwindcss/base";
+@import "tailwindcss/components";
+@import "tailwindcss/utilities";
+
+/* --- CMD blocks (:::cmd) --- */
+.prose pre,
+.prose pre code {
+  white-space: pre-wrap;     /* respect des retours à la ligne */
+  word-break: break-word;
+  overflow-x: auto;          /* scroll horizontal si ligne trop longue */
+  max-width: 100%;
+}
+
+/* optionnel : style "terminal" */
+.prose pre {
+  background: #020617;       /* slate-950 */
+  color: #e5e7eb;
+  border: 1px solid #1f2937;
+  border-radius: 0.75rem;
+  padding: 0.75rem;
+  font-size: 0.85rem;
+  line-height: 1.5;
+}

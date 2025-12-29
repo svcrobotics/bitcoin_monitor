@@ -1,0 +1,19 @@
+default: &default
+  adapter: postgresql
+  encoding: unicode
+  host: localhost
+  username: bitcoin_monitor
+  password: "victor"
+  pool: 10
+
+development:
+  <<: *default
+  database: bitcoin_monitor_development
+  
+test:
+  <<: *default
+  database: bitcoin_monitor_test
+
+production:
+  <<: *default
+  database: bitcoin_monitor_production

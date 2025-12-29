@@ -1,0 +1,49 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  rune_name: MyString
+  normalized_name: MyString
+  rune_id_block: 1
+  rune_id_tx: 1
+  symbol: MyString
+  divisibility: 1
+  cap_supply: 9.99
+  premine_amount: 9.99
+  minted_supply: 9.99
+  burned_supply: 9.99
+  minting_finished: false
+  etching_txid: MyString
+  etching_vout: 1
+  etching_block_height: 1
+  etching_block_time: 2025-12-02 18:44:49
+  first_seen_block_height: 1
+  last_seen_block_height: 1
+  last_activity_at: 2025-12-02 18:44:49
+  events_count: 1
+  transfers_count: 1
+  holders_count: 1
+  metadata: 
+
+two:
+  rune_name: MyString
+  normalized_name: MyString
+  rune_id_block: 1
+  rune_id_tx: 1
+  symbol: MyString
+  divisibility: 1
+  cap_supply: 9.99
+  premine_amount: 9.99
+  minted_supply: 9.99
+  burned_supply: 9.99
+  minting_finished: false
+  etching_txid: MyString
+  etching_vout: 1
+  etching_block_height: 1
+  etching_block_time: 2025-12-02 18:44:49
+  first_seen_block_height: 1
+  last_seen_block_height: 1
+  last_activity_at: 2025-12-02 18:44:49
+  events_count: 1
+  transfers_count: 1
+  holders_count: 1
+  metadata: 

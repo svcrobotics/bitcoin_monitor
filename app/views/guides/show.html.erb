@@ -1,0 +1,222 @@
+<!-- app/views/guides/show.html.erb -->
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+  <!-- Header -->
+  <div class="mb-8">
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+      <div>
+        <h1 class="text-2xl sm:text-3xl font-bold text-gray-100 tracking-tight">
+          <%= @guide.title %>
+        </h1>
+
+        <p class="text-sm text-gray-400 mt-2">
+          Guide pédagogique : <span class="text-gray-200 font-semibold">Fun</span> → <span class="text-gray-200 font-semibold">Didactique</span> → <span class="text-gray-200 font-semibold">Technique</span>
+        </p>
+      </div>
+
+    </div>
+    <div class="flex items-center gap-2  sm:w-auto">
+        <%= link_to "← Retour aux guides", guides_path,
+          class: " sm:w-auto text-center px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-semibold" %>
+    </div>
+    <!-- Tabs (mobile: horizontal scroll) -->
+    <div class="mt-6 -mx-4 px-4 sm:mx-0 sm:px-0">
+      <div class="flex gap-2 overflow-x-auto whitespace-nowrap pb-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+        <button type="button"
+          class="guide-tab px-3 py-2 rounded-xl text-sm font-semibold border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800 transition"
+          data-tab="fun">
+          🧠 Fun
+        </button>
+
+        <button type="button"
+          class="guide-tab px-3 py-2 rounded-xl text-sm font-semibold border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800 transition"
+          data-tab="didactic">
+          🧭 Didactique
+        </button>
+
+        <button type="button"
+          class="guide-tab px-3 py-2 rounded-xl text-sm font-semibold border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800 transition"
+          data-tab="tech">
+          🧪 Technique
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <% raw = @guide.content.to_s %>
+
+  <% sections = GuideSectionsParser.call(raw) %>
+  <% fun_md      = sections[:fun] %>
+  <% didactic_md = sections[:didactic] %>
+  <% tech_md     = sections[:tech] %>
+
+  <% meta = GuideFrontmatterParser.call(raw) %>
+  <% app_label = meta[:app_label] %>
+  <% app_path  = meta[:app_path] %>
+
+  <div class="grid lg:grid-cols-[1fr,320px] gap-6">
+
+    <!-- Main -->
+    <div class="space-y-6">
+
+      <!-- Context card -->
+      <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <p class="text-xs text-gray-400 uppercase tracking-wider">Objectif</p>
+            <p class="text-sm text-gray-200 mt-1">
+              Comprendre un concept blockchain <strong>sans perdre la rigueur</strong>, puis le relier à <strong>Bitcoin Monitor</strong>.
+            </p>
+          </div>
+
+          <% if app_path.present? %>
+            <%= link_to(app_label.presence || "Voir dans l’app", app_path,
+              class: "shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold transition") %>
+          <% end %>
+        </div>
+
+        <div class="mt-4 grid sm:grid-cols-3 gap-2">
+          <div class="rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2">
+            <p class="text-[11px] text-gray-400">Mode</p>
+            <p class="text-sm text-gray-200 font-semibold">3 couches</p>
+          </div>
+          <div class="rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2">
+            <p class="text-[11px] text-gray-400">Style</p>
+            <p class="text-sm text-gray-200 font-semibold">Prof cool + hacker</p>
+          </div>
+          <div class="rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2">
+            <p class="text-[11px] text-gray-400">Règle</p>
+            <p class="text-sm text-gray-200 font-semibold">Toujours concret</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Content: Fun -->
+      <section id="guide-section-fun" class="guide-section hidden" data-section="fun">
+        <%= render partial: "guides/markdown_panel", locals: { title: "🧠 Fun", markdown: fun_md } %>
+      </section>
+
+      <!-- Content: Didactic -->
+      <section id="guide-section-didactic" class="guide-section hidden" data-section="didactic">
+        <%= render partial: "guides/markdown_panel", locals: { title: "🧭 Didactique", markdown: didactic_md } %>
+      </section>
+
+      <!-- Content: Tech -->
+      <section id="guide-section-tech" class="guide-section hidden" data-section="tech">
+        <%= render partial: "guides/markdown_panel", locals: { title: "🧪 Technique", markdown: tech_md } %>
+      </section>
+
+      <!-- Footer nav -->
+      <div class="flex items-center justify-between pt-2">
+        <%= link_to "← Tous les guides", guides_path,
+          class: "text-sm text-gray-300 hover:text-white underline underline-offset-4" %>
+
+        <%= link_to "Modifier (admin)", edit_guide_path(@guide),
+          class: "text-sm text-gray-500 hover:text-gray-200 underline underline-offset-4" rescue nil %>
+      </div>
+    </div>
+
+    <!-- Sidebar: TOC -->
+    <aside class="space-y-4">
+      <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 lg:sticky lg:top-6">
+        <div class="flex items-center justify-between">
+          <h3 class="text-sm font-semibold text-gray-100">Sommaire</h3>
+          <button type="button"
+            id="toc-refresh"
+            class="text-xs px-2 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200">
+            ↻
+          </button>
+        </div>
+
+        <div id="toc" class="mt-3 space-y-1 text-sm text-gray-300">
+          <p class="text-xs text-gray-500">Sélectionne un onglet.</p>
+        </div>
+      </div>
+    </aside>
+
+  </div>
+</div>
+
+<script>
+  // --- Tabs + TOC ---
+  function initGuideTabs() {
+    const tabs = Array.from(document.querySelectorAll(".guide-tab"));
+    const sections = Array.from(document.querySelectorAll(".guide-section"));
+    const tocEl = document.getElementById("toc");
+    const tocRefresh = document.getElementById("toc-refresh");
+
+    if (tabs.length === 0 || sections.length === 0) return;
+
+    function setActiveTab(tabName) {
+      tabs.forEach((btn) => {
+        const active = btn.dataset.tab === tabName;
+        btn.classList.toggle("bg-emerald-500", active);
+        btn.classList.toggle("text-black", active);
+        btn.classList.toggle("border-emerald-400", active);
+
+        btn.classList.toggle("bg-gray-900", !active);
+        btn.classList.toggle("text-gray-200", !active);
+        btn.classList.toggle("border-gray-800", !active);
+      });
+
+      sections.forEach((sec) => {
+        const show = sec.dataset.section === tabName;
+        sec.classList.toggle("hidden", !show);
+      });
+
+      buildToc();
+    }
+
+    function slugify(text) {
+      return (text || "")
+        .toLowerCase()
+        .trim()
+        .replace(/[^\w\s-]/g, "")
+        .replace(/\s+/g, "-")
+        .replace(/-+/g, "-");
+    }
+
+    function buildToc() {
+      if (!tocEl) return;
+
+      const visible = sections.find((s) => !s.classList.contains("hidden"));
+      if (!visible) {
+        tocEl.innerHTML = '<p class="text-xs text-gray-500">Sélectionne un onglet.</p>';
+        return;
+      }
+
+      const headings = Array.from(visible.querySelectorAll("h2, h3"));
+      if (headings.length === 0) {
+        tocEl.innerHTML = '<p class="text-xs text-gray-500">Ajoute des titres ## / ### dans cette section.</p>';
+        return;
+      }
+
+      headings.forEach((h) => {
+        if (!h.id) h.id = slugify(h.textContent || "");
+      });
+
+      const items = headings.map((h) => {
+        const level = h.tagName.toLowerCase() === "h2" ? 0 : 1;
+        const cls = level === 0
+          ? "block px-2 py-1 rounded-lg hover:bg-gray-800"
+          : "block pl-6 pr-2 py-1 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200";
+
+        return `<a class="${cls}" href="#${h.id}">${h.textContent}</a>`;
+      });
+
+      tocEl.innerHTML = `<div class="space-y-1">${items.join("")}</div>`;
+    }
+
+    tabs.forEach((btn) => {
+      btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
+    });
+
+    if (tocRefresh) tocRefresh.addEventListener("click", buildToc);
+
+    // default tab
+    setActiveTab("fun");
+  }
+
+  document.addEventListener("turbo:load", initGuideTabs);
+  document.addEventListener("DOMContentLoaded", initGuideTabs);
+</script>

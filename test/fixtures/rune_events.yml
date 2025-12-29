@@ -1,0 +1,31 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  rune_token: one
+  rune_name: MyString
+  op: MyString
+  txid: MyString
+  vout: 1
+  vin: 1
+  block_height: 1
+  block_time: 2025-12-02 18:44:50
+  amount: 9.99
+  from_address: MyString
+  to_address: MyString
+  is_valid: false
+  raw_payload: 
+
+two:
+  rune_token: two
+  rune_name: MyString
+  op: MyString
+  txid: MyString
+  vout: 1
+  vin: 1
+  block_height: 1
+  block_time: 2025-12-02 18:44:50
+  amount: 9.99
+  from_address: MyString
+  to_address: MyString
+  is_valid: false
+  raw_payload: 

@@ -1,0 +1,317 @@
+<%# app/views/vaults/addresses/index.html.erb %>
+
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10" data-controller="addresses">
+
+  <%# --- Data prep --- %>
+  <% all_addresses  = Array(@addresses) %>
+  <% recv_addresses = all_addresses.select { |a| a.kind.to_s == 'receive' }.sort_by(&:index) %>
+  <% chg_addresses  = all_addresses.select { |a| a.kind.to_s == 'change' }.sort_by(&:index) %>
+
+  <% total = all_addresses.size %>
+  <% used_total = all_addresses.count { |a| a.last_seen_block.present? } %>
+  <% recv = recv_addresses.size %>
+  <% chg  = chg_addresses.size %>
+
+  <% default_limit = 20 %>
+  <% recv_first = recv_addresses.first(default_limit) %>
+  <% recv_rest  = recv_addresses.drop(default_limit) %>
+  <% chg_first  = chg_addresses.first(default_limit) %>
+  <% chg_rest   = chg_addresses.drop(default_limit) %>
+
+  <!-- HEADER -->
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between mb-6">
+    <div class="min-w-0">
+      <h1 class="text-2xl sm:text-3xl font-bold text-gray-100 tracking-tight">
+        Adresses du wallet
+      </h1>
+
+      <p class="text-sm text-gray-400 mt-1">
+        <span class="font-semibold text-gray-200"><%= @vault.label.presence || "Wallet ##{@vault.id}" %></span>
+        • <span class="font-mono text-blue-300"><%= @vault.network %></span>
+        • scan_range: <span class="font-mono text-gray-200"><%= @vault.scan_range %></span>
+      </p>
+
+      <p class="text-xs text-gray-500 mt-2">
+        Receive = <span class="font-mono">/0/*</span> • Change = <span class="font-mono">/1/*</span>
+        • “Utilisée” = <span class="font-mono">last_seen_block</span> présent.
+      </p>
+    </div>
+
+    <div class="flex items-center gap-3 w-full sm:w-auto">
+      <%= link_to "← Retour",
+            vault_path(@vault),
+            class: "w-full sm:w-auto text-center px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-semibold" %>
+    </div>
+  </div>
+
+  <!-- STATS -->
+  <div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <p class="text-xs text-gray-400">Total</p>
+      <p class="text-lg font-semibold text-gray-100 font-mono"><%= total %></p>
+    </div>
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <p class="text-xs text-gray-400">Utilisées</p>
+      <p class="text-lg font-semibold text-emerald-300 font-mono"><%= used_total %></p>
+    </div>
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <p class="text-xs text-gray-400">Receive</p>
+      <p class="text-lg font-semibold text-gray-100 font-mono"><%= recv %></p>
+    </div>
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <p class="text-xs text-gray-400">Change</p>
+      <p class="text-lg font-semibold text-gray-100 font-mono"><%= chg %></p>
+    </div>
+  </div>
+
+  <!-- TABS (tablet/mobile) -->
+  <div class="lg:hidden mb-4">
+    <div class="flex gap-2 overflow-x-auto whitespace-nowrap pb-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
+      <button type="button"
+        class="addr-tab shrink-0 px-3 py-2 rounded-xl text-sm font-semibold border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800 transition"
+        data-tab="receive"
+        data-action="click->addresses#switchTab">
+        📥 Receive
+      </button>
+
+      <button type="button"
+        class="addr-tab shrink-0 px-3 py-2 rounded-xl text-sm font-semibold border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800 transition"
+        data-tab="change"
+        data-action="click->addresses#switchTab">
+        ♻️ Change
+      </button>
+    </div>
+  </div>
+
+  <!-- LAYOUT -->
+  <div class="grid lg:grid-cols-2 gap-6">
+
+    <%# =========================
+        RECEIVE
+        ========================= %>
+    <section class="addr-section" data-section="receive" data-addresses-target="section">
+      <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-800 flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h2 class="text-lg font-semibold text-gray-100">📥 Receive</h2>
+          </div>
+
+          <% if recv_rest.any? %>
+            <button type="button"
+              class="addr-toggle shrink-0 px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold"
+              data-action="click->addresses#toggleMore"
+              data-kind="receive"
+              data-limit="<%= default_limit %>"
+              data-total="<%= recv_addresses.size %>"
+              data-state="collapsed">
+              Tout afficher (<%= recv_addresses.size %>)
+            </button>
+          <% end %>
+        </div>
+
+        <!-- TABLE -->
+        <div class="hidden 2xl:block overflow-x-auto">
+          <table class="min-w-full text-xs text-gray-300">
+            <thead>
+              <tr class="border-b border-gray-800 bg-gray-950/30">
+                <th class="text-left py-3 px-4">Index</th>
+                <th class="text-left py-3 px-4">Adresse</th>
+                <th class="text-left py-3 px-4">Statut</th>
+                <th class="text-left py-3 px-4">Dernier bloc</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% (recv_first + recv_rest).each_with_index do |a, i| %>
+                <% is_used = a.last_seen_block.present? %>
+                <% extra = (i >= default_limit) %>
+                <tr class="<%= extra ? 'addr-more hidden' : '' %> border-b border-gray-900 hover:bg-gray-800/30" data-kind="receive">
+                  <td class="py-3 px-4 font-mono text-gray-200"><%= a.index %></td>
+                  <td class="py-3 px-4">
+                    <div class="flex items-center justify-between gap-3">
+                      <span class="font-mono text-blue-300 break-all"><%= a.address %></span>
+                      <button type="button"
+                        class="copy-btn text-[11px] px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200"
+                        data-value="<%= a.address %>">
+                        📋 Copier
+                      </button>
+                    </div>
+                  </td>
+                  <td class="py-3 px-4">
+                    <% if is_used %>
+                      <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-emerald-900/40 text-emerald-300">utilisée</span>
+                    <% else %>
+                      <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300">vierge</span>
+                    <% end %>
+                  </td>
+                  <td class="py-3 px-4 font-mono text-gray-200"><%= a.last_seen_block.presence || "—" %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- CARDS -->
+        <div class="2xl:hidden p-4 space-y-3">
+          <% (recv_first + recv_rest).each_with_index do |a, i| %>
+            <% is_used = a.last_seen_block.present? %>
+            <% extra = (i >= default_limit) %>
+
+            <div class="<%= extra ? 'addr-more hidden' : '' %> bg-gray-950/40 border border-gray-800 rounded-xl p-4" data-kind="receive">
+              <div class="flex items-start justify-between gap-3 mb-2">
+                <div class="flex items-center gap-2">
+                  <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-blue-900/40 text-blue-300">receive</span>
+                  <span class="text-[11px] text-gray-400">index <span class="font-mono text-gray-200"><%= a.index %></span></span>
+                </div>
+                <% if is_used %>
+                  <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-emerald-900/40 text-emerald-300">utilisée</span>
+                <% else %>
+                  <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300">vierge</span>
+                <% end %>
+              </div>
+
+              <p class="font-mono text-[11px] text-blue-300 break-all mb-3"><%= a.address %></p>
+
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-[11px] text-gray-500">
+                  dernier bloc : <span class="font-mono text-gray-200"><%= a.last_seen_block.presence || "—" %></span>
+                </p>
+                <button type="button"
+                  class="copy-btn text-[11px] px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200"
+                  data-value="<%= a.address %>">
+                  📋 Copier
+                </button>
+              </div>
+            </div>
+          <% end %>
+
+          <% if recv_rest.any? %>
+            <button type="button"
+              class="addr-toggle w-full px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-semibold"
+              data-action="click->addresses#toggleMore"
+              data-kind="receive"
+              data-limit="<%= default_limit %>"
+              data-total="<%= recv_addresses.size %>"
+              data-state="collapsed">
+              Tout afficher (<%= recv_addresses.size %>)
+            </button>
+          <% end %>
+        </div>
+      </div>
+    </section>
+
+    <%# =========================
+        CHANGE
+        ========================= %>
+    <section class="addr-section hidden lg:block" data-section="change" data-addresses-target="section">
+      <div class="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+        <div class="px-5 py-4 border-b border-gray-800 flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <h2 class="text-lg font-semibold text-gray-100">♻️ Change</h2>
+          </div>
+
+          <% if chg_rest.any? %>
+            <button type="button"
+              class="addr-toggle shrink-0 px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-xs font-semibold"
+              data-action="click->addresses#toggleMore"
+              data-kind="change"
+              data-limit="<%= default_limit %>"
+              data-total="<%= chg_addresses.size %>"
+              data-state="collapsed">
+              Tout afficher (<%= chg_addresses.size %>)
+            </button>
+          <% end %>
+        </div>
+
+        <!-- TABLE -->
+        <div class="hidden 2xl:block overflow-x-auto">
+          <table class="min-w-full text-xs text-gray-300">
+            <thead>
+              <tr class="border-b border-gray-800 bg-gray-950/30">
+                <th class="text-left py-3 px-4">Index</th>
+                <th class="text-left py-3 px-4">Adresse</th>
+                <th class="text-left py-3 px-4">Statut</th>
+                <th class="text-left py-3 px-4">Dernier bloc</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% (chg_first + chg_rest).each_with_index do |a, i| %>
+                <% is_used = a.last_seen_block.present? %>
+                <% extra = (i >= default_limit) %>
+                <tr class="<%= extra ? 'addr-more hidden' : '' %> border-b border-gray-900 hover:bg-gray-800/30" data-kind="change">
+                  <td class="py-3 px-4 font-mono text-gray-200"><%= a.index %></td>
+                  <td class="py-3 px-4">
+                    <div class="flex items-center justify-between gap-3">
+                      <span class="font-mono text-purple-300 break-all"><%= a.address %></span>
+                      <button type="button"
+                        class="copy-btn text-[11px] px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200"
+                        data-value="<%= a.address %>">
+                        📋 Copier
+                      </button>
+                    </div>
+                  </td>
+                  <td class="py-3 px-4">
+                    <% if is_used %>
+                      <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-emerald-900/40 text-emerald-300">utilisée</span>
+                    <% else %>
+                      <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300">vierge</span>
+                    <% end %>
+                  </td>
+                  <td class="py-3 px-4 font-mono text-gray-200"><%= a.last_seen_block.presence || "—" %></td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+
+        <!-- CARDS -->
+        <div class="2xl:hidden p-4 space-y-3">
+          <% (chg_first + chg_rest).each_with_index do |a, i| %>
+            <% is_used = a.last_seen_block.present? %>
+            <% extra = (i >= default_limit) %>
+
+            <div class="<%= extra ? 'addr-more hidden' : '' %> bg-gray-950/40 border border-gray-800 rounded-xl p-4" data-kind="change">
+              <div class="flex items-start justify-between gap-3 mb-2">
+                <div class="flex items-center gap-2">
+                  <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-purple-900/40 text-purple-300">change</span>
+                  <span class="text-[11px] text-gray-400">index <span class="font-mono text-gray-200"><%= a.index %></span></span>
+                </div>
+                <% if is_used %>
+                  <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-emerald-900/40 text-emerald-300">utilisée</span>
+                <% else %>
+                  <span class="inline-flex items-center px-2 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300">vierge</span>
+                <% end %>
+              </div>
+
+              <p class="font-mono text-[11px] text-purple-300 break-all mb-3"><%= a.address %></p>
+
+              <div class="flex items-center justify-between gap-3">
+                <p class="text-[11px] text-gray-500">
+                  dernier bloc : <span class="font-mono text-gray-200"><%= a.last_seen_block.presence || "—" %></span>
+                </p>
+                <button type="button"
+                  class="copy-btn text-[11px] px-2 py-1 rounded bg-gray-800 hover:bg-gray-700 text-gray-200"
+                  data-value="<%= a.address %>">
+                  📋 Copier
+                </button>
+              </div>
+            </div>
+          <% end %>
+
+          <% if chg_rest.any? %>
+            <button type="button"
+              class="addr-toggle w-full px-3 py-2 rounded-xl bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-semibold"
+              data-action="click->addresses#toggleMore"
+              data-kind="change"
+              data-limit="<%= default_limit %>"
+              data-total="<%= chg_addresses.size %>"
+              data-state="collapsed">
+              Tout afficher (<%= chg_addresses.size %>)
+            </button>
+          <% end %>
+        </div>
+
+      </div>
+    </section>
+
+  </div>
+</div>

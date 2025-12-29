@@ -1,0 +1,29 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  txid: MyString
+  block_height: 1
+  block_time: 2025-12-28 21:56:23
+  total_out_btc: 9.99
+  inputs_count: 1
+  outputs_count: 1
+  outputs_nonzero_count: 1
+  largest_output_btc: 9.99
+  largest_output_ratio: 9.99
+  alert_type: MyString
+  score: 1
+  meta: 
+
+two:
+  txid: MyString
+  block_height: 1
+  block_time: 2025-12-28 21:56:23
+  total_out_btc: 9.99
+  inputs_count: 1
+  outputs_count: 1
+  outputs_nonzero_count: 1
+  largest_output_btc: 9.99
+  largest_output_ratio: 9.99
+  alert_type: MyString
+  score: 1
+  meta: 

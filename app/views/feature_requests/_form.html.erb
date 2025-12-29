@@ -1,0 +1,144 @@
+<div class="px-4 py-8 sm:px-6 lg:px-8">
+  <div class="mx-auto w-full max-w-5xl">
+
+    <!-- HEADER -->
+    <header class="mb-8">
+      <h1 class="text-3xl sm:text-4xl font-bold tracking-tight mb-2">
+        <%= @feature_request.new_record? ? "Nouvelle demande d'amélioration" : "Modifier la demande d'amélioration" %>
+      </h1>
+
+      <p class="text-sm text-gray-400">
+        Propose une évolution pour <span class="font-semibold">Bitcoin Monitor</span> et définis le montant en sats ⚡
+      </p>
+
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <%= link_to "← Retour aux idées & améliorations",
+                    feature_requests_path,
+                    class: "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900/70 border border-gray-700 text-gray-200 text-sm hover:bg-gray-800 hover:border-gray-500 transition" %>
+
+        <% unless @feature_request.new_record? %>
+          <%= link_to "Voir la demande",
+                      @feature_request,
+                      class: "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900/70 border border-emerald-500/70 text-emerald-200 text-sm hover:bg-emerald-600/20 hover:border-emerald-400 transition" %>
+        <% end %>
+      </div>
+    </header>
+
+    <!-- FORMULAIRE -->
+    <section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+      <h2 class="text-xl sm:text-2xl font-semibold mb-4 text-gray-100">
+        Détails de la demande
+      </h2>
+
+      <% if @feature_request.errors.any? %>
+        <div class="mb-4 bg-red-900/40 border border-red-700 text-red-100 rounded-xl p-4 text-sm">
+          <p class="font-semibold mb-1">
+            ⚠️ Impossible d’enregistrer la demande :
+          </p>
+          <ul class="list-disc list-inside space-y-0.5">
+            <% @feature_request.errors.full_messages.each do |msg| %>
+              <li><%= msg %></li>
+            <% end %>
+          </ul>
+        </div>
+      <% end %>
+
+      <%= form_with model: @feature_request, local: true, class: "space-y-6" do |f| %>
+
+        <!-- TITRE -->
+        <div>
+          <label class="block text-sm font-medium text-gray-200 mb-1">
+            Titre de la demande
+          </label>
+          <p class="text-xs text-gray-400 mb-2">
+            Résume en une phrase l’évolution souhaitée (ex : “Dashboard détaillé pour les Runes”).
+          </p>
+          <%= f.text_field :title,
+                           class: "w-full rounded-lg bg-gray-900/80 border border-gray-700 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500",
+                           placeholder: "Ex : Mempool heatmap, vue consolidée BRC-20, alertes CPU, etc." %>
+        </div>
+
+        <!-- DESCRIPTION -->
+        <div>
+          <label class="block text-sm font-medium text-gray-200 mb-1">
+            Description détaillée
+          </label>
+          <p class="text-xs text-gray-400 mb-2">
+            Explique ce que tu veux voir dans Bitcoin Monitor, pourquoi c’est utile et, si possible,
+            comment tu imagines l’interface.
+          </p>
+          <%= f.text_area :description,
+                          rows: 8,
+                          class: "w-full rounded-lg bg-gray-900/80 border border-gray-700 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500 whitespace-pre-line",
+                          placeholder: "Décris la fonctionnalité, le contexte d’usage, les métriques à afficher, etc." %>
+        </div>
+
+        <!-- GRID : MONTANT + EMAIL -->
+        <div class="grid gap-6 sm:grid-cols-2">
+
+          <!-- MONTANT SATS -->
+          <div class="bg-gray-900/70 border border-emerald-500/60 rounded-xl p-4">
+            <label class="block text-sm font-semibold text-gray-200 mb-1">
+              Montant proposé (en sats)
+            </label>
+            <p class="text-xs text-gray-400 mb-2">
+              Le sponsoring se fera en Lightning. Choisis un montant en fonction de la complexité estimée.
+            </p>
+            <%= f.number_field :amount_sats,
+                               min: 0,
+                               step: 1,
+                               class: "w-full rounded-lg bg-gray-950/80 border border-gray-700 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500",
+                               placeholder: "Ex : 50 000" %>
+          </div>
+
+          <!-- EMAIL -->
+          <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+            <label class="block text-sm font-semibold text-gray-200 mb-1">
+              E-mail de contact (optionnel)
+            </label>
+            <p class="text-xs text-gray-400 mb-2">
+              Permet d’échanger avec toi si des précisions sont nécessaires sur la demande.
+            </p>
+            <%= f.email_field :email,
+                              class: "w-full rounded-lg bg-gray-950/80 border border-gray-700 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500",
+                              placeholder: "ton.email@exemple.com" %>
+          </div>
+
+        </div>
+
+        <%# Optionnel : si tu gères le statut dans le formulaire admin %>
+        <% if vaults_signed_in? %>
+          <div>
+            <label class="block text-sm font-medium text-gray-200 mb-1">
+              Statut de la demande
+            </label>
+            <p class="text-xs text-gray-400 mb-2">
+              Réservé à l’admin. Permet de suivre la progression (interne).
+            </p>
+            <%= f.select :status,
+                         [["En attente", "pending"],
+                          ["Facture générée (en paiement)", "awaiting_payment"],
+                          ["Payée", "paid"],
+                          ["En cours", "in_progress"],
+                          ["Terminée", "done"],
+                          ["Rejetée", "rejected"]],
+                         { include_blank: "Sélectionner un statut" },
+                         class: "w-full rounded-lg bg-gray-900/80 border border-gray-700 text-gray-100 text-sm px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500 focus:border-emerald-500" %>
+          </div>
+        <% end %>
+
+        <!-- BOUTONS -->
+        <div class="pt-4 flex flex-wrap items-center gap-3 border-t border-gray-700/70">
+          <%= f.submit (@feature_request.new_record? ? "Créer la demande" : "Mettre à jour la demande"),
+                       class: "inline-flex items-center justify-center px-4 py-2 rounded-lg bg-emerald-500 text-black text-sm font-semibold hover:bg-emerald-400 transition shadow" %>
+
+          <%= link_to "Annuler",
+                      @feature_request.new_record? ? feature_requests_path : @feature_request,
+                      class: "text-sm text-gray-300 hover:text-gray-100 hover:underline" %>
+        </div>
+
+      <% end %>
+    </section>
+
+  </div>
+</div>

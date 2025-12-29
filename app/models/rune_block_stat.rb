@@ -1,0 +1,2 @@
+class RuneBlockStat < ApplicationRecord
+end

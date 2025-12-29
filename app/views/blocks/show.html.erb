@@ -1,0 +1,171 @@
+<div class="px-4 py-8 sm:px-6 lg:px-8">
+  <div class="mx-auto max-w-5xl">
+    <header class="mb-6">
+      <h1 class="text-2xl sm:text-3xl font-bold tracking-tight mb-1">
+        Bloc <%= @block_height %>
+      </h1>
+      <p class="text-gray-400 text-sm">
+        Hash : <span class="font-mono text-xs break-all"><%= @block_hash %></span>
+      </p>
+
+      <%= link_to "← Retour à la liste des blocs",
+                  blocks_path,
+                  class: "inline-flex items-center mt-3 text-xs text-violet-300 hover:text-violet-100" %>
+    </header>
+
+    <% if @error.present? %>
+      <div class="bg-red-900/40 border border-red-700 text-red-100 rounded-xl p-4 mb-4">
+        Erreur lors du chargement de ce bloc : <%= @error %>
+      </div>
+    <% else %>
+      <section class="bg-gray-900/70 border border-gray-700 rounded-xl p-4 sm:p-6 mb-6">
+        <h2 class="text-lg font-semibold mb-3">Informations générales</h2>
+
+        <dl class="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3 text-sm text-gray-200">
+          <div>
+            <dt class="text-gray-400 text-xs uppercase tracking-wide">Hauteur</dt>
+            <dd class="font-semibold"><%= @block_height %></dd>
+          </div>
+
+          <div>
+            <dt class="text-gray-400 text-xs uppercase tracking-wide">Date / heure</dt>
+            <% time = Time.at(@block["time"]) %>
+            <dd>
+              <%= l time, format: :long %>
+              <span class="text-gray-400 text-xs">
+                (<%= time_ago_in_words(time) %> en arrière)
+              </span>
+            </dd>
+          </div>
+
+          <div>
+            <dt class="text-gray-400 text-xs uppercase tracking-wide">Nombre de transactions</dt>
+            <dd class="font-semibold"><%= @block["tx"]&.size || 0 %></dd>
+          </div>
+
+          <div>
+            <dt class="text-gray-400 text-xs uppercase tracking-wide">Taille (octets)</dt>
+            <dd><%= @block["size"] %></dd>
+          </div>
+
+          <div>
+            <dt class="text-gray-400 text-xs uppercase tracking-wide">Poids</dt>
+            <dd><%= @block["weight"] %></dd>
+          </div>
+
+          <div>
+            <dt class="text-gray-400 text-xs uppercase tracking-wide">Merkle root</dt>
+            <dd class="font-mono text-xs break-all"><%= @block["merkleroot"] %></dd>
+          </div>
+        </dl>
+      </section>
+
+      
+        <div class="mb-6 bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+          <%= form_with url: block_path(params[:id]),
+                        method: :get,
+                        local: true,
+                        class: "flex flex-wrap items-end gap-4" do %>
+
+            <div>
+              <label for="deploy_tick" class="block text-sm font-medium text-gray-200">
+                Filtrer les <span class="font-mono">deploy</span> BRC-20
+              </label>
+              <%= text_field_tag :deploy_tick,
+                                 params[:deploy_tick],
+                                 id: "deploy_tick",
+                                 placeholder: "laisser vide = tous les deploys",
+                                 class: "mt-1 block w-56 rounded-lg bg-gray-800 border border-gray-600 px-3 py-1.5 text-sm text-gray-100 focus:outline-none focus:ring-2 focus:ring-emerald-500" %>
+            </div>
+
+            <div class="flex items-center gap-2">
+              <%= submit_tag "Filtrer par deploy",
+                             class: "inline-flex items-center px-4 py-2 rounded-lg text-sm font-semibold bg-emerald-600 hover:bg-emerald-500 text-white" %>
+
+              <% if params.key?(:deploy_tick) %>
+                <%= link_to "Réinitialiser",
+                            block_path(params[:id]),
+                            class: "inline-flex items-center px-3 py-2 rounded-lg text-xs font-medium border border-gray-600 text-gray-200 hover:bg-gray-800" %>
+              <% end %>
+            </div>
+          <% end %>
+
+          <% if params.key?(:deploy_tick) %>
+            <% if params[:deploy_tick].present? %>
+              <p class="mt-2 text-xs text-gray-400">
+                Filtre actif : uniquement les transactions contenant un
+                <span class="font-mono">deploy</span> pour le tick
+                <span class="font-mono text-emerald-300"><%= params[:deploy_tick].downcase %></span>.
+              </p>
+            <% else %>
+              <p class="mt-2 text-xs text-gray-400">
+                Filtre actif : uniquement les transactions contenant au moins un
+                <span class="font-mono">deploy</span>, peu importe le tick.
+              </p>
+            <% end %>
+          <% else %>
+            <p class="mt-2 text-xs text-gray-500">
+              Clique sur "Filtrer par deploy" sans saisir de tick pour voir seulement les transactions
+              qui contiennent un <span class="font-mono">deploy</span>.
+            </p>
+          <% end %>
+        </div>
+
+      <section class="bg-gray-900/70 border border-gray-700 rounded-xl p-4 sm:p-6">
+        <h2 class="text-lg font-semibold mb-3">Transactions</h2>
+
+        <% txs = @block["tx"] || [] %>
+
+        <% if txs.empty? %>
+          <p class="text-gray-400 text-sm">Aucune transaction dans ce bloc (très improbable 😅).</p>
+        <% else %>
+          <div class="max-h-[500px] overflow-y-auto border border-gray-800 rounded-lg">
+            <table class="min-w-full text-xs text-gray-200 border-collapse">
+              <thead>
+                <tr class="bg-gray-800/70 border-b border-gray-700 text-gray-300">
+                  <th class="px-4 py-2 text-left">#</th>
+                  <th class="px-4 py-2 text-left">Txid</th>
+                  <th class="px-4 py-2 text-right">Entrées</th>
+                  <th class="px-4 py-2 text-right">Sorties</th>
+                  <th class="px-4 py-2 text-right">BRC-20</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% @tx_rows.each do |row| %>
+                  <% tx = row[:tx] %>
+                  <tr class="<%= row[:index].odd? ? 'bg-gray-800/20' : 'bg-gray-800/5' %> border-b border-gray-800">
+                    <td class="px-4 py-2"><%= row[:index] %></td>
+
+                    <td class="px-4 py-2 font-mono text-xs">
+                      <%= link_to tx["txid"],
+                                  transaction_path(tx["txid"], block_hash: @block["hash"]),
+                                  class: "text-violet-400 hover:text-violet-200 font-medium underline" %>
+                    </td>
+
+                    <td class="px-4 py-2 text-right"><%= (tx["vin"]  || []).size %></td>
+                    <td class="px-4 py-2 text-right"><%= (tx["vout"] || []).size %></td>
+
+                    <td class="px-4 py-2 text-right">
+                      <% if row[:has_brc20] %>
+                        <span class="inline-flex items-center justify-end gap-1 text-emerald-300 font-semibold">
+                          <%= row[:brc20_ticks].presence&.join(", ") || "—" %>
+                          <% if row[:brc20_count].to_i > 1 %>
+                            <span class="text-[10px] text-gray-300">
+                              (<%= row[:brc20_count] %> inscriptions)
+                            </span>
+                          <% end %>
+                        </span>
+                      <% else %>
+                        <span class="text-gray-500">—</span>
+                      <% end %>
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% end %>
+      </section>
+    <% end %>
+  </div>
+</div>

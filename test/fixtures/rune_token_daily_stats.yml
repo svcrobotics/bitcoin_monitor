@@ -1,0 +1,25 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  rune_token: one
+  day: 2025-12-02
+  tx_count: 1
+  transfer_count: 1
+  mint_count: 1
+  burn_count: 1
+  volume: 9.99
+  unique_senders: 1
+  unique_receivers: 1
+  active_addresses_count: 1
+
+two:
+  rune_token: two
+  day: 2025-12-02
+  tx_count: 1
+  transfer_count: 1
+  mint_count: 1
+  burn_count: 1
+  volume: 9.99
+  unique_senders: 1
+  unique_receivers: 1
+  active_addresses_count: 1

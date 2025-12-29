@@ -1,0 +1,182 @@
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+  <!-- HEADER -->
+  <h1 class="text-2xl sm:text-3xl font-bold text-gray-100 mb-2">
+    PSBT générée pour le vault&nbsp;: <span class="text-emerald-300"><%= @vault.label %></span>
+  </h1>
+
+  <p class="text-sm text-gray-400 mb-6">
+    Mode de dépense :
+    <span class="font-mono text-emerald-300">Normal (A + B)</span>
+  </p>
+
+  <!-- RÉSUMÉ GLOBAL -->
+  <div class="grid gap-4 sm:grid-cols-2 mb-6">
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <h2 class="text-sm font-semibold text-gray-100 mb-2">Montants</h2>
+
+      <p class="text-xs text-gray-300">
+        <strong>Total entrées :</strong><br>
+        <span class="font-mono">
+          <%= format_sats(@balance_sats) %> (~<%= format_btc(@balance_sats.to_d / 100_000_000) %> BTC)
+        </span>
+      </p>
+
+      <p class="text-xs text-gray-300 mt-2">
+        <strong>Envoyé à la destination :</strong><br>
+        <span class="font-mono">
+          <%= format_sats(@send_sats) %> (~<%= format_btc(@send_sats.to_d / 100_000_000) %> BTC)
+        </span>
+      </p>
+
+      <p class="text-xs text-gray-300 mt-2">
+        <strong>Frais estimés :</strong><br>
+        <span class="font-mono">
+          <%= format_sats(@fee_sats) %> sats
+        </span>
+      </p>
+    </div>
+
+    <div class="bg-gray-900 border border-gray-800 rounded-xl p-4">
+      <h2 class="text-sm font-semibold text-gray-100 mb-2">Destination & résumé technique</h2>
+
+      <p class="text-xs text-gray-300 mb-2">
+        <strong>Adresse de destination :</strong><br>
+        <span class="font-mono break-all text-blue-300">
+          <%= @destination %>
+        </span>
+      </p>
+
+      <p class="text-xs text-gray-400">
+        <strong>Nombre d’UTXOs en entrée :</strong>
+        <span class="font-mono"><%= @utxos.size %></span>
+      </p>
+
+      <p class="text-xs text-gray-400 mt-1">
+        <strong>Mode :</strong>
+        <span class="font-mono text-emerald-300">Normal (A + B)</span>
+      </p>
+    </div>
+  </div>
+
+  <!-- DÉTAIL DES UTXOs UTILISÉS -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
+    <h2 class="text-sm sm:text-base font-semibold text-gray-100 mb-3">
+      UTXOs utilisés dans cette PSBT
+    </h2>
+
+    <% if @utxos.any? %>
+      <div class="overflow-x-auto bg-gray-800/70 border border-gray-700 rounded-lg">
+        <table class="min-w-full text-xs text-gray-300">
+          <thead>
+            <tr class="border-b border-gray-700">
+              <th class="text-left py-3 px-4">TXID</th>
+              <th class="text-left py-3 px-4">Vout</th>
+              <th class="text-left py-3 px-4">Montant</th>
+              <th class="text-left py-2 px-4">Confirmations</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% @utxos.each do |u| %>
+              <tr class="border-b border-gray-800 hover:bg-gray-800/30">
+                <td class="py-3 px-4 font-mono text-xs text-blue-300 break-all"><%= u["txid"] %></td>
+                <td class="py-3 px-4 font-mono text-xs text-gray-300"><%= u["vout"] %></td>
+                <td class="py-3 px-4 font-mono text-xs text-gray-200">
+                  <%= format_btc_amount(u["amount"]) %> BTC
+                  <div class="text-gray-500 text-[10px]">
+                    <%= (u["amount"].to_f * 100_000_000).to_i %> sats
+                  </div>
+                </td>
+                <td class="py-3 px-4 font-mono text-xs text-gray-300"><%= u["confirmations"] %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% else %>
+      <p class="text-sm text-gray-400">
+        Aucun UTXO trouvé (ce qui ne devrait pas arriver si la PSBT vient d’être générée).
+      </p>
+    <% end %>
+  </div>
+
+  <!-- PSBT BRUTE -->
+  <div class="bg-gray-900 border border-gray-800 rounded-xl p-6 mb-6">
+    <div class="flex items-center justify-between mb-3">
+      <h2 class="text-sm sm:text-base font-semibold text-gray-100">
+        PSBT (base64)
+      </h2>
+
+      <button
+        id="copy-psbt-btn"
+        data-value="<%= @psbt %>"
+        class="text-xs px-3 py-1.5 rounded-md border border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white transition">
+        📋 Copier
+      </button>
+    </div>
+
+    <p class="text-xs text-gray-500 mb-2">
+      Cette PSBT est enregistrée dans le vault. Tu peux la signer via HWI/Ledger
+      depuis l’écran du vault, ou la copier ici pour Sparrow / un autre outil.
+    </p>
+
+    <pre class="bg-gray-950 text-gray-100 text-[11px] p-3 rounded-lg overflow-x-auto font-mono"><%= @psbt %></pre>
+  </div>
+
+  <!-- ACTIONS -->
+  <div class="flex items-center gap-4">
+    <%= link_to "⬅️ Retour au vault",
+      vault_path(@vault),
+      class: "px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-semibold" %>
+
+    <%= link_to "Aller aux signatures Ledger",
+      vault_path(@vault, anchor: "ledger-signatures"),
+      class: "px-4 py-2 bg-emerald-500 hover:bg-emerald-400 text-black rounded-lg text-sm font-semibold" %>
+  </div>
+</div>
+
+<script>
+  (function() {
+    const btn = document.getElementById("copy-psbt-btn");
+    if (!btn) return;
+
+    btn.addEventListener("click", () => {
+      const value = btn.dataset.value;
+      if (!value) return;
+
+      const setFeedback = () => {
+        const oldText = btn.textContent;
+        btn.textContent = "✓ Copié !";
+        btn.classList.add("text-emerald-400");
+
+        setTimeout(() => {
+          btn.textContent = oldText;
+          btn.classList.remove("text-emerald-400");
+        }, 1500);
+      };
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(value).then(setFeedback).catch((err) => {
+          console.error("Clipboard error:", err);
+        });
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = value;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+
+        try {
+          document.execCommand("copy");
+          setFeedback();
+        } catch (err) {
+          console.error("execCommand copy error:", err);
+        }
+
+        document.body.removeChild(textarea);
+      }
+    });
+  })();
+</script>

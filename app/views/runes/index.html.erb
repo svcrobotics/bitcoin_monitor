@@ -1,0 +1,197 @@
+<div class="px-4 py-8 sm:px-6 lg:px-8">
+  <div class="mx-auto w-full max-w-5xl">
+
+    <!-- Header -->
+    <header class="mb-8">
+      <h1 class="text-3xl sm:text-4xl font-bold tracking-tight mb-2">
+        Runes sur Bitcoin
+      </h1>
+      <p class="text-gray-400 text-sm sm:text-base">
+        Module d’observation des tokens <span class="font-mono">Runes</span> sur Bitcoin.
+        Cette page est la base pour un futur indexeur Runes intégré à Bitcoin Monitor.
+      </p>
+
+      <div class="mt-4 flex flex-wrap items-center gap-3">
+        <%= link_to "⬅️ Retour au dashboard",
+                    dashboard_path,
+                    class: "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900/70 border border-gray-700 text-gray-100 text-sm hover:bg-gray-700 transition" %>
+
+        <%= link_to "📦 Explorer les blocs Bitcoin",
+                    blocks_path,
+                    class: "inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-gray-900/70 border border-gray-700 text-gray-100 text-sm hover:bg-gray-700 transition" %>
+      </div>
+    </header>
+
+    <!-- Bloc : état de l’index Runes + résumé -->
+    <section class="mb-8 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+      <h2 class="text-xl sm:text-2xl font-semibold mb-4">
+        État de l’index Runes
+      </h2>
+
+      <% if @runes_enabled %>
+        <div class="grid gap-4 sm:grid-cols-3">
+          <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-400 mb-1">
+              Runes indexées
+            </p>
+            <p class="text-2xl font-semibold text-gray-100">
+              <%= @runes_count %>
+            </p>
+          </div>
+
+          <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-400 mb-1">
+              Événements Runes
+            </p>
+            <p class="text-2xl font-semibold text-gray-100">
+              <%= @rune_events_count %>
+            </p>
+          </div>
+
+          <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+            <p class="text-xs uppercase tracking-wide text-gray-400 mb-1">
+              Adresses uniques
+            </p>
+            <p class="text-2xl font-semibold text-gray-100">
+              <%= @rune_addresses_cnt %>
+            </p>
+          </div>
+        </div>
+
+        <p class="mt-4 text-xs text-gray-400">
+          Fenêtre couverte :
+          <% if @runes_first_block && @runes_last_block %>
+            blocs <strong><%= @runes_first_block %></strong> à
+            <strong><%= @runes_last_block %></strong>.
+          <% else %>
+            <span class="text-gray-500">non déterminée</span>
+          <% end %>
+        </p>
+      <% else %>
+        <p class="text-sm text-gray-300 mb-2">
+          L’index Runes n’est pas encore activé dans cette instance de Bitcoin Monitor.
+        </p>
+        <p class="text-xs text-gray-400">
+          Les tableaux ci-dessous s’activeront automatiquement dès que des données
+          seront insérées dans les tables <span class="font-mono">rune_tokens</span>,
+          <span class="font-mono">rune_events</span> et <span class="font-mono">rune_balances</span>.
+        </p>
+      <% end %>
+    </section>
+
+    <% if @runes_enabled %>
+      <!-- Top Runes actives -->
+      <section class="mb-8 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+        <h2 class="text-xl sm:text-2xl font-semibold mb-4">
+          Top Runes actives
+        </h2>
+
+        <% if @top_runes.any? %>
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-sm text-gray-100">
+              <thead>
+                <tr class="border-b border-gray-700 text-xs uppercase tracking-wide text-gray-400">
+                  <th class="px-3 py-2 text-left">Nom</th>
+                  <th class="px-3 py-2 text-right">ID (block:tx)</th>
+                  <th class="px-3 py-2 text-right">Événements</th>
+                  <th class="px-3 py-2 text-right">Transferts</th>
+                  <th class="px-3 py-2 text-right">Holders</th>
+                  <th class="px-3 py-2 text-right">Supply mintée</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% @top_runes.each_with_index do |rune, idx| %>
+                  <tr class="<%= idx.odd? ? 'bg-gray-900/40' : 'bg-gray-900/20' %> border-b border-gray-800">
+                    <td class="px-3 py-2 font-mono text-xs">
+                      <%= rune.rune_name %>
+                    </td>
+                    <td class="px-3 py-2 text-right text-xs text-gray-300">
+                      <%= rune.rune_id_block %>:<%= rune.rune_id_tx %>
+                    </td>
+                    <td class="px-3 py-2 text-right">
+                      <%= rune.events_count %>
+                    </td>
+                    <td class="px-3 py-2 text-right">
+                      <%= rune.transfers_count %>
+                    </td>
+                    <td class="px-3 py-2 text-right">
+                      <%= rune.holders_count %>
+                    </td>
+                    <td class="px-3 py-2 text-right">
+                      <%= rune.minted_supply.to_i %>
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% else %>
+          <p class="text-sm text-gray-400">
+            Aucune rune active à afficher pour le moment.
+          </p>
+        <% end %>
+      </section>
+
+      <!-- Derniers événements Runes -->
+      <section class="mb-10 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+        <h2 class="text-xl sm:text-2xl font-semibold mb-4">
+          Derniers événements Runes
+        </h2>
+
+        <% if @recent_events.any? %>
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-sm text-gray-100">
+              <thead>
+                <tr class="border-b border-gray-700 text-xs uppercase tracking-wide text-gray-400">
+                  <th class="px-3 py-2 text-left">Bloc</th>
+                  <th class="px-3 py-2 text-left">Type</th>
+                  <th class="px-3 py-2 text-left">Rune</th>
+                  <th class="px-3 py-2 text-right">Montant</th>
+                  <th class="px-3 py-2 text-left">De</th>
+                  <th class="px-3 py-2 text-left">Vers</th>
+                  <th class="px-3 py-2 text-left">Tx</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% @recent_events.each_with_index do |e, idx| %>
+                  <tr class="<%= idx.odd? ? 'bg-gray-900/40' : 'bg-gray-900/20' %> border-b border-gray-800">
+                    <td class="px-3 py-1.5 font-mono text-xs">
+                      <%= e.block_height || "—" %>
+                    </td>
+                    <td class="px-3 py-1.5 text-xs">
+                      <span class="font-mono"><%= e.op.to_s.downcase %></span>
+                    </td>
+                    <td class="px-3 py-1.5 font-mono text-xs">
+                      <%= e.rune_name || e.rune_token&.rune_name || "—" %>
+                    </td>
+                    <td class="px-3 py-1.5 text-right text-xs">
+                      <%= e.amount.to_i %>
+                    </td>
+                    <td class="px-3 py-1.5 text-xs font-mono truncate max-w-[120px]">
+                      <%= e.from_address.presence || "—" %>
+                    </td>
+                    <td class="px-3 py-1.5 text-xs font-mono truncate max-w-[120px]">
+                      <%= e.to_address.presence || "—" %>
+                    </td>
+                    <td class="px-3 py-1.5 text-xs font-mono">
+                      <% if e.txid.present? %>
+                        <%= e.txid[0, 12] %>…
+                      <% else %>
+                        —
+                      <% end %>
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% else %>
+          <p class="text-sm text-gray-400">
+            Aucun événement Runes enregistré pour l’instant.
+          </p>
+        <% end %>
+      </section>
+    <% end %>
+
+  </div>
+</div>

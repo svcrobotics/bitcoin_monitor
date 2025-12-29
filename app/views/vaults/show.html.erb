@@ -1,0 +1,371 @@
+<!-- app/views/vaults/show.html.erb -->
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+  <!-- HEADER -->
+  <div class="mb-8 border-b border-gray-800 pb-6">
+    <div class="flex items-start justify-between flex-wrap gap-4">
+      <div>
+        <h1 class="text-3xl font-bold text-gray-100 tracking-tight">
+          <%= @vault.label.presence || "Wallet ##{@vault.id}" %>
+        </h1>
+
+        <p class="text-sm text-gray-400 mt-1">
+          Wallet Multisig (<span class="font-mono">P2WSH</span>) :
+          <span class="text-gray-300 font-semibold">2-of-2</span>
+          (A + B). Créé et géré dans <strong>Sparrow</strong>.
+          <br>
+          L’app est <strong>watch-only</strong> : import descriptors → scan UTXOs → observation.
+        </p>
+      </div>
+
+      <div class="flex items-center gap-3">
+        <%= link_to "Modifier",
+              edit_vault_path(@vault),
+              class: "px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-sm font-semibold" %>
+
+        <%= link_to "Retour",
+              vaults_path,
+              class: "px-4 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded-lg text-sm font-semibold" %>
+      </div>
+    </div>
+
+    <% has_receive = @vault.receive_descriptor.present? %>
+    <% has_change  = @vault.change_descriptor.present? %>
+
+    <!-- BADGES -->
+    <div class="mt-6 flex flex-wrap gap-2">
+      <span class="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300">
+        🌐 Réseau :
+        <span class="ml-1 text-blue-300 font-mono"><%= @vault.network.to_s.capitalize %></span>
+      </span>
+
+      <span class="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300">
+        🔒 Statut :
+        <span class="ml-1 font-mono text-gray-200"><%= @vault.status.to_s.capitalize %></span>
+      </span>
+
+      <span class="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold
+        <%= (has_receive && has_change) ? "bg-emerald-900/40 text-emerald-300" : "bg-red-900/40 text-red-300" %>">
+        🧾 Descriptors :
+        <span class="ml-1 font-mono">
+          <%= (has_receive && has_change) ? "OK" : "#{has_receive ? "R" : "—"}/#{has_change ? "C" : "—"}" %>
+        </span>
+      </span>
+
+      <% if @vault.respond_to?(:scanned?) && @vault.scanned? %>
+        <span class="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold
+          <%= (@vault.respond_to?(:last_scan_ok?) && @vault.last_scan_ok?) ? "bg-emerald-900/40 text-emerald-300" : "bg-red-900/40 text-red-300" %>">
+          📡 Scan :
+          <span class="ml-1 font-mono">
+            <%= (@vault.respond_to?(:last_scan_ok?) && @vault.last_scan_ok?) ? "OK" : "Erreur" %>
+          </span>
+        </span>
+      <% end %>
+
+      <span class="inline-flex items-center px-3 py-1 rounded-full text-[11px] font-semibold bg-gray-800 text-gray-300">
+        🧠 Mode :
+        <span class="ml-1 font-mono text-gray-200">Sparrow-only (sign/broadcast)</span>
+      </span>
+    </div>
+  </div>
+
+  <!-- GRID -->
+  <div class="grid gap-6 lg:grid-cols-2">
+
+    <!-- COLONNE GAUCHE -->
+    <div class="space-y-6">
+
+      <!-- PARAMÈTRES -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <h2 class="text-lg font-semibold mb-4 text-gray-100">Paramètres</h2>
+
+        <div class="space-y-2 text-sm text-gray-300">
+          <p><strong>Réseau :</strong> <span class="ml-1"><%= @vault.network %></span></p>
+          <p><strong>Statut :</strong> <span class="ml-1"><%= @vault.status %></span></p>
+          <p><strong>Scan range :</strong> <span class="ml-1 font-mono"><%= @vault.scan_range %></span></p>
+
+        </div>
+
+        <p class="text-xs text-gray-500 mt-4 leading-relaxed">
+          <strong>Politique :</strong><br>
+          • Sparrow crée le wallet et gère les signatures/broadcast.<br>
+          • L’app importe les descriptors en watch-only et scanne les UTXOs.
+        </p>
+      </div>
+
+      <!-- DESCRIPTORS -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <div class="flex items-center justify-between mb-3">
+          <h2 class="text-lg font-semibold text-gray-100">Descriptors (Bitcoin Core)</h2>
+        </div>
+
+        <div class="space-y-4">
+
+          <!-- RECEIVE -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <p class="text-xs text-gray-400">Receive (/0/*)</p>
+              <% if @vault.receive_descriptor.present? %>
+                <button
+                  data-copy="1"
+                  data-value="<%= @vault.receive_descriptor %>"
+                  class="copy-btn text-xs px-3 py-1.5 rounded-md border border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white transition">
+                  📋 Copier
+                </button>
+              <% end %>
+            </div>
+
+            <% if @vault.receive_descriptor.present? %>
+              <p class="font-mono text-[11px] break-all text-gray-400"><%= @vault.receive_descriptor %></p>
+            <% else %>
+              <p class="text-sm text-gray-400 italic">Receive descriptor manquant.</p>
+            <% end %>
+          </div>
+
+          <!-- CHANGE -->
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <p class="text-xs text-gray-400">Change (/1/*)</p>
+              <% if @vault.change_descriptor.present? %>
+                <button
+                  data-copy="1"
+                  data-value="<%= @vault.change_descriptor %>"
+                  class="copy-btn text-xs px-3 py-1.5 rounded-md border border-gray-700 text-gray-300 hover:bg-gray-800 hover:text-white transition">
+                  📋 Copier
+                </button>
+              <% end %>
+            </div>
+
+            <% if @vault.change_descriptor.present? %>
+              <p class="font-mono text-[11px] break-all text-gray-400"><%= @vault.change_descriptor %></p>
+            <% else %>
+              <p class="text-sm text-gray-400 italic">Change descriptor manquant.</p>
+            <% end %>
+          </div>
+
+          <p class="text-[11px] text-gray-500">
+            ⚠️ Ne modifie pas les strings, checksum inclus (<span class="font-mono">#...</span>).
+          </p>
+        </div>
+
+        <div class="mt-4 flex flex-wrap items-center gap-3">
+          <%= button_to "Importer watch-only (Bitcoin Core)",
+                import_watch_only_vault_path(@vault),
+                method: :post,
+                class: "px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-500 text-xs font-semibold text-white" %>
+
+          <%= link_to "🔄 Rescanner",
+                vault_path(@vault, rescan: 1),
+                class: "px-4 py-2 rounded-md bg-emerald-500 hover:bg-emerald-400 text-xs font-semibold text-black" %>
+
+          <%= button_to "🧬 Dériver adresses (0..scan_range)",
+                derive_addresses_vault_path(@vault),
+                method: :post,
+                class: "px-4 py-2 rounded-md bg-purple-600 hover:bg-purple-500 text-xs font-semibold text-white" %>
+
+          <%= link_to "🧾 Voir les adresses",
+                vault_vault_addresses_path(@vault),
+                class: "px-4 py-2 rounded-md bg-gray-800 hover:bg-gray-700 text-xs font-semibold text-white" %>
+        </div>
+      </div>
+
+      <!-- WATCH-ONLY STATUS (optionnel si tu passes @watch_info depuis controller) -->
+      <% if defined?(@watch_info) && @watch_info.present? %>
+        <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+          <h2 class="text-lg font-semibold mb-3 text-gray-100">Statut watch-only (Core)</h2>
+
+          <% if @watch_info.is_a?(Hash) && @watch_info["error"].present? %>
+            <p class="text-sm text-red-300">
+              ⚠️ <%= @watch_info["error"] %>
+            </p>
+          <% else %>
+            <div class="text-xs text-gray-300 space-y-1">
+              <p>ismine : <span class="font-mono"><%= @watch_info["ismine"] %></span></p>
+              <p>solvable : <span class="font-mono"><%= @watch_info["solvable"] %></span></p>
+              <% if @watch_info["desc"].present? %>
+                <p class="text-gray-500 break-all">
+                  desc : <span class="font-mono"><%= @watch_info["desc"] %></span>
+                </p>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+
+    </div>
+
+    <!-- COLONNE DROITE -->
+    <div class="space-y-6">
+
+      <!-- SOLDE & UTXOS -->
+      <div class="bg-gray-900 border border-gray-800 rounded-xl p-6">
+        <div class="flex items-center justify-between mb-4">
+          <h2 class="text-lg font-semibold text-gray-100">Solde & UTXOs</h2>
+
+          <%= link_to "🔄 Rescanner",
+                vault_path(@vault, rescan: 1),
+                class: "px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-black rounded-md text-xs font-semibold" %>
+        </div>
+
+        <p class="text-sm text-gray-300 mb-2">
+          <strong>Total :</strong>
+          <span class="font-mono">
+            <%= format_btc(@balance_btc) %> BTC
+            (<%= format_sats(@balance_sats) %> sats)
+          </span>
+
+          <% if @btc_eur.present? %>
+            <span class="ml-2 text-gray-400">
+              ≈ <span class="font-semibold text-emerald-300"><%= number_with_precision(@balance_btc.to_f * @btc_eur.to_f, precision: 2, delimiter: " ") %> €</span>
+            </span>
+          <% end %>
+        </p>
+
+        <% if @btc_eur.present? %>
+          <p class="text-[11px] text-gray-500 mb-4">
+            Taux indicatif : <span class="font-mono"><%= number_with_delimiter(@btc_eur.to_f.round(2), delimiter: " ") %> €/BTC</span>
+          </p>
+        <% end %>
+
+        <% if @vault.respond_to?(:scanned?) && @vault.scanned? %>
+          <p class="text-xs text-gray-500 mb-4">
+            Dernier scan :
+            <span class="font-mono">
+              <%= l(@vault.last_scanned_at, format: :short) rescue @vault.last_scanned_at %>
+            </span>
+            • UTXOs : <span class="font-mono"><%= @vault.utxos_count || 0 %></span>
+            • non confirmés : <span class="font-mono"><%= @vault.utxos_unconfirmed_count || 0 %></span>
+          </p>
+        <% end %>
+
+        <% if @utxos.any? %>
+          <h3 class="text-sm font-semibold mb-2 text-gray-200">UTXOs</h3>
+
+          <!-- MOBILE/TABLETTE : cartes -->
+          <div class="space-y-3 lg:hidden">
+            <% @utxos.each do |u| %>
+              <div class="bg-gray-800/70 border border-gray-700 rounded-xl p-4">
+                <div class="flex justify-between items-start gap-3 mb-2">
+                  <p class="text-[11px] text-gray-400">TXID</p>
+                  <p class="font-mono text-[11px] text-blue-300 break-all text-right"><%= u["txid"] %></p>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                  <div>
+                    <p class="text-[11px] text-gray-400">Vout</p>
+                    <p class="font-mono text-xs text-gray-200"><%= u["vout"] %></p>
+                  </div>
+                  <div>
+                    <p class="text-[11px] text-gray-400 text-right">Confirmations</p>
+                    <p class="font-mono text-xs text-gray-200 text-right"><%= u["confirmations"] %></p>
+                  </div>
+                </div>
+
+                <div class="mt-3">
+                  <p class="text-[11px] text-gray-400">Montant</p>
+
+                  <p class="font-mono text-sm text-gray-100">
+                    <%= format_btc_amount(u["amount"]) %> BTC
+                    <% if @btc_eur.present? %>
+                      <span class="ml-2 text-xs text-emerald-300">
+                        ≈ <%= number_with_precision(u["amount"].to_f * @btc_eur.to_f, precision: 2, delimiter: " ") %> €
+                      </span>
+                    <% end %>
+                  </p>
+
+                  <p class="font-mono text-[11px] text-gray-500">
+                    <%= (u["amount"].to_f * 100_000_000).to_i %> sats
+                  </p>
+                </div>
+
+              </div>
+            <% end %>
+          </div>
+
+          <!-- PC : tableau -->
+          <div class="hidden lg:block overflow-x-auto bg-gray-800/70 border border-gray-700 rounded-lg">
+            <table class="min-w-full text-xs text-gray-300">
+              <thead>
+                <tr class="border-b border-gray-700">
+                  <th class="text-left py-3 px-4">TXID</th>
+                  <th class="text-left py-3 px-4">Vout</th>
+                  <th class="text-left py-3 px-4">Montant</th>
+                  <th class="text-left py-2 px-4">Conf</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% @utxos.each do |u| %>
+                  <tr class="border-b border-gray-800 hover:bg-gray-800/30">
+                    <td class="py-3 px-4 font-mono text-xs text-blue-300 break-all"><%= u["txid"] %></td>
+                    <td class="py-3 px-4 font-mono text-xs text-gray-300"><%= u["vout"] %></td>
+                    <td class="py-3 px-4 font-mono text-xs text-gray-200">
+                      <%= format_btc_amount(u["amount"]) %> BTC
+
+                      <div class="text-gray-500 text-[10px]">
+                        <%= (u["amount"].to_f * 100_000_000).to_i %> sats
+                        <% if @btc_eur.present? %>
+                          • ≈ <span class="text-emerald-300"><%= number_with_precision(u["amount"].to_f * @btc_eur.to_f, precision: 2, delimiter: " ") %> €</span>
+                        <% end %>
+                      </div>
+                    </td>
+                    <td class="py-3 px-4 font-mono text-xs text-gray-300"><%= u["confirmations"] %></td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        <% elsif @scanned_now %>
+          <p class="text-gray-400 text-sm">Aucun UTXO pour l’instant sur ce wallet.</p>
+        <% else %>
+          <p class="text-gray-400 text-sm">
+            Clique sur <strong>“Rescanner”</strong> pour lister les UTXOs.
+          </p>
+        <% end %>
+
+      </div>
+
+    </div>
+  </div>
+</div>
+
+<script>
+  function setupCopyButton(btn) {
+    if (!btn) return;
+
+    btn.addEventListener("click", () => {
+      const value = btn.dataset.value;
+      if (!value) return;
+
+      const setFeedback = () => {
+        const oldText = btn.textContent;
+        btn.textContent = "✓ Copié !";
+        btn.classList.add("text-emerald-400");
+        setTimeout(() => {
+          btn.textContent = oldText;
+          btn.classList.remove("text-emerald-400");
+        }, 1200);
+      };
+
+      if (navigator.clipboard && window.isSecureContext) {
+        navigator.clipboard.writeText(value).then(setFeedback).catch(() => {});
+      } else {
+        const textarea = document.createElement("textarea");
+        textarea.value = value;
+        textarea.style.position = "fixed";
+        textarea.style.opacity = "0";
+        document.body.appendChild(textarea);
+        textarea.focus();
+        textarea.select();
+        try { document.execCommand("copy"); setFeedback(); } catch(e) {}
+        document.body.removeChild(textarea);
+      }
+    });
+  }
+
+  const initCopyButtons = () => {
+    document.querySelectorAll('button[data-copy="1"]').forEach(setupCopyButton);
+  };
+
+  document.addEventListener("turbo:load", initCopyButtons);
+  document.addEventListener("DOMContentLoaded", initCopyButtons);
+</script>

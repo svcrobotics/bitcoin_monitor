@@ -1,0 +1,140 @@
+<div class="px-4 py-8 sm:px-6 lg:px-8">
+  <div class="mx-auto w-full max-w-5xl space-y-6">
+
+    <!-- HEADER (card) -->
+    <header class="rounded-2xl border border-gray-800 bg-gray-900/40 p-5 sm:p-6 shadow-lg">
+      <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+
+        <div class="min-w-0">
+          <h1 class="text-2xl sm:text-3xl font-bold tracking-tight text-gray-100 break-words">
+            Demandes d'amélioration
+          </h1>
+
+          <p class="mt-1 text-sm text-gray-400">
+            Idées d’évolution de <span class="font-semibold text-gray-100">Bitcoin Monitor</span>, sponsorisées en sats ⚡
+          </p>
+
+          <% if @feature_requests.any? %>
+            <% total_sats = @feature_requests.sum { |fr| fr.amount_sats.to_i } %>
+
+            <div class="mt-4 flex flex-wrap items-center gap-2 text-xs">
+              <span class="inline-flex items-center gap-2 rounded-full border border-gray-800 bg-gray-950/40 px-3 py-1 text-gray-300">
+                📊 <span><%= @feature_requests.size %> demande(s)</span>
+              </span>
+
+              <span class="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-emerald-200">
+                ⚡ <span>Total demandé :</span>
+                <span class="font-semibold text-emerald-300">
+                  <%= number_with_delimiter(total_sats, delimiter: " ") %> sats
+                </span>
+              </span>
+            </div>
+          <% end %>
+        </div>
+
+        <div class="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+          <%= link_to dashboard_path,
+            class: "inline-flex items-center justify-center gap-2 rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-gray-900/60 transition" do %>
+            ⬅️ <span>Retour au dashboard</span>
+          <% end %>
+
+          <%= link_to new_feature_request_path,
+            class: "inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-4 py-2 text-sm font-semibold text-black hover:bg-emerald-400 transition" do %>
+            ➕ <span>Nouvelle demande</span>
+          <% end %>
+        </div>
+      </div>
+    </header>
+
+    <% if @feature_requests.any? %>
+
+      <!-- LISTE -->
+      <section class="rounded-2xl border border-gray-800 bg-gray-900/30 shadow-lg">
+        <div class="flex items-center justify-between px-5 py-4 sm:px-6 border-b border-gray-800">
+          <h2 class="text-sm sm:text-base font-semibold text-gray-200">
+            Liste des demandes
+          </h2>
+
+          <p class="text-xs text-gray-500">
+            Clique sur un titre pour ouvrir
+          </p>
+        </div>
+
+        <div class="p-4 sm:p-6 space-y-3">
+
+          <% @feature_requests.each do |fr| %>
+            <article class="group rounded-2xl border border-gray-800 bg-gray-900/45 p-4 sm:p-5 hover:bg-gray-900/65 hover:border-emerald-500/40 transition">
+
+              <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+
+                <!-- LEFT -->
+                <div class="min-w-0 flex-1">
+                  <div class="flex flex-wrap items-center gap-2">
+                    <%= link_to fr.title, fr,
+                      class: "text-base font-semibold text-gray-100 hover:text-emerald-300 transition break-words" %>
+
+                    <%= feature_request_status_badge(fr) %>
+                  </div>
+
+                  <p class="mt-2 text-sm text-gray-400 leading-relaxed line-clamp-3">
+                    <%= fr.description %>
+                  </p>
+
+                  <div class="mt-3 flex flex-wrap items-center gap-x-4 gap-y-2 text-[11px] text-gray-500">
+                    <span class="inline-flex items-center gap-1 rounded-full border border-gray-800 bg-gray-950/30 px-2 py-1">
+                      📅 <span class="text-gray-400">Créée</span>
+                      <span class="text-gray-300"><%= l(fr.created_at, format: :short) %></span>
+                    </span>
+
+                    <% if fr.email.present? %>
+                      <span class="inline-flex items-center gap-1 rounded-full border border-gray-800 bg-gray-950/30 px-2 py-1">
+                        🧑‍💻 <span class="text-gray-400">Demandeur</span>
+                        <span class="text-gray-300 break-all"><%= fr.email %></span>
+                      </span>
+                    <% end %>
+                  </div>
+                </div>
+
+                <!-- RIGHT -->
+                <div class="sm:text-right sm:min-w-[190px]">
+                  <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-3 py-2">
+                    <p class="text-[11px] text-emerald-200/80">Montant demandé</p>
+                    <p class="text-lg font-semibold text-emerald-300 leading-tight">
+                      <%= number_with_delimiter(fr.amount_sats.to_i, delimiter: " ") %>
+                      <span class="text-[11px] text-emerald-200 ml-1">sats</span>
+                    </p>
+                  </div>
+
+                  <div class="mt-3 flex flex-wrap justify-start sm:justify-end gap-2 text-xs">
+                    <%= link_to "Voir", fr,
+                      class: "inline-flex items-center justify-center rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2 text-gray-200 hover:border-emerald-400/60 hover:text-emerald-200 transition" %>
+
+                    <%= link_to "Modifier", edit_feature_request_path(fr),
+                      class: "inline-flex items-center justify-center rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2 text-gray-200 hover:border-amber-400/60 hover:text-amber-200 transition" %>
+                  </div>
+                </div>
+
+              </div>
+            </article>
+          <% end %>
+
+        </div>
+      </section>
+
+    <% else %>
+
+      <!-- EMPTY STATE -->
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/40 p-8 sm:p-10 text-center shadow-lg">
+        <p class="text-gray-200 mb-2 text-lg font-semibold">Aucune demande pour l’instant.</p>
+        <p class="text-gray-400 mb-6">Crée la première idée, sponsorisable en sats ⚡</p>
+
+        <%= link_to new_feature_request_path,
+          class: "inline-flex items-center justify-center gap-2 rounded-xl bg-emerald-500 px-5 py-3 text-sm font-semibold text-black hover:bg-emerald-400 transition" do %>
+          ➕ <span>Créer une demande</span>
+        <% end %>
+      </div>
+
+    <% end %>
+
+  </div>
+</div>

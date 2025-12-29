@@ -1,0 +1,19 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  block_height: 1
+  block_time: 2025-12-02 18:44:53
+  rune_tx_count: 1
+  rune_events_count: 1
+  distinct_runes_count: 1
+  total_runes_volume: 9.99
+  total_runes_bytes: 
+
+two:
+  block_height: 1
+  block_time: 2025-12-02 18:44:53
+  rune_tx_count: 1
+  rune_events_count: 1
+  distinct_runes_count: 1
+  total_runes_volume: 9.99
+  total_runes_bytes: 
