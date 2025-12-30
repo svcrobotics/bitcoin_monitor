@@ -54,9 +54,9 @@ module ApplicationHelper
 	  end
 	end
 
-	def format_btc(amount)
-	  return "0.00000000" if amount.nil?
-	  sprintf("%.8f", amount.to_d)
+	def btc(amount)
+	  return "0.00" if amount.nil?
+	  sprintf("%.2f BTC", amount.to_d)
 	end
 
 	def format_sats(sats)
@@ -65,8 +65,11 @@ module ApplicationHelper
 	end
 
 	def format_btc_amount(amount)
-	  return "0.00000000" if amount.nil?
-	  sprintf("%.8f", amount.to_d)
+	  return "0.00" if amount.nil?
+	  sprintf("%.2f", amount.to_d)
 	end
 
+	def btc_raw(amount)
+      amount.to_d.to_s("F")
+    end
 end
