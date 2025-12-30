@@ -68,7 +68,7 @@ end
 
 gem "ruby-progressbar"
 
-gem "pg", "~> 1.5"
+gem "pg", "~> 1.6"
 
 gem "secp256k1"
 gem "bech32"
