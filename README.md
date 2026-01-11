@@ -1,143 +1,157 @@
-# Bitcoin Monitor
+# 🟠 Bitcoin Monitor
 
-Bitcoin Monitor est une application d’analyse **on-chain Bitcoin** orientée observation,
-compréhension et expérimentation des données de la blockchain.
+Bitcoin Monitor est une application **Ruby on Rails** dédiée à l’analyse du marché Bitcoin à partir de **données on-chain, prix et flux d’exchanges**.
 
-L’objectif n’est pas de prédire le prix, mais de **rendre lisibles les comportements**
-des acteurs du réseau Bitcoin à partir des données brutes : blocs, transactions,
-UTXOs, tokens et mouvements majeurs.
+L’objectif n’est **pas de prédire le marché**, mais de fournir une **lecture structurée et factuelle** pour aider à la prise de décision (achat / vente / attente).
+
+> ⚠️ Ceci n’est pas un conseil financier.
 
 ---
 
 ## 🎯 Objectifs du projet
 
-- Observer l’activité réelle sur la blockchain Bitcoin
-- Identifier des **patterns de comportement** (whales, services, plateformes)
-- Fournir des outils pédagogiques pour comprendre Bitcoin “de l’intérieur”
-- Expérimenter des approches d’analyse sans dépendre de services centralisés
-
-Bitcoin Monitor est un outil d’analyse, pas un outil de trading.
-
----
-
-## 🧩 Fonctionnalités principales
-
-### 📦 Exploration de la blockchain
-- Navigation bloc par bloc
-- Analyse détaillée des transactions
-- Lecture des inputs / outputs / UTXOs
-- Connexion directe à un nœud Bitcoin via RPC
-
----
-
-### 🐋 Whale Alerts
-Détection et classification automatique des transactions importantes.
-
-Chaque transaction dépassant un certain seuil est analysée et classée selon son
-comportement :
-
-- **Consolidation**  
-  Regroupement de nombreux inputs vers une ou deux sorties  
-  Souvent lié à une réorganisation de fonds ou du cold storage
-
-- **Distribution**  
-  Peu d’inputs vers de nombreuses sorties  
-  Typique de paiements multiples ou de dispersion de fonds
-
-- **Batching**  
-  Grand nombre de sorties dans une seule transaction  
-  Comportement fréquent des plateformes, services ou pools
-
-- **Other**  
-  Transaction importante sans pattern clair  
-  Représente le bruit normal de la blockchain
-
-Un **score (0–100)** permet de trier les alertes selon leur importance relative
-(montant, structure, ratio).
-
-Les Whale Alerts sont :
-- scannées automatiquement chaque jour
-- purgées automatiquement pour garder une base saine
-- filtrables par type, montant et score
-
----
-
-### 🪙 Analyse BRC-20
-- Indexation des événements BRC-20
-- Statistiques par bloc et par jour
-- Suivi des balances par adresse
-- Comptage des holders et des transferts
-
----
-
-### ⛓️ Analyse Runes
-- Indexation des runes et événements associés
-- Suivi des balances
-- Statistiques journalières
-- Analyse de l’activité on-chain liée aux runes
-
----
-
-### 🔐 Coffres-forts Bitcoin (P2WSH)
-- Expérimentation de scripts multisignatures
-- Observation des UTXOs et balances
-- Connexion à des wallets de surveillance (watch-only)
-- Approche éducative autour de la sécurité Bitcoin
-
----
-
-### 💡 Feature Requests
-- Soumission d’idées et améliorations
-- Possibilité de soutenir des fonctionnalités via sats (BTCPay Server)
-- Canal direct entre utilisateurs et développement
-
----
-
-## ⚙️ Architecture technique
-
-- Ruby on Rails (application serveur classique, non API-only)
-- PostgreSQL
-- Connexion directe à un nœud Bitcoin Core via JSON-RPC
-- Données issues exclusivement de la blockchain (pas d’API tierce)
-- Jobs automatisés via cron
-- Frontend simple (HTML + Tailwind CSS)
-
----
-
-## 🤖 Automatisation
-
-Certaines tâches sont automatisées :
-
-- Scan quotidien des Whale Alerts
-- Purge automatique des anciennes alertes
-- Synchronisation régulière des données BRC-20
-
-Aucune action manuelle n’est nécessaire une fois l’application déployée.
+- Centraliser des **données Bitcoin fiables** (prix, flux, métriques)
+- Fournir une **lecture synthétique du contexte de marché**
+- Aider à répondre à des questions concrètes :
+  - Le marché est-il sous pression vendeuse ?
+  - Sommes-nous dans une zone de risque élevée ?
+  - Faut-il attendre, acheter ou vendre ?
 
 ---
 
 ## 🧠 Philosophie
 
-Bitcoin Monitor repose sur quelques principes simples :
+- 📊 **Données avant opinions**
+- 🔍 **Lecture multi-indicateurs**, pas un seul signal
+- 🧩 **Séparation claire** entre :
+  - données brutes
+  - métriques calculées
+  - interprétation humaine
+- 🛠️ Outil conçu pour être **compréhensible**, même sans être trader pro
 
-- **On-chain first** : la blockchain est la source de vérité
-- **Pas de promesse de prix** : observation ≠ prédiction
-- **Pédagogie** : rendre les données compréhensibles
-- **Expérimentation** : tester, apprendre, améliorer
+---
 
-C’est un outil pour développeurs, analystes, curieux et utilisateurs avancés
-souhaitant mieux comprendre Bitcoin.
+## 📈 Fonctionnalités principales
+
+### 1️⃣ Prix Bitcoin
+- Historique des prix BTC (USD)
+- Graphique simple et lisible
+- Exclusion de la bougie du jour (données non stables)
+
+### 2️⃣ Contexte de marché (Market Snapshot)
+Calculé périodiquement via cron :
+
+- **MA200** (filtre de tendance long terme)
+- **Position dans le cycle** (distance au plus haut)
+- **Volatilité 30 jours**
+- **Risque global** (low / medium / high)
+
+Affiché sous forme de cartes :
+- Marché (bull / bear / neutral)
+- Cycle
+- Risque
+
+---
+
+### 3️⃣ Flux vers les exchanges (True Exchange Flow)
+- Inflows BTC
+- Outflows BTC
+- Netflow BTC
+- Alignement prix ↔ flux
+
+Permet d’identifier :
+- pression vendeuse potentielle
+- absorption par le marché
+- phases de distribution ou d’accumulation
+
+---
+
+### 4️⃣ PnL théorique (Net USD)
+- Évolution de la valeur nette si la position était liquidée chaque jour
+- Intègre frais et slippage estimés
+- Identification du meilleur / pire point de sortie
+
+---
+
+### 5️⃣ Alertes trader (heuristiques)
+Alertes générées à partir :
+- du contexte de marché
+- des flux
+- de la performance
+- du risque
+
+Exemples :
+- ventes confirmées
+- pression vendeuse potentielle
+- pas de signal significatif
+
+---
+
+## 🖥️ Interface
+
+- Dashboard clair et lisible
+- Mode **simple** / **trader**
+- Graphiques **Chart.js** (sans Chartkick)
+- Responsive (desktop / tablette / mobile)
+
+---
+
+## 🏗️ Architecture technique
+
+### Backend
+- Ruby on Rails (standard, non API)
+- SQLite (par défaut, facilement migrable)
+- Services dédiés pour :
+  - calculs de métriques
+  - snapshots
+  - alignements prix / flux
+
+### Frontend
+- ERB + Tailwind CSS
+- Chart.js (via CDN)
+- JavaScript minimal et maîtrisé
+- Aucun framework JS lourd
+
+---
+
+## ⏱️ Données & calculs
+
+- Prix : données journalières (source externe)
+- Snapshots : pré-calculés via tâche planifiée
+- Logique métier centralisée côté serveur
+- Aucun calcul critique côté navigateur
 
 ---
 
 ## 🚧 État du projet
 
-Le projet est en développement actif.
-Les fonctionnalités évoluent au fil des expérimentations et retours.
+- ✅ Base stable
+- ✅ Graphiques fonctionnels
+- ✅ Moteur de lecture marché opérationnel
+- 🔄 En évolution continue
+
+---
+
+## 🗺️ Roadmap (idées)
+
+- Synchronisation des curseurs entre graphiques
+- Ajout d’overlays (zones de décision)
+- Historique et scoring des alertes
+- Export des données (CSV / JSON)
+- Support multi-actifs (après validation BTC)
+
+---
+
+## ⚠️ Avertissement
+
+Bitcoin Monitor est un **outil d’aide à la réflexion**, pas un oracle.
+
+Les décisions de trading comportent des risques.
+L’auteur ne pourra être tenu responsable des pertes financières.
 
 ---
 
 ## 📜 Licence
 
-Projet expérimental / éducatif.  
-À adapter selon ton choix de licence.
+Projet personnel / expérimental.  
+Licence à définir selon l’évolution du projet.
