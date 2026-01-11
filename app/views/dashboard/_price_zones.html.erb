@@ -1,0 +1,479 @@
+<!-- app/views/dashboard/_price_zones.html.erb -->
+
+<section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="text-xl sm:text-2xl font-semibold mb-1">
+        <%= simple_mode? ? "Zones de prix Bitcoin" : "Zones de prix (Support / Résistance)" %>
+      </h2>
+
+      <div data-controller="toggle" class="mt-3">
+        <button type="button"
+                data-action="toggle#toggle"
+                class="text-xs text-indigo-400 hover:text-indigo-300 inline-flex items-center gap-1 text-left">
+          <%= simple_mode? ? "ℹ️ Comprendre (version simple)" : "ℹ️ Méthodologie (version trader)" %>
+        </button>
+
+        <div data-toggle-target="content"
+             class="hidden mt-3 bg-gray-900/70 border border-gray-700 rounded-xl p-4 text-sm text-gray-200 space-y-3 text-left">
+
+          <% if simple_mode? %>
+            <!-- ===================== -->
+            <!-- VERSION GRAND PUBLIC -->
+            <!-- ===================== -->
+
+            <p>
+              Les <strong>zones de prix</strong> sont des <strong>plages</strong> (pas des lignes)
+              où le Bitcoin a souvent <strong>ralenti</strong>, <strong>bloqué</strong> ou <strong>rebondi</strong>.
+              Elles servent juste à repérer des endroits où le marché <em>pourrait</em> réagir à nouveau.
+              <span class="text-gray-400">(ce n’est pas un conseil financier)</span>
+            </p>
+
+            <div class="grid gap-3 sm:grid-cols-2">
+              <div class="bg-gray-950/40 border border-emerald-500/30 rounded-xl p-3">
+                <h4 class="font-semibold text-gray-100 mb-1">🟢 Support</h4>
+                <p class="text-gray-300">
+                  Une zone <strong>sous le prix</strong> où le marché a déjà arrêté de baisser.
+                </p>
+                <p class="text-xs text-gray-400 mt-1">
+                  Si le prix retombe là : il peut <strong>ralentir</strong>, <strong>hésiter</strong>, ou <strong>rebondir</strong>… ou casser la zone.
+                </p>
+              </div>
+
+              <div class="bg-gray-950/40 border border-rose-500/30 rounded-xl p-3">
+                <h4 class="font-semibold text-gray-100 mb-1">🔴 Résistance</h4>
+                <p class="text-gray-300">
+                  Une zone <strong>au-dessus du prix</strong> où le marché a déjà eu du mal à monter plus haut.
+                </p>
+                <p class="text-xs text-gray-400 mt-1">
+                  Si le prix monte là : il peut <strong>bloquer</strong> ou <strong>repartir à la baisse</strong> (certains vendent une partie).
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <h4 class="font-semibold text-gray-100 mb-1">💪 Force</h4>
+              <p class="text-gray-300">
+                Un score (0–100) qui dit si la zone semble plutôt <strong>importante</strong>.
+              </p>
+              <p class="text-xs text-gray-500 mt-1">
+                Lecture rapide :
+                <span class="font-mono">≥70</span> fort •
+                <span class="font-mono">60–69</span> moyen •
+                <span class="font-mono">&lt;60</span> faible
+              </p>
+            </div>
+
+            <div>
+              <h4 class="font-semibold text-gray-100 mb-1">📏 Distance (%)</h4>
+              <p class="text-gray-300">
+                C’est à quel point la zone est <strong>proche</strong> du prix actuel.
+              </p>
+              <p class="text-xs text-gray-400 mt-1">
+                Exemple : <span class="font-mono">-2.8%</span> = le prix doit descendre d’environ 2.8% pour atteindre la zone.
+              </p>
+            </div>
+
+            <div class="text-xs text-gray-500 pt-2 border-t border-gray-700">
+              Fenêtre : ~365 jours • Source : prix journaliers (close) • Zones indicatives (pas un conseil financier).
+            </div>
+          <% else %>
+            <!-- ===================== -->
+            <!-- VERSION TRADER PRO -->
+            <!-- ===================== -->
+
+            <p>
+              Zones dérivées de <strong>pivots journaliers</strong> agrégés par <strong>clustering</strong>.
+              Les zones sont des plages (<span class="font-mono">low → high</span>), pas des niveaux.
+              <span class="text-gray-400">Aide à la décision — pas un conseil financier.</span>
+            </p>
+
+            <div>
+              <h4 class="font-semibold text-gray-100 mb-1">🧠 Calcul</h4>
+              <ul class="list-disc list-inside text-gray-400">
+                <li>Pivots locaux sur closes (<span class="font-mono">N=3</span> jours avant/après).</li>
+                <li>Clustering des pivots avec tolérance <span class="font-mono">±1.2%</span>.</li>
+                <li>Chaque cluster produit une zone <span class="font-mono">low → high</span>.</li>
+              </ul>
+            </div>
+
+            <div>
+              <h4 class="font-semibold text-gray-100 mb-1">💪 Strength</h4>
+              <p class="text-gray-300">
+                Score composite (0–100) : <strong>touches</strong> + <strong>récence</strong>.
+              </p>
+              <p class="text-xs text-gray-500 mt-1">
+                <span class="font-mono">≥70</span> strong •
+                <span class="font-mono">60–69</span> mid •
+                <span class="font-mono">&lt;60</span> weak
+              </p>
+            </div>
+
+            <div>
+              <h4 class="font-semibold text-gray-100 mb-1">🎯 Sélection dashboard</h4>
+              <ul class="list-disc list-inside text-gray-400">
+                <li>Nearest support : <span class="font-mono">high_usd ≤ price</span> (priorité au plus proche).</li>
+                <li>Nearest resistance : <span class="font-mono">low_usd ≥ price</span> (priorité au plus proche).</li>
+                <li>Distance : mid-zone vs price (en %).</li>
+              </ul>
+            </div>
+
+            <div class="text-xs text-gray-500 pt-2 border-t border-gray-700">
+              Fenêtre : ~365 jours • Données : closes journaliers • Params : pivots N=3, cluster ±1.2%.
+            </div>
+          <% end %>
+        </div>
+      </div>
+
+      <% if @price_now.present? %>
+        <% diff = @price_live.present? ? ((@price_live.to_d - @price_now.to_d) / @price_now.to_d * 100).round(2) : nil %>
+        <div class="mt-2">
+          <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3 items-stretch">
+            <!-- Close journalier -->
+            <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+              <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">
+                <%= link_to market_price_path(range: "7d"),
+                            class: "text-indigo-300 hover:text-indigo-200 underline decoration-indigo-500/40" do %>
+                  Close journalier (référence)
+                <% end %>
+              </p>
+              <p class="text-2xl sm:text-3xl font-bold text-gray-100">
+                <span class="font-mono">
+                  <%= number_to_currency(@price_now.to_f, unit: "$", precision: 0, delimiter: " ") %>
+                </span>
+              </p>
+              <p class="text-xs text-gray-500 mt-1">
+                Utilisé pour MA200, cycle et zones
+              </p>
+            </div>
+
+            <!-- Prix live -->
+            <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+              <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">
+                Prix live (indicatif)
+              </p>
+
+              <% if @price_live.present? %>
+                <p class="text-2xl sm:text-3xl font-bold text-gray-100">
+                  <span class="font-mono">
+                    <%= number_to_currency(@price_live.to_f, unit: "$", precision: 0, delimiter: " ") %>
+                  </span>
+                </p>
+                <p class="text-xs text-gray-500 mt-1">
+                  Peut varier selon la source
+                </p>
+              <% else %>
+                <p class="text-sm text-gray-300">Non disponible</p>
+                <p class="text-xs text-gray-500 mt-1">Active l’import live</p>
+              <% end %>
+            </div>
+
+            <!-- Écart -->
+            <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+              <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">
+                Écart live vs close
+              </p>
+
+              <% if diff.present? %>
+                <p class="text-2xl sm:text-3xl font-bold font-mono <%= diff >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+                  <%= diff >= 0 ? "+" : "" %><%= diff %>%
+                </p>
+
+                <p class="text-xs text-gray-500 mt-1">
+                  <% if diff.abs >= 1 %>
+                    Écart notable (normal si marché bouge)
+                  <% else %>
+                    Très proche du close
+                  <% end %>
+                </p>
+              <% else %>
+                <p class="text-sm text-gray-300">—</p>
+                <p class="text-xs text-gray-500 mt-1">Nécessite le prix live</p>
+              <% end %>
+            </div>
+
+            <!-- MA200 -->
+            <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+              <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">
+                MA200 (structure)
+              </p>
+
+              <% if @market_snapshot&.ma200_usd.present? && @price_now.present? %>
+                <% ma200 = @market_snapshot.ma200_usd.to_d %>
+                <% dist = ((@price_now.to_d - ma200) / ma200 * 100).round(2) %>
+
+                <p class="text-2xl sm:text-3xl font-bold text-gray-100">
+                  <span class="font-mono">
+                    <%= number_to_currency(ma200.to_f, unit: "$", precision: 0, delimiter: " ") %>
+                  </span>
+                </p>
+
+                <p class="text-sm font-mono mt-1 <%= dist >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+                  <%= dist >= 0 ? "+" : "" %><%= dist %>% sous MA200
+                </p>
+
+                <p class="text-xs text-gray-500 mt-1">
+                  <%= dist >= 0 ? "Au-dessus de la tendance long terme" : "Sous la tendance long terme" %>
+                </p>
+              <% else %>
+                <p class="text-sm text-gray-300">—</p>
+                <p class="text-xs text-gray-500 mt-1">
+                  MA200 non disponible
+                </p>
+              <% end %>
+            </div>
+          </div>
+
+          <div class="mt-3 text-xs text-gray-500 text-left">
+            <span class="inline-flex items-center gap-2">
+              <span class="px-2 py-0.5 rounded-full border border-gray-700 bg-gray-900/60 text-gray-300">
+                Timeframe
+              </span>
+              <span>Basé sur les prix quotidiens des 12 derniers mois</span>
+            </span>
+          </div>
+        </div>
+      <% else %>
+        <div class="mt-3 bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+          <p class="text-sm text-gray-200 mb-1">Prix indisponible</p>
+          <p class="text-xs text-gray-400">Importe d’abord les données (close journalier) pour calculer MA200, cycle et zones.</p>
+        </div>
+      <% end %>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <%= button_to price_zones_refresh_path,
+                    method: :post,
+                    class: "inline-flex items-center gap-2 rounded-xl px-4 py-3
+                            bg-gray-900/70 border border-gray-700 text-gray-100 text-sm
+                            hover:bg-gray-800 hover:border-gray-600 transition" do %>
+        <span class="text-base">↻</span>
+        <span class="font-semibold text-sm sm:text-[13px]">Recalculer</span>
+      <% end %>
+    </div>
+  </div>
+
+  <% if @price_now.present? && @price_zones.present? %>
+    <% support = @price_zones[:support] %>
+    <% resist  = @price_zones[:resistance] %>
+    <% bonus   = Array(@price_zones[:bonus]) %>
+
+    <% force_badge = lambda do |z|
+         s = z&.strength.to_i
+         if s >= 70
+           ["FORT", "bg-emerald-900/70 border-emerald-500/70 text-emerald-100"]
+         elsif s >= 60
+           ["MOYEN", "bg-amber-900/70 border-amber-500/70 text-amber-100"]
+         else
+           ["FAIBLE", "bg-gray-900/70 border-gray-500/70 text-gray-200"]
+         end
+       end
+    %>
+
+    <div class="mt-5 grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <!-- Support -->
+      <div class="bg-gray-900/70 border border-emerald-500/60 text-emerald-200 rounded-xl px-4 py-3 hover:bg-emerald-600/20 hover:border-emerald-400 transition">
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-[11px] uppercase tracking-wide opacity-80">Support</p>
+          <% if support.present? %>
+            <% label, klass = force_badge.call(support) %>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] <%= klass %>">
+              <%= label %> • <%= support.strength %>
+            </span>
+          <% end %>
+        </div>
+
+        <% if support.present? %>
+          <% mid  = (support.low_usd.to_d + support.high_usd.to_d) / 2 %>
+          <% dist = -((@price_now.to_d - mid) / @price_now.to_d * 100).abs.round(2) %>
+
+          <p class="text-lg font-semibold mt-1">
+            <span class="font-mono">
+              <%= number_to_currency(support.low_usd.to_f, unit: "$", precision: 0, delimiter: " ") %>
+              –
+              <%= number_to_currency(support.high_usd.to_f, unit: "$", precision: 0, delimiter: " ") %>
+            </span>
+          </p>
+
+          <p class="text-xs text-gray-300 mt-1">
+            Distance :
+            <span class="font-mono"><%= dist %>%</span>
+            • Touches :
+            <span class="font-mono"><%= support.touches_count %></span>
+          </p>
+
+          <% if simple_mode? %>
+            <p class="text-xs text-gray-400 mt-1">
+              Si le prix baisse jusque-là, il peut ralentir ou rebondir (mais rien n’est garanti).
+            </p>
+          <% else %>
+            <p class="text-xs text-gray-400 mt-1">
+              Nearest support sous le prix actuel (mid-zone distance).
+            </p>
+          <% end %>
+        <% else %>
+          <p class="text-sm text-gray-200 mt-2">Aucun support clair sous le prix actuel.</p>
+        <% end %>
+      </div>
+
+      <!-- Résistance -->
+      <div class="bg-gray-900/70 border border-rose-500/60 text-rose-200 rounded-xl px-4 py-3 hover:bg-rose-600/20 hover:border-rose-400 transition">
+        <div class="flex items-center justify-between gap-2">
+          <p class="text-[11px] uppercase tracking-wide opacity-80">Résistance</p>
+          <% if resist.present? %>
+            <% label, klass = force_badge.call(resist) %>
+            <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] <%= klass %>">
+              <%= label %> • <%= resist.strength %>
+            </span>
+          <% end %>
+        </div>
+
+        <% if resist.present? %>
+          <% mid  = (resist.low_usd.to_d + resist.high_usd.to_d) / 2 %>
+          <% dist = ((mid - @price_now.to_d) / @price_now.to_d * 100).abs.round(2) %>
+
+          <p class="text-lg font-semibold mt-1">
+            <span class="font-mono">
+              <%= number_to_currency(resist.low_usd.to_f, unit: "$", precision: 0, delimiter: " ") %>
+              –
+              <%= number_to_currency(resist.high_usd.to_f, unit: "$", precision: 0, delimiter: " ") %>
+            </span>
+          </p>
+
+          <p class="text-xs text-gray-300 mt-1">
+            Distance :
+            <span class="font-mono">+<%= dist %>%</span>
+            • Touches :
+            <span class="font-mono"><%= resist.touches_count %></span>
+          </p>
+
+          <% if simple_mode? %>
+            <p class="text-xs text-gray-400 mt-1">
+              Si le prix monte jusque-là, il peut bloquer ou redescendre (certains vendent une partie).
+            </p>
+          <% else %>
+            <p class="text-xs text-gray-400 mt-1">
+              Nearest resistance au-dessus du prix actuel (mid-zone distance).
+            </p>
+          <% end %>
+        <% else %>
+          <p class="text-sm text-gray-200 mt-2">Aucune résistance claire au-dessus du prix actuel.</p>
+        <% end %>
+      </div>
+    </div>
+    <% if bonus.any? %>
+      <div class="mt-5 bg-gray-900/70 border border-gray-700 rounded-xl p-4 text-left">
+        <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-3">
+          <p class="text-xs uppercase tracking-wide text-gray-400">
+            <%= simple_mode? ? "Niveaux bonus (repères plus loin)" : "Niveaux bonus (force ≥ 70)" %>
+          </p>
+
+          <% if simple_mode? %>
+            <p class="text-xs text-gray-500">
+              Zones fortes mais plus éloignées, utiles pour se projeter.
+            </p>
+          <% end %>
+        </div>
+
+        <%# Mini helper pour badge force, cohérent avec le reste %>
+        <% bonus_badge = lambda do |strength|
+             s = strength.to_i
+             if s >= 80
+               ["TRÈS FORT", "bg-emerald-900/70 border-emerald-500/70 text-emerald-100"]
+             elsif s >= 70
+               ["FORT", "bg-amber-900/70 border-amber-500/70 text-amber-100"]
+             else
+               ["OK", "bg-gray-900/70 border-gray-600/70 text-gray-200"]
+             end
+           end
+        %>
+
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <% bonus.each do |z| %>
+            <% kind = z.kind.to_s %>
+
+            <% box_classes =
+                 case kind
+                 when "support"
+                   "border-emerald-500/40 text-emerald-200 hover:bg-emerald-600/10 hover:border-emerald-400"
+                 when "resistance"
+                   "border-rose-500/40 text-rose-200 hover:bg-rose-600/10 hover:border-rose-400"
+                 else
+                   "border-gray-600/50 text-gray-200 hover:bg-gray-800/40 hover:border-gray-500"
+                 end
+            %>
+
+            <% label_kind =
+                 case kind
+                 when "support" then "Support bonus"
+                 when "resistance" then "Résistance bonus"
+                 else "Niveau bonus"
+                 end
+            %>
+
+            <%# Distance vs price_now (mid-zone) signée %>
+            <% if @price_now.present? %>
+              <% mid  = (z.low_usd.to_d + z.high_usd.to_d) / 2 %>
+              <% raw  = ((mid - @price_now.to_d) / @price_now.to_d * 100) %>
+              <% dist = raw.round(2) %>
+            <% end %>
+
+            <div class="bg-gray-900/70 border rounded-xl px-4 py-3 transition <%= box_classes %>">
+              <div class="flex items-center justify-between gap-2">
+                <p class="text-[11px] uppercase tracking-wide opacity-80">
+                  <%= label_kind %>
+                </p>
+
+                <% lbl, klass = bonus_badge.call(z.strength) %>
+                <span class="inline-flex items-center px-2 py-0.5 rounded-full border text-[11px] <%= klass %>">
+                  <%= lbl %> • <%= z.strength %>
+                </span>
+              </div>
+
+              <p class="text-lg font-semibold mt-1">
+                <span class="font-mono">
+                  <%= number_to_currency(z.low_usd.to_f, unit: "$", precision: 0, delimiter: " ") %>
+                  –
+                  <%= number_to_currency(z.high_usd.to_f, unit: "$", precision: 0, delimiter: " ") %>
+                </span>
+              </p>
+
+              <p class="text-xs text-gray-300 mt-1">
+                <% if @price_now.present? %>
+                  Distance :
+                  <span class="font-mono <%= dist >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+                    <%= dist >= 0 ? "+" : "" %><%= dist %>%
+                  </span>
+                  <span class="mx-2 text-gray-600">•</span>
+                <% end %>
+                <span class="text-gray-400">
+                  <%= simple_mode? ? "Zone forte (repère)" : "Strong cluster (projection)" %>
+                </span>
+              </p>
+
+              <% if simple_mode? %>
+                <p class="text-xs text-gray-400 mt-1">
+                  Repère plus loin : utile pour visualiser des objectifs possibles (hausse/baisse), sans garantie.
+                </p>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+
+    <div class="mt-4 text-xs text-gray-500 text-left">
+      <%= simple_mode? ?
+            "Rappel : ce sont des zones indicatives. Calcul automatique sur ~365 jours." :
+            "Calcul : pivots (N=3) + clustering ±1.2% sur 365 jours • Strength = touches + récence." %>
+    </div>
+
+  <% else %>
+    <div class="mt-5 bg-gray-900/70 border border-gray-700 rounded-xl p-4 text-left">
+      <p class="text-sm text-gray-200 mb-2">Aucune zone disponible.</p>
+      <p class="text-xs text-gray-400">
+        Clique sur <span class="font-semibold">Recalculer</span> pour générer les zones à partir des prix journaliers.
+      </p>
+    </div>
+  <% end %>
+</section>

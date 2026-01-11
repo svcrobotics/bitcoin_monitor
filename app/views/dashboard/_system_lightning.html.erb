@@ -1,0 +1,78 @@
+<%# locals: lightning_status: %>
+<section class="bg-gray-800/70 border border-gray-700 rounded-2xl p-5 sm:p-6 shadow-xl">
+  <h3 class="text-lg sm:text-xl font-semibold mb-4">Lightning Network</h3>
+
+  <% if lightning_status && lightning_status[:enabled] %>
+    <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-4">
+      <div>
+        <p class="text-sm text-gray-300">
+          Nœud Lightning :
+          <span class="inline-flex items-center gap-1 font-semibold text-green-300">En ligne</span>
+        </p>
+        <p class="text-xs text-gray-400">
+          Alias : <strong><%= lightning_status[:alias] || "Inconnu" %></strong><br>
+          Pubkey :
+          <% if lightning_status[:pubkey].present? %>
+            <span class="font-mono text-[11px]"><%= lightning_status[:pubkey][0, 16] %>…</span>
+          <% else %>
+            <span class="text-gray-500">non disponible</span>
+          <% end %>
+        </p>
+      </div>
+
+      <div class="text-xs text-gray-400">
+        <p>Peers connectés : <strong><%= lightning_status[:num_peers] %></strong></p>
+        <p>Canaux : <strong><%= lightning_status[:active_channels] %></strong> actifs /
+          <strong><%= lightning_status[:num_channels] %></strong> au total</p>
+      </div>
+    </div>
+
+    <div class="grid gap-4 sm:grid-cols-2 mt-2">
+      <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+        <p class="text-xs uppercase tracking-wide text-gray-400 mb-1">Capacité totale</p>
+        <p class="text-lg font-semibold text-gray-100"><%= lightning_status[:capacity_sat] %> sats</p>
+        <p class="text-xs text-gray-400 mt-1">Somme des capacités de tous les canaux ouverts.</p>
+      </div>
+
+      <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+        <p class="text-xs uppercase tracking-wide text-gray-400 mb-1">Solde local / remote</p>
+        <p class="text-lg font-semibold text-gray-100">
+          <%= lightning_status[:local_balance_sat] %> / <%= lightning_status[:remote_balance_sat] %> sats
+        </p>
+        <p class="text-xs text-gray-400 mt-1">Local = envoyer • Remote = recevoir.</p>
+      </div>
+    </div>
+
+    <div class="mt-4 bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+      <h4 class="text-sm font-semibold text-gray-300 uppercase tracking-wide mb-1">Synchronisation</h4>
+      <p class="text-sm text-gray-200">
+        Chaîne Bitcoin :
+        <% if lightning_status[:synced_to_chain] %>
+          <span class="text-emerald-300 font-semibold">synchro OK</span>
+        <% else %>
+          <span class="text-yellow-300 font-semibold">en rattrapage…</span>
+        <% end %>
+        <br>
+        Graphe Lightning :
+        <% if lightning_status[:synced_to_graph] %>
+          <span class="text-emerald-300 font-semibold">synchro OK</span>
+        <% else %>
+          <span class="text-yellow-300 font-semibold">en cours…</span>
+        <% end %>
+      </p>
+    </div>
+  <% else %>
+    <p class="text-sm text-gray-300 mb-2">
+      Nœud Lightning :
+      <span class="inline-flex items-center gap-1 font-semibold text-red-300">Indisponible</span>
+    </p>
+    <% if lightning_status && lightning_status[:error].present? %>
+      <p class="text-xs text-gray-400">Détail : <%= lightning_status[:error] %></p>
+    <% else %>
+      <p class="text-xs text-gray-400">
+        Configurez <code class="font-mono">LND_REST_URL</code> et
+        <code class="font-mono">LND_MACAROON_HEX</code>.
+      </p>
+    <% end %>
+  <% end %>
+</section>

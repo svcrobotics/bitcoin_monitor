@@ -1,0 +1,30 @@
+<%# locals: range:, alerts_mode:, trader_alerts:, journal_body_all: %>
+
+<div class="flex items-start justify-between gap-3">
+  <div>
+    <h1 class="text-xl sm:text-2xl font-semibold">Bitcoin — évolution du prix</h1>
+    <p class="text-sm text-gray-400 mt-1">
+      Close journalier • <%= range.to_s.upcase %>
+      <% if alerts_mode.present? %>
+        <span class="text-gray-600 mx-1">•</span>
+        Alertes : <span class="font-mono"><%= alerts_mode %></span>
+      <% end %>
+    </p>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <%= link_to "← Retour", root_path, class: "text-sm text-indigo-400 hover:text-indigo-300" %>
+
+    <%= link_to journal_entry_prefill_path(
+          mood: mood_from_alerts(trader_alerts),
+          tags: "price,flow,market,#{range},#{alerts_mode}",
+          context: "Market Price #{range} (#{alerts_mode})",
+          body: journal_body_all.to_s
+        ),
+        class: "inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs
+                bg-gray-900/70 border border-gray-700 text-gray-200
+                hover:bg-gray-800 hover:border-gray-600 transition" do %>
+      📝 Journaliser la période
+    <% end %>
+  </div>
+</div>

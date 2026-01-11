@@ -1,0 +1,45 @@
+<%# locals: decision: %>
+<% return unless decision.present? %>
+
+<% action = decision[:action].to_s %>
+<% score  = decision[:score].to_i %>
+
+<% badge =
+  case action
+  when "sell"    then "border-emerald-500/50 text-emerald-200 bg-emerald-500/10"
+  when "hold"    then "border-gray-700 text-gray-300 bg-white/5"
+  when "neutral" then "border-amber-500/50 text-amber-200 bg-amber-500/10"
+  else                "border-gray-700 text-gray-300 bg-white/5"
+  end
+%>
+
+<section class="mt-4 bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-5">
+  <h3 class="text-sm uppercase tracking-wide text-gray-500">Vendre aujourd’hui ?</h3>
+
+  <p class="text-sm text-gray-300 mt-1">
+    Décision :
+    <span class="inline-flex items-center gap-2 px-2 py-1 rounded-full border <%= badge %>">
+      <span class="font-semibold"><%= action.upcase %></span>
+      <span class="text-xs text-gray-300/80">score <span class="font-mono"><%= score %></span>/100</span>
+    </span>
+    <span class="text-xs text-gray-500 ml-2">
+      Net: <span class="font-mono text-gray-200"><%= number_to_currency(decision[:net_usd].to_f, unit: "$") %></span>
+      • PnL: <span class="font-mono <%= decision[:pnl_pct].to_f >= 0 ? "text-emerald-300" : "text-rose-300" %>"><%= number_with_precision(decision[:pnl_pct].to_f, precision: 2) %>%</span>
+    </span>
+    <% if decision[:trailing].present? %>
+      <div class="text-xs text-gray-500 mt-1">
+        Pic: <span class="font-mono text-gray-300"><%= decision[:trailing][:peak_day] %></span>
+        (<span class="font-mono text-gray-300"><%= number_with_precision(decision[:trailing][:peak_pnl_pct], precision: 2) %>%</span>)
+        • Repli: <span class="font-mono text-amber-300"><%= number_with_precision(decision[:trailing][:drawdown_from_peak_pct], precision: 2) %>%</span>
+      </div>
+    <% end %>
+  </p>
+
+  <ul class="mt-3 space-y-1">
+    <% Array(decision[:reasons]).first(4).each do |r| %>
+      <li class="text-sm text-gray-300">
+        • <span class="text-gray-200"><%= r[:label] %></span>
+      </li>
+    <% end %>
+  </ul>
+</section>

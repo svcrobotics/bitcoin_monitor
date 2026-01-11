@@ -1,0 +1,76 @@
+<%= form_with(model: trade_simulation, class: "space-y-6") do |f| %>
+  <% if trade_simulation.errors.any? %>
+    <div class="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4 text-rose-200">
+      <p class="font-semibold mb-2">Erreurs</p>
+      <ul class="list-disc list-inside text-sm text-rose-200/90">
+        <% trade_simulation.errors.full_messages.each do |msg| %>
+          <li><%= msg %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <div class="rounded-2xl border border-gray-800 bg-gray-900/50 p-5">
+    <h2 class="text-lg font-semibold text-gray-100">Paramètres</h2>
+    <p class="text-sm text-gray-400 mt-1">Montant BTC + dates + frais.</p>
+
+    <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <%= f.label :buy_day, "Date d’achat", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.date_field :buy_day, class: "w-full rounded-xl bg-black/30 border border-gray-700 text-gray-100 px-3 py-2" %>
+      </div>
+
+      <div>
+        <%= f.label :sell_day, "Date de revente", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.date_field :sell_day, class: "w-full rounded-xl bg-black/30 border border-gray-700 text-gray-100 px-3 py-2" %>
+      </div>
+
+      <div>
+        <%= f.label :btc_amount, "BTC achetés", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.number_field :btc_amount, step: "0.00000001", class: "w-full rounded-xl bg-black/30 border border-gray-700 text-gray-100 px-3 py-2 font-mono" %>
+      </div>
+
+      <div>
+        <%= f.label :slippage_pct, "Slippage % (option)", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.number_field :slippage_pct, step: "0.001", class: "w-full rounded-xl bg-black/30 border border-gray-700 text-gray-100 px-3 py-2 font-mono" %>
+      </div>
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-gray-800 bg-gray-900/50 p-5">
+    <h2 class="text-lg font-semibold text-gray-100">Frais</h2>
+
+    <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+      <div>
+        <%= f.label :buy_fee_pct, "Frais achat %", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.number_field :buy_fee_pct, step: "0.001", class: "w-full rounded-xl bg-black/30 border border-gray-700 text-gray-100 px-3 py-2 font-mono" %>
+      </div>
+
+      <div>
+        <%= f.label :buy_fee_fixed_eur, "Frais achat fixe", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.number_field :buy_fee_fixed_eur, step: "0.01", class: "w-full rounded-xl bg-black/30 border border-gray-700 text-gray-100 px-3 py-2 font-mono" %>
+      </div>
+
+      <div>
+        <%= f.label :sell_fee_pct, "Frais vente %", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.number_field :sell_fee_pct, step: "0.001", class: "w-full rounded-xl bg-black/30 border border-gray-700 text-gray-100 px-3 py-2 font-mono" %>
+      </div>
+
+      <div>
+        <%= f.label :sell_fee_fixed_eur, "Frais vente fixe", class: "block text-sm text-gray-300 mb-1" %>
+        <%= f.number_field :sell_fee_fixed_eur, step: "0.01", class: "w-full rounded-xl bg-black/30 border border-gray-700 text-gray-100 px-3 py-2 font-mono" %>
+      </div>
+    </div>
+
+    <p class="text-xs text-gray-500 mt-3">
+      Pour l’instant ton prix est en USD (close_usd). Mets les frais fixes dans la même devise pour éviter des incohérences.
+    </p>
+  </div>
+
+  <div class="flex flex-col sm:flex-row gap-2">
+    <%= f.submit class: "rounded-xl px-4 py-2 bg-cyan-600/15 border border-cyan-500/50 text-cyan-200 hover:bg-cyan-600/25 hover:border-cyan-400 transition font-semibold" %>
+
+    <%= link_to "Annuler", trade_simulations_path,
+      class: "rounded-xl px-4 py-2 bg-gray-900/60 border border-gray-700/60 text-gray-200 hover:bg-gray-800 hover:border-gray-600 transition font-semibold text-center" %>
+  </div>
+<% end %>

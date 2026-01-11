@@ -1,0 +1,90 @@
+<%# locals: alignment:, sell_verdict: %>
+<% return unless alignment.present? %>
+
+<section class="mt-4 bg-gray-800/80 border border-gray-700 rounded-2xl p-4 sm:p-5 shadow-xl">
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="text-lg font-semibold text-gray-100">
+        Alignement Prix / Exchanges
+      </h2>
+      <p class="text-sm text-gray-400">
+        Lecture sur <span class="font-mono"><%= alignment.days %>j</span> :
+        prix vs flux nets vers exchanges
+      </p>
+    </div>
+
+    <span class="text-xs px-3 py-1 rounded-full border <%= alignment.badge_cls %>">
+      <%= alignment.label %>
+    </span>
+  </div>
+
+  <!-- Metrics -->
+  <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3">
+    <!-- Price performance -->
+    <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
+      <div class="text-xs text-gray-400">Perf prix</div>
+      <div class="text-lg font-semibold <%= alignment.price_perf_pct.to_f >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+        <%= alignment.price_perf_pct.to_f > 0 ? "+" : "" %><%= alignment.price_perf_pct %>%
+      </div>
+    </div>
+
+    <!-- Net flow -->
+    <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
+      <div class="text-xs text-gray-400">Net flow exchanges</div>
+      <div class="text-lg font-semibold <%= alignment.flow_net_btc.to_f > 0 ? "text-rose-300" : (alignment.flow_net_btc.to_f < 0 ? "text-emerald-300" : "text-gray-200") %>">
+        <%= alignment.flow_net_btc.to_f > 0 ? "+" : "" %>
+        <%= number_with_precision(alignment.flow_net_btc, precision: 2, delimiter: " ") %> BTC
+      </div>
+      <div class="text-[11px] text-gray-500 mt-1">
+        net = inflow − outflow • positif = pression vendeuse potentielle
+      </div>
+    </div>
+
+    <!-- Detail -->
+    <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
+      <div class="text-xs text-gray-400">Détail</div>
+      <div class="text-sm text-gray-200">
+        Inflow :
+        <span class="font-mono">
+          <%= number_with_precision(alignment.flow_inflow_btc, precision: 2, delimiter: " ") %>
+        </span> BTC<br>
+        Outflow :
+        <span class="font-mono">
+          <%= number_with_precision(alignment.flow_outflow_btc, precision: 2, delimiter: " ") %>
+        </span> BTC
+      </div>
+    </div>
+  </div>
+
+  <!-- Reading -->
+  <p class="mt-3 text-sm text-gray-200">
+    <span class="text-gray-400">Lecture :</span>
+    <%= alignment.hint %>
+  </p>
+
+  <!-- Sell confirmation -->
+  <% if sell_verdict.present? %>
+    <div class="mt-4 bg-gray-900/60 border border-gray-700 rounded-xl p-4">
+      <div class="flex items-center justify-between gap-3">
+        <div>
+          <p class="text-xs uppercase tracking-wide text-gray-400">
+            Ventes : confirmation
+          </p>
+          <p class="text-sm text-gray-200 mt-1">
+            <%= sell_verdict[2] %>
+          </p>
+        </div>
+
+        <span class="text-xs px-3 py-1 rounded-full border <%= sell_verdict[1] %>">
+          <%= sell_verdict[0] %>
+        </span>
+      </div>
+
+      <p class="text-[11px] text-gray-500 mt-2">
+        Rappel : inflow = intention de vendre • confirmation = réaction du prix
+        (baisse) après dépôts nets.
+      </p>
+    </div>
+  <% end %>
+</section>

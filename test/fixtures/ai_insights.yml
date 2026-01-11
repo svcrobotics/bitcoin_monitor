@@ -1,0 +1,17 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  key: MyString
+  content: MyText
+  provider: MyString
+  model: MyString
+  input_digest: MyString
+  meta: 
+
+two:
+  key: MyString
+  content: MyText
+  provider: MyString
+  model: MyString
+  input_digest: MyString
+  meta: 

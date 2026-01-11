@@ -10,9 +10,22 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2025_12_29_204539) do
+ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "ai_insights", force: :cascade do |t|
+    t.string "key"
+    t.text "content"
+    t.string "provider"
+    t.string "model"
+    t.string "input_digest"
+    t.jsonb "meta"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["input_digest"], name: "index_ai_insights_on_input_digest"
+    t.index ["key"], name: "index_ai_insights_on_key"
+  end
 
   create_table "brc20_balances", force: :cascade do |t|
     t.integer "brc20_token_id", null: false
@@ -117,6 +130,59 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_29_204539) do
     t.index ["tick"], name: "index_brc20_tokens_on_tick", unique: true
   end
 
+  create_table "btc_price_days", force: :cascade do |t|
+    t.date "day", null: false
+    t.decimal "open_usd", precision: 20, scale: 8
+    t.decimal "high_usd", precision: 20, scale: 8
+    t.decimal "low_usd", precision: 20, scale: 8
+    t.decimal "close_usd", precision: 20, scale: 8, null: false
+    t.string "source", default: "coingecko", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.decimal "volume_btc", precision: 20, scale: 8
+    t.jsonb "sources_json", default: {}, null: false
+    t.datetime "computed_at"
+    t.index ["computed_at"], name: "index_btc_price_days_on_computed_at"
+    t.index ["day"], name: "index_btc_price_days_on_day", unique: true
+  end
+
+  create_table "exchange_addresses", force: :cascade do |t|
+    t.string "address"
+    t.integer "confidence"
+    t.integer "occurrences"
+    t.datetime "first_seen_at"
+    t.datetime "last_seen_at"
+    t.string "source"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "exchange_flows", force: :cascade do |t|
+    t.date "day"
+    t.decimal "inflow_btc"
+    t.decimal "avg7"
+    t.decimal "avg30"
+    t.decimal "avg200"
+    t.decimal "ratio30"
+    t.string "status"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "exchange_true_flows", force: :cascade do |t|
+    t.date "day"
+    t.decimal "inflow_btc"
+    t.decimal "outflow_btc"
+    t.decimal "netflow_btc"
+    t.decimal "avg7"
+    t.decimal "avg30"
+    t.decimal "avg200"
+    t.decimal "ratio30"
+    t.string "status"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
   create_table "feature_requests", force: :cascade do |t|
     t.string "title", null: false
     t.text "description", null: false
@@ -149,6 +215,18 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_29_204539) do
     t.index ["status"], name: "index_guides_on_status"
   end
 
+  create_table "journal_entries", force: :cascade do |t|
+    t.datetime "occurred_at"
+    t.string "kind"
+    t.string "mood"
+    t.decimal "btc_price_eur"
+    t.string "context"
+    t.text "body"
+    t.string "tags"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
   create_table "login_challenges", force: :cascade do |t|
     t.string "nonce", null: false
     t.string "domain", null: false
@@ -160,6 +238,42 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_29_204539) do
     t.datetime "updated_at", null: false
     t.text "message_text"
     t.index ["nonce"], name: "index_login_challenges_on_nonce", unique: true
+  end
+
+  create_table "market_snapshots", force: :cascade do |t|
+    t.datetime "computed_at", null: false
+    t.decimal "price_now_usd", precision: 20, scale: 8
+    t.decimal "ma200_usd", precision: 20, scale: 8
+    t.decimal "price_vs_ma200_pct", precision: 10, scale: 4
+    t.decimal "ath_usd", precision: 20, scale: 8
+    t.decimal "drawdown_pct", precision: 10, scale: 4
+    t.decimal "amplitude_30d_pct", precision: 10, scale: 4
+    t.string "market_bias", null: false
+    t.string "cycle_zone", null: false
+    t.string "risk_level", null: false
+    t.jsonb "reasons", default: [], null: false
+    t.string "status", default: "ok", null: false
+    t.text "error_message"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["computed_at"], name: "index_market_snapshots_on_computed_at"
+    t.index ["status"], name: "index_market_snapshots_on_status"
+  end
+
+  create_table "price_zones", force: :cascade do |t|
+    t.string "kind", null: false
+    t.decimal "low_usd", precision: 20, scale: 8, null: false
+    t.decimal "high_usd", precision: 20, scale: 8, null: false
+    t.integer "strength", default: 0, null: false
+    t.integer "touches_count", default: 0, null: false
+    t.string "timeframe", default: "1y_daily", null: false
+    t.datetime "computed_at", null: false
+    t.text "note"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["computed_at"], name: "index_price_zones_on_computed_at"
+    t.index ["kind", "timeframe", "computed_at"], name: "index_price_zones_on_kind_and_timeframe_and_computed_at"
+    t.index ["kind"], name: "index_price_zones_on_kind"
   end
 
   create_table "rune_balances", force: :cascade do |t|
@@ -260,6 +374,34 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_29_204539) do
     t.index ["rune_id_block", "rune_id_tx"], name: "index_rune_tokens_on_rune_id_block_and_rune_id_tx", unique: true
   end
 
+  create_table "trade_simulation_points", force: :cascade do |t|
+    t.bigint "trade_simulation_id", null: false
+    t.date "day", null: false
+    t.decimal "price_usd", precision: 20, scale: 8, null: false
+    t.decimal "net_usd", precision: 20, scale: 8, null: false
+    t.decimal "pnl_usd", precision: 20, scale: 8, null: false
+    t.decimal "pnl_pct", precision: 10, scale: 4, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["day"], name: "index_trade_simulation_points_on_day"
+    t.index ["trade_simulation_id", "day"], name: "index_trade_simulation_points_on_trade_simulation_id_and_day", unique: true
+    t.index ["trade_simulation_id"], name: "index_trade_simulation_points_on_trade_simulation_id"
+  end
+
+  create_table "trade_simulations", force: :cascade do |t|
+    t.date "buy_day"
+    t.date "sell_day"
+    t.decimal "btc_amount", precision: 20, scale: 8, null: false
+    t.decimal "buy_fee_pct", precision: 6, scale: 3, default: "0.0", null: false
+    t.decimal "buy_fee_fixed_eur", precision: 12, scale: 2, default: "0.0", null: false
+    t.decimal "sell_fee_pct", precision: 6, scale: 3, default: "0.0", null: false
+    t.decimal "sell_fee_fixed_eur", precision: 12, scale: 2, default: "0.0", null: false
+    t.decimal "slippage_pct", precision: 6, scale: 3, default: "0.0", null: false
+    t.text "notes"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
   create_table "vault_addresses", force: :cascade do |t|
     t.bigint "vault_id", null: false
     t.string "kind", null: false
@@ -355,5 +497,6 @@ ActiveRecord::Schema[8.0].define(version: 2025_12_29_204539) do
   add_foreign_key "rune_balances", "rune_tokens"
   add_foreign_key "rune_events", "rune_tokens"
   add_foreign_key "rune_token_daily_stats", "rune_tokens"
+  add_foreign_key "trade_simulation_points", "trade_simulations"
   add_foreign_key "vault_addresses", "vaults"
 end

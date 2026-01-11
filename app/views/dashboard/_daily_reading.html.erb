@@ -1,0 +1,53 @@
+<% r = @daily_reading %>
+<% return if r.blank? %>
+
+<section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+  <div class="flex items-start justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="text-xl sm:text-2xl font-semibold mb-1">Lecture automatique (jour)</h2>
+      <p class="text-sm text-gray-300"><%= r[:headline] %></p>
+    </div>
+
+    <% if r[:weekly].present? %>
+      <% w = r[:weekly] %>
+      <span class="text-xs px-3 py-1 rounded-full border
+        <%= w[:score] >= 70 ? "text-rose-300 bg-rose-500/10 border-rose-700/50" :
+            (w[:score] >= 45 ? "text-amber-300 bg-amber-500/10 border-amber-700/50" :
+                               "text-emerald-300 bg-emerald-500/10 border-emerald-700/50") %>">
+        <%= w[:label] %> • score <span class="font-mono"><%= w[:score] %></span>
+      </span>
+    <% end %>
+  </div>
+
+  <% if r[:bullets].any? %>
+    <div class="mt-4 space-y-1">
+      <% r[:bullets].each do |b| %>
+        <p class="text-sm text-gray-200">• <%= b %></p>
+      <% end %>
+    </div>
+  <% end %>
+
+  <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+      <p class="text-xs uppercase tracking-wide text-gray-400 mb-2">Décision (conduite)</p>
+      <% Array(r[:decision]).each do |d| %>
+        <p class="text-sm text-gray-200">• <%= d %></p>
+      <% end %>
+    </div>
+
+    <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+      <p class="text-xs uppercase tracking-wide text-gray-400 mb-2">Invalidation</p>
+      <% Array(r[:invalidation]).each do |i| %>
+        <p class="text-sm text-gray-200">• <%= i %></p>
+      <% end %>
+    </div>
+  </div>
+
+  <% if r[:weekly].present? %>
+    <% w = r[:weekly] %>
+    <div class="mt-4 text-xs text-gray-500">
+      Semaine: ratio30 moy. <span class="font-mono">x<%= w[:ratio_avg] %></span> • net 7j
+      <span class="font-mono"><%= w[:net_sum_btc] %> BTC</span> • jours 🔴 <span class="font-mono"><%= w[:days_red] %></span> / 🟡 <span class="font-mono"><%= w[:days_amber] %></span>
+    </div>
+  <% end %>
+</section>

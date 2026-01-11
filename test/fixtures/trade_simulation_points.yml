@@ -1,0 +1,17 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  trade_simulation: one
+  day: 2026-01-08
+  price_usd: 9.99
+  net_usd: 9.99
+  pnl_usd: 9.99
+  pnl_pct: 9.99
+
+two:
+  trade_simulation: two
+  day: 2026-01-08
+  price_usd: 9.99
+  net_usd: 9.99
+  pnl_usd: 9.99
+  pnl_pct: 9.99

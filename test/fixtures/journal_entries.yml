@@ -1,0 +1,19 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  occurred_at: 2026-01-03 21:30:10
+  kind: MyString
+  mood: MyString
+  btc_price_eur: 9.99
+  context: MyString
+  body: MyText
+  tags: MyString
+
+two:
+  occurred_at: 2026-01-03 21:30:10
+  kind: MyString
+  mood: MyString
+  btc_price_eur: 9.99
+  context: MyString
+  body: MyText
+  tags: MyString

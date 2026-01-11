@@ -1,0 +1,48 @@
+<%# app/views/market/_ma200.html.erb %>
+<%# locals: ma200:, ma_badge:, px_vs_ma200_pct:, px_now: %>
+<% return unless ma200.present? %>
+
+<% ratio = px_vs_ma200_pct.to_f %>
+
+<div class="mt-4 bg-gray-900/60 border border-gray-700 rounded-2xl p-4">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <p class="text-xs uppercase tracking-wide text-gray-400">Trend filter</p>
+      <h3 class="text-sm font-semibold text-gray-100">MA200 (daily)</h3>
+      <p class="text-xs text-gray-500 mt-1">Filtre long-terme : bull/bear regime</p>
+    </div>
+
+    <span class="text-xs px-3 py-1 rounded-full border <%= ma_badge[1] %>">
+      <%= ma_badge[0] %> •
+      <span class="font-mono"><%= fmt_pct(ratio, precision: 2, assume: :ratio, show_plus: true) %></span>
+    </span>
+  </div>
+
+  <div class="mt-3 grid grid-cols-2 sm:grid-cols-3 gap-3">
+    <div class="bg-black/20 border border-gray-800 rounded-xl p-3">
+      <div class="text-xs text-gray-400">Prix now</div>
+      <div class="text-lg font-semibold text-gray-100">
+        <% if px_now.present? %>
+          <%= number_with_precision(px_now, precision: 0, delimiter: " ") %> $
+        <% else %>
+          —
+        <% end %>
+      </div>
+    </div>
+
+    <div class="bg-black/20 border border-gray-800 rounded-xl p-3">
+      <div class="text-xs text-gray-400">MA200</div>
+      <div class="text-lg font-semibold text-gray-100">
+        <%= number_with_precision(ma200, precision: 0, delimiter: " ") %> $
+      </div>
+    </div>
+
+    <div class="bg-black/20 border border-gray-800 rounded-xl p-3">
+      <div class="text-xs text-gray-400">Distance</div>
+      <div class="text-lg font-semibold <%= ratio >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+        <%= fmt_pct(ratio, precision: 2, assume: :ratio, show_plus: true) %>
+      </div>
+      <div class="text-[11px] text-gray-500">écart relatif vs MA200</div>
+    </div>
+  </div>
+</div>

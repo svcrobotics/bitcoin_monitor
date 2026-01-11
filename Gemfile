@@ -58,6 +58,7 @@ end
 group :development do
   # Use console on exceptions pages [https://github.com/rails/web-console]
   gem "web-console"
+  gem "foreman", "~> 0.90"
 end
 
 group :test do
@@ -78,3 +79,8 @@ gem "redcarpet"
 gem "commonmarker"
 
 require "open3"
+
+gem "stringio", "3.0.4"
+
+gem "chartkick"
+gem "groupdate"

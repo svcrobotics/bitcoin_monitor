@@ -1,0 +1,130 @@
+<%# app/views/dashboard/_weekly_read.html.erb %>
+
+<% w = weekly_trueflow_read(limit: 7) %>
+<% if w %>
+  <% score     = w[:score].to_i %>
+  <% max_score = 14 %> <%# 7 jours × 2 points max (rouge) %>
+  <% pct       = ((score.to_f / max_score) * 100).clamp(0, 100) %>
+
+  <% regime = w[:regime] %>
+
+  <% gauge_cls =
+    if score >= 6
+      "bg-rose-500/30"
+    elsif score >= 3
+      "bg-amber-500/30"
+    else
+      "bg-emerald-500/30"
+    end
+  %>
+
+  <% pressure_label =
+    if score >= 6
+      "Dépôts élevés plusieurs jours : risque de vente augmenté."
+    elsif score >= 3
+      "Flux mitigés : vigilance, le marché peut être sous pression."
+    else
+      "Flux normaux : pas de signal net de vente."
+    end
+  %>
+
+  <section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+    <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+      <div class="min-w-0">
+        <h2 class="text-xl sm:text-2xl font-semibold mb-1">Lecture de la semaine (TrueFlow)</h2>
+        <p class="text-sm text-gray-400">
+          Synthèse 7 jours : entrées/sorties d’exchanges + niveau de pression.
+        </p>
+      </div>
+
+      <div class="flex flex-col sm:flex-row sm:items-center gap-2">
+        <span class="text-xs px-3 py-1 rounded-full border <%= regime[:cls] %>">
+          <%= regime[:label] %>
+        </span>
+
+        <%= link_to new_journal_entry_path(
+              occurred_at: Time.current.strftime("%Y-%m-%dT%H:%M"),
+              kind: "observation",
+              mood: regime[:mood],
+              context: w[:ctx],
+              tags: w[:tags],
+              body: w[:body]
+            ),
+            class: "inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs
+                    bg-gray-900/70 border border-gray-700 text-gray-200
+                    hover:bg-gray-800 hover:border-gray-600 transition" do %>
+          📝 Journaliser (semaine)
+        <% end %>
+      </div>
+    </div>
+
+    <!-- Jauge (beaucoup plus lisible qu'un score brut) -->
+    <div class="mt-5 bg-gray-900/60 border border-gray-700 rounded-2xl p-4 sm:p-5">
+      <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+        <div class="min-w-0">
+          <p class="text-xs uppercase tracking-wide text-gray-400">Pression vendeuse (7j)</p>
+          <p class="text-sm text-gray-200 mt-1"><%= pressure_label %></p>
+          <p class="text-[11px] text-gray-500 mt-2">
+            Détail : <span class="text-rose-300">🔴 <%= w[:red] %></span>
+            <span class="text-gray-600 mx-1">•</span>
+            <span class="text-amber-300">🟡 <%= w[:amber] %></span>
+            <span class="text-gray-600 mx-1">•</span>
+            <span class="text-emerald-300">🟢 <%= w[:green] %></span>
+            <span class="text-gray-600 mx-1">•</span>
+            max <%= max_score %>
+          </p>
+        </div>
+
+        <div class="w-full sm:max-w-xs">
+          <div class="flex items-center justify-between text-xs mb-1">
+            <span class="text-gray-400">Faible</span>
+            <span class="text-gray-400 font-mono"><%= score %>/<%= max_score %></span>
+            <span class="text-gray-400">Forte</span>
+          </div>
+
+          <div class="h-2.5 w-full rounded-full bg-gray-900/60 border border-gray-700 overflow-hidden">
+            <div class="h-full <%= gauge_cls %>" style="width:<%= pct.round %>%"></div>
+          </div>
+
+          <div class="mt-2 text-[11px] text-gray-500">
+            <span class="text-gray-400">Règle :</span> 2 points par jour 🔴, 1 point par jour 🟡.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Chiffres (simplifiés) -->
+    <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-4">
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Inflow total (7j)</div>
+        <div class="mt-1 text-lg font-semibold text-gray-100">
+          <%= number_with_precision(w[:inflow], precision: 2) %> BTC
+        </div>
+        <div class="mt-1 text-[11px] text-gray-500">Dépôts vers exchanges</div>
+      </div>
+
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Outflow total (7j)</div>
+        <div class="mt-1 text-lg font-semibold text-gray-100">
+          <%= number_with_precision(w[:outflow], precision: 2) %> BTC
+        </div>
+        <div class="mt-1 text-[11px] text-gray-500">Retraits depuis exchanges</div>
+      </div>
+
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Net (7j)</div>
+        <div class="mt-1 text-lg font-semibold <%= w[:net_cls] %>">
+          <%= number_with_precision(w[:net], precision: 2) %> BTC
+        </div>
+        <div class="mt-1 text-[11px] text-gray-500"><%= w[:net_label] %></div>
+      </div>
+    </div>
+
+    <div class="mt-4 text-xs text-gray-500 leading-relaxed">
+      <p>
+        <span class="text-gray-400">Conseil lecture :</span>
+        recouper avec tes zones (support/résistance) et la MA200.
+      </p>
+    </div>
+  </section>
+<% end %>

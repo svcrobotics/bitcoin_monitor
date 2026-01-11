@@ -1,0 +1,190 @@
+<%# app/views/trade_simulations/show.html.erb %>
+<% content_for :title, "Trade simulator" %>
+
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+
+  <%# ---- Header ---- %>
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
+    <div class="min-w-0">
+      <h1 class="text-2xl sm:text-3xl font-semibold text-gray-100">Trade simulator</h1>
+      <p class="text-sm text-gray-400 mt-1">
+        Simulation <span class="font-mono text-gray-200">#<%= @trade_simulation.id %></span>
+        · Achat <span class="font-mono text-gray-200"><%= @trade_simulation.buy_day %></span>
+        → Vente <span class="font-mono text-gray-200"><%= @trade_simulation.sell_day %></span>
+        · BTC <span class="font-mono text-gray-200"><%= @trade_simulation.btc_amount %></span>
+      </p>
+    </div>
+
+    <div class="flex flex-wrap gap-2">
+      <%= link_to "Nouvelle", new_trade_simulation_path,
+        class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                bg-cyan-600/15 border border-cyan-500/50 text-cyan-200
+                hover:bg-cyan-600/25 hover:border-cyan-400 hover:text-cyan-100 transition
+                text-sm font-semibold" %>
+
+      <%= link_to "Modifier", edit_trade_simulation_path(@trade_simulation),
+        class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                bg-gray-900/60 border border-gray-700/60 text-gray-200
+                hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100 transition
+                text-sm font-semibold" %>
+
+      <%= link_to "Retour", trade_simulations_path,
+        class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                bg-gray-900/60 border border-gray-700/60 text-gray-200
+                hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100 transition
+                text-sm font-semibold" %>
+
+      <%= button_to "Supprimer", @trade_simulation, method: :delete,
+        form_class: "inline",
+        class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                bg-rose-600/15 border border-rose-500/50 text-rose-200
+                hover:bg-rose-600/25 hover:border-rose-400 hover:text-rose-100 transition
+                text-sm font-semibold",
+        data: { turbo_confirm: "Supprimer cette simulation ?" } %>
+    </div>
+  </div>
+
+  <%# ---- Flash ---- %>
+  <% if notice.present? %>
+    <div class="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-emerald-200 text-sm">
+      <%= notice %>
+    </div>
+  <% end %>
+
+  <% if alert.present? %>
+    <div class="mb-4 rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-rose-200 text-sm">
+      <%= alert %>
+    </div>
+  <% end %>
+
+  <%# ---- Summary card (paramètres) ---- %>
+  <section class="rounded-2xl border border-gray-800 bg-gray-900/50 p-5">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="text-lg font-semibold text-gray-100">Paramètres</h2>
+        <p class="text-sm text-gray-400 mt-1">Montant, dates, frais et slippage.</p>
+      </div>
+      <span class="shrink-0 text-cyan-200 border border-cyan-500/40 bg-cyan-600/10 rounded-full px-2 py-1 text-xs font-semibold">
+        Paper
+      </span>
+    </div>
+
+    <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+        <p class="text-xs text-gray-500">BTC</p>
+        <p class="font-mono text-gray-100"><%= @trade_simulation.btc_amount %></p>
+      </div>
+
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+        <p class="text-xs text-gray-500">Dates</p>
+        <p class="font-mono text-gray-100"><%= @trade_simulation.buy_day %> → <%= @trade_simulation.sell_day %></p>
+      </div>
+
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+        <p class="text-xs text-gray-500">Frais achat</p>
+        <p class="font-mono text-gray-100">
+          <%= @trade_simulation.buy_fee_pct %>% + <%= @trade_simulation.buy_fee_fixed_eur %>
+        </p>
+      </div>
+
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+        <p class="text-xs text-gray-500">Frais vente</p>
+        <p class="font-mono text-gray-100">
+          <%= @trade_simulation.sell_fee_pct %>% + <%= @trade_simulation.sell_fee_fixed_eur %>
+        </p>
+      </div>
+
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-3 sm:col-span-2 lg:col-span-1">
+        <p class="text-xs text-gray-500">Slippage</p>
+        <p class="font-mono text-gray-100"><%= @trade_simulation.slippage_pct %>%</p>
+      </div>
+
+      <% if @trade_simulation.notes.present? %>
+        <div class="rounded-xl border border-gray-800 bg-black/20 p-3 sm:col-span-2 lg:col-span-3">
+          <p class="text-xs text-gray-500">Notes</p>
+          <p class="text-gray-100 whitespace-pre-wrap"><%= @trade_simulation.notes %></p>
+        </div>
+      <% end %>
+    </div>
+
+    <p class="text-xs text-gray-500 mt-4">
+      Note: tes prix viennent de <span class="font-mono">btc_price_days.close_usd</span>. Assure-toi que les frais fixes sont dans la même devise pour le MVP.
+    </p>
+  </section>
+
+  <%# ---- Résultats ---- %>
+  <% if @result %>
+    <section class="mt-6">
+      <div class="flex items-center justify-between gap-3 mb-3">
+        <div>
+          <h2 class="text-lg font-semibold text-gray-100">Résultats</h2>
+          <p class="text-sm text-gray-400">Calculs (USD) avec frais + slippage.</p>
+        </div>
+
+        <span class="text-xs text-gray-500">
+          Source prix: <span class="font-mono">close_usd</span>
+        </span>
+      </div>
+
+      <div class="grid gap-4 sm:grid-cols-2">
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/50 p-5">
+          <h3 class="font-semibold text-gray-100">Achat (USD)</h3>
+          <div class="text-sm text-gray-300 mt-3 leading-6">
+            Prix: <span class="font-mono"><%= number_to_currency(@result.buy_price, unit: "$") %></span><br>
+            Brut: <span class="font-mono"><%= number_to_currency(@result.buy_gross, unit: "$") %></span><br>
+            Frais: <span class="font-mono"><%= number_to_currency(@result.buy_fees, unit: "$") %></span><br>
+            Total: <span class="font-mono"><%= number_to_currency(@result.buy_total, unit: "$") %></span>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/50 p-5">
+          <h3 class="font-semibold text-gray-100">Vente (USD)</h3>
+          <div class="text-sm text-gray-300 mt-3 leading-6">
+            Prix: <span class="font-mono"><%= number_to_currency(@result.sell_price, unit: "$") %></span><br>
+            Brut: <span class="font-mono"><%= number_to_currency(@result.sell_gross, unit: "$") %></span><br>
+            Frais: <span class="font-mono"><%= number_to_currency(@result.sell_fees, unit: "$") %></span><br>
+            Net: <span class="font-mono"><%= number_to_currency(@result.sell_net, unit: "$") %></span>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/50 p-5 sm:col-span-2">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <h3 class="font-semibold text-gray-100">PnL</h3>
+              <p class="text-sm text-gray-400 mt-1">Gain/perte après frais.</p>
+            </div>
+
+            <span class="text-xs px-2 py-1 rounded-full border
+                         <%= @result.pnl >= 0 ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-200" : "border-rose-500/40 bg-rose-600/10 text-rose-200" %>">
+              <%= @result.pnl >= 0 ? "Profit" : "Perte" %>
+            </span>
+          </div>
+
+          <div class="mt-4 text-sm">
+            <div class="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2">
+              <div>
+                PnL:
+                <span class="font-mono <%= @result.pnl >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+                  <%= number_to_currency(@result.pnl, unit: "$") %>
+                </span>
+              </div>
+
+              <div class="text-gray-400">
+                Soit <span class="font-mono text-gray-200"><%= number_with_precision(@result.pnl_pct, precision: 2) %>%</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+  <% end %>
+
+  <%# ---- (Plus tard) Decision Engine placeholder ---- %>
+  <section class="mt-6 rounded-2xl border border-gray-800 bg-gray-900/30 p-5">
+    <h2 class="text-lg font-semibold text-gray-100">Décision</h2>
+    <p class="text-sm text-gray-400 mt-1">
+      Prochaine étape : afficher un <span class="font-mono text-gray-200">ExitScore</span> + raisons de vendre / ne pas vendre (basé sur MarketSnapshot au jour de vente).
+    </p>
+  </section>
+
+</div>

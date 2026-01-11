@@ -1,0 +1,72 @@
+<% shortcuts = [
+  { icon: "📦", label: "Explorer les blocs", path: blocks_path, theme: "violet" },
+  { icon: "🐋", label: "Whale Alerts", path: whale_alerts_path, theme: "pink" },
+  { icon: "🪙", label: "Analyse BRC-20", path: brc20_path, theme: "emerald" },
+  { icon: "⛓️", label: "Analyse Runes", path: runes_path, theme: "blue" },
+  { icon: "💡", label: "Idées & améliorations", path: feature_requests_path, theme: "yellow" },
+  { icon: "🔐", label: "P2WSH Wallets", path: vaults_path, theme: "orange" },
+  { icon: "📘", label: "Guides & aide", path: guides_path, theme: "sky" },
+  { icon: "📓", label: "Journal", path: journal_entries_path, theme: "indigo" },
+  { icon: "📈", label: "Bitcoin — évolution du prix", path: market_price_path(range: "30d", alerts_mode: "strict"), theme: "sky" },
+  { icon: "🧮", label: "Trade simulator", path: trade_simulations_path, theme: "cyan" }
+] %>
+
+<section class="mt-5 bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-5">
+  <div class="flex items-center justify-between gap-3 mb-3">
+    <p class="text-xs uppercase tracking-wide text-gray-500">Raccourcis</p>
+    <p class="text-xs text-gray-500">Accès rapide aux modules</p>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+    <% shortcuts.each do |it| %>
+      <% theme = it[:theme] %>
+      <% border =
+        case theme
+        when "violet" then "border-violet-500/50 text-violet-200 hover:bg-violet-600/15 hover:border-violet-400 hover:text-violet-100"
+        when "pink"   then "border-pink-500/50 text-pink-200 hover:bg-pink-600/15 hover:border-pink-400 hover:text-pink-100"
+        when "emerald"then "border-emerald-500/50 text-emerald-200 hover:bg-emerald-600/15 hover:border-emerald-400 hover:text-emerald-100"
+        when "blue"   then "border-blue-500/50 text-blue-200 hover:bg-blue-600/15 hover:border-blue-400 hover:text-blue-100"
+        when "yellow" then "border-yellow-500/50 text-yellow-200 hover:bg-yellow-600/15 hover:border-yellow-400 hover:text-yellow-100"
+        when "orange" then "border-orange-500/50 text-orange-200 hover:bg-orange-600/15 hover:border-orange-400 hover:text-orange-100"
+        when "sky"    then "border-sky-500/50 text-sky-200 hover:bg-sky-600/15 hover:border-sky-400 hover:text-sky-100"
+        else               "border-gray-700/60 text-gray-200 hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100"
+        end
+      %>
+
+      <%= link_to it[:path],
+        class: "group w-full inline-flex items-center justify-between gap-3 rounded-xl
+                px-4 py-3 bg-gray-900/60 border #{border} transition" do %>
+        <span class="text-xl"><%= it[:icon] %></span>
+        <span class="flex-1 font-semibold text-sm sm:text-[13px] leading-tight"><%= it[:label] %></span>
+        <span class="text-gray-500 group-hover:text-current transition">›</span>
+      <% end %>
+    <% end %>
+
+    <%# Switch mode (tu gardes ta logique existante) %>
+    <% if simple_mode? %>
+      <%= button_to ui_mode_path(mode: "trader"), method: :post, data: { turbo: false },
+        class: "group w-full inline-flex items-center justify-between gap-3 rounded-xl
+                px-4 py-3 bg-gray-900/60 border border-cyan-500/50 text-cyan-200
+                hover:bg-cyan-600/15 hover:border-cyan-400 hover:text-cyan-100 transition" do %>
+        <span class="text-xl">🧠</span>
+        <span class="flex-1 text-left font-semibold text-sm sm:text-[13px] leading-tight">
+          Passer en mode trader
+          <span class="block text-[11px] text-gray-500 font-normal">Indicateurs + jargon pro</span>
+        </span>
+        <span class="text-gray-500 group-hover:text-cyan-200 transition">›</span>
+      <% end %>
+    <% else %>
+      <%= button_to ui_mode_path(mode: "simple"), method: :post, data: { turbo: false },
+        class: "group w-full inline-flex items-center justify-between gap-3 rounded-xl
+                px-4 py-3 bg-gray-900/60 border border-gray-700/60 text-gray-200
+                hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100 transition" do %>
+        <span class="text-xl">👤</span>
+        <span class="flex-1 text-left font-semibold text-sm sm:text-[13px] leading-tight">
+          Mode simple
+          <span class="block text-[11px] text-gray-500 font-normal">Explications grand public</span>
+        </span>
+        <span class="text-gray-500 group-hover:text-gray-200 transition">›</span>
+      <% end %>
+    <% end %>
+  </div>
+</section>

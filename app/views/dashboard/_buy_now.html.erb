@@ -1,0 +1,82 @@
+<%# locals: decision: %>
+<% return unless decision.present? %>
+<% lv = decision[:next_levels].is_a?(Hash) ? decision[:next_levels] : {} %>
+
+<% action = decision[:action].to_s %>
+<% score  = decision[:score].to_i %>
+
+<% badge =
+  case action
+  when "buy"    then "border-emerald-500/50 text-emerald-200 bg-emerald-500/10"
+  when "avoid"  then "border-rose-500/50 text-rose-200 bg-rose-500/10"
+  when "hold"   then "border-amber-500/50 text-amber-200 bg-amber-500/10"
+  else               "border-gray-700 text-gray-300 bg-white/5"
+  end
+%>
+
+<section class="mt-4 bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-5">
+  <div class="flex items-start justify-between gap-3">
+    <div class="min-w-0">
+      <h3 class="text-sm uppercase tracking-wide text-gray-500">Acheter aujourd’hui ?</h3>
+      <p class="text-sm text-gray-300 mt-1">
+        Décision :
+        <span class="inline-flex items-center gap-2 px-2 py-1 rounded-full border <%= badge %>">
+          <span class="font-semibold"><%= action.upcase %></span>
+          <span class="text-xs text-gray-300/80">score <span class="font-mono"><%= score %></span>/100</span>
+        </span>
+      </p>
+
+      <%# Chips niveaux clés (optionnel) %>
+      <% if lv.present? %>
+        <div class="mt-2 flex flex-wrap gap-2">
+          <% if lv[:support_mid].present? %>
+            <span class="text-xs px-2 py-1 rounded-full border border-emerald-500/30 bg-emerald-500/10 text-emerald-200">
+              Support ~ <span class="font-mono"><%= number_to_currency(lv[:support_mid], unit: "$", precision: 0) %></span>
+              <% if lv[:support_dist_pct].present? %>
+                <span class="text-emerald-100/80">
+                  (<span class="font-mono"><%= number_with_precision(lv[:support_dist_pct].to_f, precision: 2) %>%</span>)
+                </span>
+              <% end %>
+            </span>
+          <% end %>
+
+          <% if lv[:resistance_mid].present? %>
+            <span class="text-xs px-2 py-1 rounded-full border border-rose-500/30 bg-rose-500/10 text-rose-200">
+              Résistance ~ <span class="font-mono"><%= number_to_currency(lv[:resistance_mid], unit: "$", precision: 0) %></span>
+              <% if lv[:resistance_dist_pct].present? %>
+                <span class="text-rose-100/80">
+                  (<span class="font-mono"><%= number_with_precision(lv[:resistance_dist_pct].to_f, precision: 2) %>%</span>)
+                </span>
+              <% end %>
+            </span>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <% if decision[:warnings].present? %>
+    <div class="mt-3 text-xs text-amber-200/90">
+      ⚠️ <%= decision[:warnings].first %>
+    </div>
+  <% end %>
+
+  <ul class="mt-3 space-y-1">
+    <% Array(decision[:reasons]).first(6).each do |r| %>
+      <li class="text-sm text-gray-300">
+        • <span class="text-gray-200"><%= r[:label] %></span>
+        <% if r[:impact].to_i != 0 %>
+          <span class="text-xs text-gray-500 ml-1">(impact <span class="font-mono"><%= r[:impact] %></span>)</span>
+        <% end %>
+      </li>
+    <% end %>
+  </ul>
+
+  <%# Plan (quoi faire) %>
+  <% if decision[:plan].present? %>
+    <div class="mt-3 rounded-xl border border-gray-800 bg-gray-900/40 p-3">
+      <p class="text-xs uppercase tracking-wide text-gray-500 mb-1">Plan</p>
+      <p class="text-sm text-gray-200"><%= decision[:plan] %></p>
+    </div>
+  <% end %>
+</section>

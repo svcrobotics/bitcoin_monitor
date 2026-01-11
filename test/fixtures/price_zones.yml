@@ -1,0 +1,21 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  kind: MyString
+  low_usd: 9.99
+  high_usd: 9.99
+  strength: 1
+  touches_count: 1
+  timeframe: MyString
+  computed_at: 2025-12-30 22:25:05
+  note: MyText
+
+two:
+  kind: MyString
+  low_usd: 9.99
+  high_usd: 9.99
+  strength: 1
+  touches_count: 1
+  timeframe: MyString
+  computed_at: 2025-12-30 22:25:05
+  note: MyText

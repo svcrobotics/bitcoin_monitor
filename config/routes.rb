@@ -1,4 +1,6 @@
 Rails.application.routes.draw do
+  resources :trade_simulations
+  resources :journal_entries
   
   
   root "dashboard#index"
@@ -57,4 +59,12 @@ Rails.application.routes.draw do
   end
 
   resources :whale_alerts, only: [:index]
+  post "/market_context/refresh", to: "market_contexts#refresh", as: :market_context_refresh
+  post "/price_zones/refresh", to: "price_zones#refresh", as: :price_zones_refresh
+  post "/ui_mode", to: "ui_mode#update", as: :ui_mode
+  
+  post "/ai/dashboard_insight", to: "ai#dashboard_insight", as: :ai_dashboard_insight
+
+  get "/market/price", to: "market#price", as: :market_price
+
 end

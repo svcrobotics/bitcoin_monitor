@@ -1,0 +1,15 @@
+<div class="px-4 py-8 sm:px-6 lg:px-8">
+  <div class="mx-auto w-full max-w-5xl">
+    <%= render "header",
+      title: "Éditer l’entrée",
+      subtitle: "Corrige ou complète ta note (sans réécrire l’histoire)" do %>
+
+      <%= link_to "← Retour", @journal_entry, class: "text-sm text-gray-400 hover:text-gray-200" %>
+      <%= link_to "📓 Journal", journal_entries_path, class: "text-sm text-indigo-400 hover:text-indigo-300" %>
+    <% end %>
+
+    <section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+      <%= render "form", journal_entry: @journal_entry %>
+    </section>
+  </div>
+</div>

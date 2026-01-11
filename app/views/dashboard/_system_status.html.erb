@@ -1,0 +1,27 @@
+<%# locals: blockchain:, mempool:, lightning_status: %>
+
+<section class="mt-6 bg-gray-900/40 border border-gray-800 rounded-2xl p-5 sm:p-6">
+  <div class="flex items-start justify-between gap-3">
+    <div>
+      <h2 class="text-lg sm:text-xl font-semibold text-gray-100">Système (RPC / Réseau)</h2>
+      <p class="text-xs text-gray-500 mt-1">État de la chaîne, mempool, Lightning — repliable pour alléger la page.</p>
+    </div>
+
+    <div data-controller="toggle" class="shrink-0">
+      <button type="button"
+              data-action="toggle#toggle"
+              class="inline-flex items-center gap-2 rounded-xl px-3 py-2
+                     bg-gray-900/60 border border-gray-700 text-gray-200
+                     hover:bg-gray-800 hover:border-gray-600 transition text-sm">
+        <span class="text-lg">🛠️</span>
+        <span>Afficher / masquer</span>
+      </button>
+
+      <div data-toggle-target="content" class="hidden mt-4 space-y-4">
+        <%= render "dashboard/system_chain", blockchain: blockchain %>
+        <%= render "dashboard/system_mempool", mempool: mempool %>
+        <%= render "dashboard/system_lightning", lightning_status: lightning_status %>
+      </div>
+    </div>
+  </div>
+</section>

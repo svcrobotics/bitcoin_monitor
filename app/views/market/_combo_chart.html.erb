@@ -1,0 +1,38 @@
+<%# app/views/market/_combo_chart.html.erb %>
+<%# locals: candles:, flows: %>
+
+<% if candles.present? %>
+  <% price_series = candles.map { |c| [c[:x] || c["x"], (c[:c] || c["c"]).to_f] } %>
+
+  <% flow_by_day = (flows || []).index_by { |r| r[:x] || r["x"] } %>
+  <% inflow_series  = price_series.map { |(d, _)| [d, (flow_by_day[d]&.dig(:inflow)  || flow_by_day[d]&.dig("inflow")  || 0).to_f] } %>
+  <% outflow_series = price_series.map { |(d, _)| [d, (flow_by_day[d]&.dig(:outflow) || flow_by_day[d]&.dig("outflow") || 0).to_f] } %>
+  <% netflow_series = price_series.map { |(d, _)| [d, (flow_by_day[d]&.dig(:netflow) || flow_by_day[d]&.dig("netflow") || 0).to_f] } %>
+
+  <div class="mt-6 bg-gray-900/60 border border-gray-700 rounded-2xl p-4 sm:p-5">
+    <h3 class="text-sm sm:text-base font-semibold text-gray-200">
+      BTC — Prix (USD) + Flows exchanges (BTC)
+    </h3>
+
+    <div class="mt-4">
+      <%= line_chart [
+            {name: "Prix (USD)", data: price_series}
+          ],
+          height: "320px"
+      %>
+    </div>
+
+    <div class="mt-4">
+      <%= column_chart [
+            {name: "Inflow (BTC)",  data: inflow_series},
+            {name: "Outflow (BTC)", data: outflow_series},
+            {name: "Netflow (BTC)", data: netflow_series}
+          ],
+          height: "320px",
+          stacked: false
+      %>
+    </div>
+  </div>
+<% else %>
+  <p class="text-sm text-gray-400 mt-4">Pas de données sur la période.</p>
+<% end %>

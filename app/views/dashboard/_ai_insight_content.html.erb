@@ -1,0 +1,84 @@
+<%# locals: ai_insight:, simple_mode: %>
+
+<div class="bg-gray-800/70 border border-gray-700 rounded-2xl p-5 sm:p-6 shadow-xl">
+  <% if simple_mode %>
+    <% simple = ai_insight["simple"].is_a?(Hash) ? ai_insight["simple"] : {} %>
+    <% headline = simple["headline"].to_s.presence || "Analyse IA" %>
+    <% bullets = Array(simple["bullets"]).select { |x| x.is_a?(String) && x.present? } %>
+    <% watch  = Array(simple["what_to_watch"]).select { |x| x.is_a?(String) && x.present? } %>
+    <% disclaimer = simple["disclaimer"].to_s.presence || "Ce n’est pas un conseil financier." %>
+
+    <p class="text-sm font-semibold text-gray-100"><%= headline %></p>
+
+    <% if bullets.any? %>
+      <div class="mt-2 space-y-1">
+        <% bullets.each do |b| %>
+          <p class="text-sm text-gray-200">• <%= b %></p>
+        <% end %>
+      </div>
+    <% end %>
+
+    <% if watch.any? %>
+      <div class="mt-4">
+        <p class="text-xs uppercase tracking-wide text-gray-400 mb-2">À surveiller</p>
+        <div class="space-y-1">
+          <% watch.each do |w| %>
+            <p class="text-sm text-gray-200">• <%= w %></p>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+
+    <p class="text-xs text-gray-500 mt-4"><%= disclaimer %></p>
+
+  <% else %>
+    <% trader = ai_insight["trader"].is_a?(Hash) ? ai_insight["trader"] : {} %>
+    <% regime = trader["regime"].to_s.presence %>
+    <% notes  = Array(trader["notes"]).select { |x| x.is_a?(String) && x.present? } %>
+    <% scenarios = Array(trader["scenarios"]).select { |x| x.is_a?(Hash) } %>
+    <% disclaimer = trader["disclaimer"].to_s.presence || "Ce n’est pas un conseil financier." %>
+
+    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+        <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Regime</p>
+        <p class="text-lg font-semibold text-gray-100"><%= regime.presence || "—" %></p>
+        <p class="text-xs text-gray-400 mt-1">Résumé du régime de marché par l’IA.</p>
+      </div>
+
+      <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+        <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Notes</p>
+        <% if notes.any? %>
+          <div class="space-y-1">
+            <% notes.each do |n| %>
+              <p class="text-sm text-gray-200">• <%= n %></p>
+            <% end %>
+          </div>
+        <% else %>
+          <p class="text-sm text-gray-400">—</p>
+        <% end %>
+      </div>
+    </div>
+
+    <% if scenarios.any? %>
+      <div class="mt-4 bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+        <p class="text-xs uppercase tracking-wide text-gray-400 mb-2">Scénarios</p>
+        <div class="space-y-2">
+          <% scenarios.first(3).each do |s| %>
+            <% if_txt = s["if"].to_s %>
+            <% then_txt = s["then"].to_s %>
+            <div class="rounded-xl border border-gray-700 bg-gray-950/40 p-3">
+              <p class="text-sm text-gray-200">
+                <span class="text-gray-400">Si</span> <%= if_txt.presence || "…" %>
+              </p>
+              <p class="text-sm text-gray-200 mt-1">
+                <span class="text-gray-400">Alors</span> <%= then_txt.presence || "…" %>
+              </p>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+
+    <p class="text-xs text-gray-500 mt-4"><%= disclaimer %></p>
+  <% end %>
+</div>

@@ -1,0 +1,15 @@
+<% content_for :title, "New trade simulation" %>
+
+<div class="md:w-2/3 w-full">
+  <h1 class="font-bold text-4xl">New trade simulation</h1>
+
+  <%= render "form", trade_simulation: @trade_simulation %>
+
+  <%= link_to "Retour aux simulations", trade_simulations_path,
+  class: "w-full sm:w-auto text-center mt-2 sm:mt-0 sm:ml-2
+          rounded-xl px-4 py-2
+          bg-gray-900/60 border border-gray-700/60 text-gray-200
+          hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100
+          transition font-semibold" %>
+
+</div>

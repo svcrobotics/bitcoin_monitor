@@ -1,0 +1,53 @@
+<%# locals: ai_insight:, simple_mode: %>
+<% return unless ai_insight.present? && ai_insight.is_a?(Hash) %>
+
+<% title = simple_mode ? "Analyse IA (grand public)" : "Analyse IA (trader)" %>
+
+<% if simple_mode %>
+  <% simple = ai_insight["simple"].is_a?(Hash) ? ai_insight["simple"] : {} %>
+  <% ai_preview = simple["headline"].to_s.presence || "Analyse IA disponible" %>
+<% else %>
+  <% trader = ai_insight["trader"].is_a?(Hash) ? ai_insight["trader"] : {} %>
+  <% ai_preview = trader["regime"].to_s.presence || "Regime : —" %>
+<% end %>
+
+<section class="mt-6 bg-gray-900/40 border border-gray-800 rounded-2xl p-5 sm:p-6">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="text-lg sm:text-xl font-semibold text-gray-100"><%= title %></h2>
+
+      <p class="text-xs text-gray-500 mt-1 break-words">
+        <span class="font-semibold text-gray-300">Aperçu :</span>
+        <span class="text-gray-400"><%= ai_preview %></span>
+        <span class="ml-2 text-gray-600">• Source : <span class="font-mono">OpenAI</span></span>
+      </p>
+
+      <div class="mt-3 flex flex-col sm:flex-row sm:flex-wrap gap-2">
+        <%= button_to ai_dashboard_insight_path,
+            method: :post,
+            data: { turbo: false },
+            class: "w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2
+                    bg-indigo-900/70 border border-indigo-500/60
+                    text-indigo-200 hover:bg-indigo-600/20 transition" do %>
+          🤖 Recalculer
+        <% end %>
+      </div>
+    </div>
+
+    <div data-controller="toggle" class="w-full sm:w-auto">
+      <button type="button"
+              data-action="toggle#toggle"
+              class="w-full sm:w-auto inline-flex items-center justify-center gap-2 rounded-xl px-3 py-2
+                     bg-gray-900/60 border border-gray-700 text-gray-200
+                     hover:bg-gray-800 hover:border-gray-600 transition text-sm">
+        <span class="text-lg">🧠</span>
+        <span>Afficher / masquer</span>
+      </button>
+
+      <div data-toggle-target="content" class="hidden mt-4 space-y-4 w-full">
+        <%= render "dashboard/ai_insight_help", simple_mode: simple_mode %>
+        <%= render "dashboard/ai_insight_content", ai_insight: ai_insight, simple_mode: simple_mode %>
+      </div>
+    </div>
+  </div>
+</section>

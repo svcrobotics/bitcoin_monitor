@@ -1,0 +1,78 @@
+<%= form_with(model: journal_entry, class: "space-y-5") do |f| %>
+  <% if journal_entry.errors.any? %>
+    <div class="bg-rose-500/10 border border-rose-700/50 text-rose-200 rounded-xl p-4 text-sm">
+      <p class="font-semibold mb-2">Erreurs :</p>
+      <ul class="list-disc ml-5">
+        <% journal_entry.errors.full_messages.each do |msg| %>
+          <li><%= msg %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <% input_cls = "w-full bg-black/30 border border-gray-700 rounded-xl px-3 py-2 text-gray-100
+                  focus:outline-none focus:ring-2 focus:ring-indigo-500/40 focus:border-indigo-500/50" %>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+      <%= f.label :occurred_at, "Date / heure", class: "block text-xs text-gray-400 mb-1" %>
+      <%= f.datetime_local_field :occurred_at, class: input_cls %>
+      <p class="mt-1 text-[11px] text-gray-500">Moment exact de l’observation (pas forcément l’heure d’écriture).</p>
+    </div>
+
+    <div>
+      <%= f.label :btc_price_eur, "Prix BTC (€) (optionnel)", class: "block text-xs text-gray-400 mb-1" %>
+      <%= f.number_field :btc_price_eur, step: "0.01", placeholder: "ex: 96500",
+            class: input_cls %>
+      <p class="mt-1 text-[11px] text-gray-500">Juste pour te replacer dans le contexte, pas pour prédire.</p>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+    <div>
+      <%= f.label :kind, "Type", class: "block text-xs text-gray-400 mb-1" %>
+      <%= f.select :kind,
+            [["Observation","observation"],["Hypothèse","hypothese"],["Décision","decision"],["Résultat","resultat"]],
+            { include_blank: "—" },
+            class: input_cls %>
+      <p class="mt-1 text-[11px] text-gray-500">Objectif : séparer faits → interprétation → action → bilan.</p>
+    </div>
+
+    <div>
+      <%= f.label :mood, "État (🟢🟡🔴)", class: "block text-xs text-gray-400 mb-1" %>
+      <%= f.select :mood,
+            [["🟢 Green","green"],["🟡 Amber","amber"],["🔴 Red","red"],["Neutral","neutral"]],
+            { include_blank: "—" },
+            class: input_cls %>
+      <p class="mt-1 text-[11px] text-gray-500">🔴 = contexte fragile → éviter les décisions impulsives.</p>
+    </div>
+  </div>
+
+  <div>
+    <%= f.label :context, "Contexte (ex: ratio, signal, zone…)", class: "block text-xs text-gray-400 mb-1" %>
+    <%= f.text_field :context, placeholder: "Ex: Exchange-like activity 🔴 ratio 3.6 / support 92k",
+          class: input_cls %>
+  </div>
+
+  <div>
+    <%= f.label :tags, "Tags (séparés par virgules)", class: "block text-xs text-gray-400 mb-1" %>
+    <%= f.text_field :tags, placeholder: "inflow, whales, support",
+          class: input_cls %>
+  </div>
+
+  <div>
+    <%= f.label :body, "Note", class: "block text-xs text-gray-400 mb-1" %>
+    <%= f.text_area :body, rows: 9,
+          placeholder: "Faits (ce que je vois)\nHypothèse (ce que j’en déduis)\nDécision (ce que je fais / ne fais pas)\nRisque (ce qui pourrait invalider)",
+          class: input_cls %>
+  </div>
+
+  <div class="flex items-center gap-3">
+    <%= f.submit(journal_entry.persisted? ? "Mettre à jour" : "Créer",
+          class: "px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold") %>
+
+    <%= link_to "Annuler",
+          (journal_entry.persisted? ? journal_entry_path(journal_entry) : journal_entries_path),
+          class: "text-sm text-gray-400 hover:text-gray-200" %>
+  </div>
+<% end %>

@@ -1,0 +1,34 @@
+<%# locals: simple_mode: %>
+<div data-controller="toggle" class="bg-gray-900/60 border border-gray-800 rounded-xl p-4">
+  <button type="button"
+          data-action="toggle#toggle"
+          class="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+    ℹ️ Comment lire l’analyse IA
+  </button>
+
+  <div data-toggle-target="content" class="hidden mt-3 text-sm text-gray-200 space-y-3 text-left">
+    <% if simple_mode %>
+      <p>
+        L’IA résume la situation avec les chiffres du dashboard
+        (<span class="font-mono">MA200</span>, drawdown, volatilité 30j, supports/résistances).
+        <span class="text-gray-400">Ce n’est pas un conseil financier.</span>
+      </p>
+      <ul class="list-disc list-inside text-gray-400">
+        <li><strong>Headline</strong> : résumé en 1 phrase.</li>
+        <li><strong>Points clés</strong> : ce qui explique la situation.</li>
+        <li><strong>À surveiller</strong> : niveaux/zones importantes proches.</li>
+      </ul>
+    <% else %>
+      <p>
+        L’IA produit un résumé orienté trading basé sur :
+        <strong>régime</strong>, <strong>niveaux</strong>, <strong>notes</strong> et <strong>scénarios</strong>.
+        <span class="text-gray-400">Ce n’est pas un conseil financier.</span>
+      </p>
+      <ul class="list-disc list-inside text-gray-400">
+        <li><strong>Regime</strong> : bull/bear/neutral.</li>
+        <li><strong>Key levels</strong> : support/résistance et bonus.</li>
+        <li><strong>Scenarios</strong> : “si … alors …”.</li>
+      </ul>
+    <% end %>
+  </div>
+</div>

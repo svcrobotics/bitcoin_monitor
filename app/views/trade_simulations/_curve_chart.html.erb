@@ -1,0 +1,102 @@
+<%# locals: combo_series:, pnl_info: %>
+<div class="mt-6 bg-gray-900/60 border border-gray-700 rounded-2xl p-4">
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-2">
+    <div>
+      <h3 class="text-sm font-semibold text-gray-200">
+        Évolution de la position — Net (USD)
+      </h3>
+      <% pnl_info ||= nil %>
+
+      <% if pnl_info.present? %>
+        <p class="text-xs text-gray-500 mt-1">
+          Dernier point :
+          <span class="font-mono text-gray-300"><%= pnl_info[:last_day] %></span> —
+          <span class="font-mono text-gray-200"><%= number_to_currency(pnl_info[:last_net], unit: "$") %></span>
+          (<span class="font-mono <%= pnl_info[:last_pnl_pct].to_f >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+            <%= number_with_precision(pnl_info[:last_pnl_pct], precision: 2) %>%
+          </span>)
+          • Best
+          <span class="font-mono text-gray-300"><%= pnl_info[:best_day] %></span>
+          (<span class="font-mono text-emerald-300"><%= number_with_precision(pnl_info[:best_pnl_pct], precision: 2) %>%</span>)
+          • Worst
+          <span class="font-mono text-gray-300"><%= pnl_info[:worst_day] %></span>
+          (<span class="font-mono text-rose-300"><%= number_with_precision(pnl_info[:worst_pnl_pct], precision: 2) %>%</span>)
+        </p>
+      <% end %>
+    </div>
+
+    <p class="text-xs text-gray-500">
+      points <span class="font-mono text-gray-300"><%= combo_series&.first&.dig(:data)&.size || 0 %></span>
+    </p>
+  </div>
+
+  <% if combo_series.present? %>
+    <% # combo_series format Chartkick attendu: [{name:, data: {...}}] %>
+    <% series0 = combo_series.is_a?(Array) ? combo_series.first : nil %>
+    <% data0   = series0.is_a?(Hash) ? series0[:data] || series0["data"] : nil %>
+
+    <% points =
+         case data0
+         when Hash
+           data0.map { |k,v| [k.to_s, v.to_f] }
+         when Array
+           data0.map { |pair| [pair[0].to_s, pair[1].to_f] }
+         else
+           []
+         end
+    %>
+
+    <div class="mt-3 rounded-2xl border border-gray-800 bg-black/20 p-3">
+      <div class="relative" style="height: 320px;">
+        <canvas id="pnlNetChart"></canvas>
+      </div>
+    </div>
+
+    <script>
+      (function () {
+        const points = <%= raw(points.to_json) %>;
+        if (!points || points.length === 0) return;
+
+        if (!window.Chart) {
+          console.error("Chart.js not loaded (CDN manquant dans layout).");
+          return;
+        }
+
+        const labels = points.map(p => p[0]);
+        const values = points.map(p => Number(p[1]));
+
+        const el = document.getElementById("pnlNetChart");
+        if (!el) return;
+
+        if (el._chart) { el._chart.destroy(); el._chart = null; }
+
+        el._chart = new Chart(el.getContext("2d"), {
+          type: "line",
+          data: {
+            labels,
+            datasets: [{
+              label: "Net (USD)",
+              data: values
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            interaction: { mode: "index", intersect: false },
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { type: "category" },
+              y: { position: "left", title: { display: true, text: "Net (USD)" } }
+            }
+          }
+        });
+      })();
+    </script>
+
+    <p class="text-xs text-gray-500 mt-2">
+      Lecture : la courbe <span class="text-gray-300">Net</span> montre la valeur nette si tu vends ce jour-là (après frais + slippage).
+    </p>
+  <% else %>
+    <p class="text-sm text-gray-400">Pas de données (points non générés).</p>
+  <% end %>
+</div>

@@ -1,0 +1,30 @@
+<div id="<%= dom_id journal_entry %>" class="w-full sm:w-auto my-5 space-y-5">
+  <div>
+    <strong class="block font-medium mb-1">Occurred at:</strong>
+    <%= journal_entry.occurred_at %>
+  </div>
+  <div>
+    <strong class="block font-medium mb-1">Kind:</strong>
+    <%= journal_entry.kind %>
+  </div>
+  <div>
+    <strong class="block font-medium mb-1">Mood:</strong>
+    <%= journal_entry.mood %>
+  </div>
+  <div>
+    <strong class="block font-medium mb-1">Btc price eur:</strong>
+    <%= journal_entry.btc_price_eur %>
+  </div>
+  <div>
+    <strong class="block font-medium mb-1">Context:</strong>
+    <%= journal_entry.context %>
+  </div>
+  <div>
+    <strong class="block font-medium mb-1">Body:</strong>
+    <%= journal_entry.body %>
+  </div>
+  <div>
+    <strong class="block font-medium mb-1">Tags:</strong>
+    <%= journal_entry.tags %>
+  </div>
+</div>

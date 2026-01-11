@@ -1,0 +1,212 @@
+<%# app/views/dashboard/_daily_read.html.erb %>
+
+<% flow    = ExchangeTrueFlow.recent.first %>
+<% support = @price_zones && @price_zones[:support] %>
+<% resist  = @price_zones && @price_zones[:resistance] %>
+
+<% price_ref  = @price_now.presence || @price_live.presence %> <%# fallback %>
+<% price_live = @price_live.presence %>
+
+<%# ---------- Helpers simples ---------- %>
+<% def zone_mid(z)
+     return nil if z.blank?
+     (z.low_usd.to_d + z.high_usd.to_d) / 2
+   end
+%>
+
+<% def pct_dist(from, to)
+     return nil if from.blank? || to.blank? || from.to_d <= 0
+     ((to.to_d - from.to_d) / from.to_d * 100).round(2)
+   end
+%>
+
+<%# ---------- Etat zones ---------- %>
+<% s_mid = zone_mid(support) %>
+<% r_mid = zone_mid(resist) %>
+
+<% dist_to_support = (price_ref && s_mid) ? pct_dist(price_ref, s_mid) : nil %> <%# négatif en général %>
+<% dist_to_resist  = (price_ref && r_mid) ? pct_dist(price_ref, r_mid) : nil %> <%# positif en général %>
+
+<% near_threshold = 1.2 %> <%# % : "proche" d'une zone (tweak) %>
+
+<% in_support_zone =
+     support.present? && price_ref.present? &&
+     price_ref.to_d >= support.low_usd.to_d && price_ref.to_d <= support.high_usd.to_d
+%>
+
+<% in_resist_zone =
+     resist.present? && price_ref.present? &&
+     price_ref.to_d >= resist.low_usd.to_d && price_ref.to_d <= resist.high_usd.to_d
+%>
+
+<% near_support =
+     dist_to_support.present? && dist_to_support.abs <= near_threshold
+%>
+
+<% near_resist =
+     dist_to_resist.present? && dist_to_resist.abs <= near_threshold
+%>
+
+<% zone_label =
+     if in_support_zone
+       "🟢 Dans la zone de support"
+     elsif in_resist_zone
+       "🔴 Dans la zone de résistance"
+     elsif near_support
+       "🟢 Proche du support"
+     elsif near_resist
+       "🔴 Proche de la résistance"
+     else
+       "⚪ Entre les zones"
+     end
+%>
+
+<%# ---------- Etat flow ---------- %>
+<% flow_label, flow_classes =
+     case flow&.status
+     when "red"   then ["🔴 Excès (dépôts élevés)",   "text-rose-300 bg-rose-500/10 border-rose-700/50"]
+     when "amber" then ["🟡 Tension (au-dessus de la moyenne)", "text-amber-300 bg-amber-500/10 border-amber-700/50"]
+     when "green" then ["🟢 Normal (dans la norme)",  "text-emerald-300 bg-emerald-500/10 border-emerald-700/50"]
+     else              ["—", "text-gray-300 bg-white/5 border-gray-700"]
+     end
+%>
+
+<% ratio_txt   = flow&.ratio30.present? ? number_with_precision(flow.ratio30, precision: 2) : "—" %>
+<% inflow_txt  = flow ? number_with_precision(flow.inflow_btc, precision: 2) : "—" %>
+<% outflow_txt = flow ? number_with_precision(flow.outflow_btc, precision: 2) : "—" %>
+<% netflow_txt = flow ? number_with_precision(flow.netflow_btc, precision: 2) : "—" %>
+
+<% net_dir =
+     if flow&.netflow_btc.to_d > 0 then "Les exchanges reçoivent net"
+     elsif flow&.netflow_btc.to_d < 0 then "Les exchanges distribuent net"
+     else "Équilibre"
+     end
+%>
+
+<%# ---------- Décision process (non-financier, juste un cadre) ---------- %>
+<% decision_title = "Plan (process)" %>
+<% decision_lines = [] %>
+
+<% if flow.present? && price_ref.present? %>
+  <% if flow.status == "red" && (in_resist_zone || near_resist) %>
+    <% decision_lines << "Contexte fragile sous résistance : privilégier l’attente / confirmation." %>
+    <% decision_lines << "Scénario A : rejet de la zone → prudence (pas d’ajout impulsif)." %>
+    <% decision_lines << "Scénario B : cassure + maintien au-dessus → absorption possible (attendre confirmation)." %>
+  <% elsif flow.status == "red" && (in_support_zone || near_support) %>
+    <% decision_lines << "Support + dépôts élevés : risque de cassure si le support cède." %>
+    <% decision_lines << "Scénario A : le support tient → rebond possible mais volatil." %>
+    <% decision_lines << "Scénario B : cassure nette → prochaine zone (bonus/support plus bas) à surveiller." %>
+  <% elsif flow.status == "green" && (in_support_zone || near_support) %>
+    <% decision_lines << "Support + flow normal : contexte plus “stable” (moins de pression vendeuse visible)." %>
+    <% decision_lines << "Regarder réaction prix : wick/rebond vs clôture sous zone." %>
+  <% elsif flow.status == "green" && (in_resist_zone || near_resist) %>
+    <% decision_lines << "Résistance + flow normal : test “propre” possible." %>
+    <% decision_lines << "Attendre validation (break/hold) plutôt que deviner." %>
+  <% else %>
+    <% decision_lines << "Prix entre zones : éviter de sur-interpréter le flow isolé." %>
+    <% decision_lines << "Attendre un test clair d’une zone (support ou résistance)." %>
+  <% end %>
+<% else %>
+  <% decision_lines << "Données insuffisantes (prix/zones/flow). Rafraîchir le snapshot et recalculer si besoin." %>
+<% end %>
+
+<%# ---------- Journaliser la lecture complète ---------- %>
+<% mood =
+     case flow&.status
+     when "red" then "red"
+     when "amber" then "amber"
+     else "green"
+     end
+%>
+
+<% zone_ctx =
+     if support.present? && resist.present? && price_ref.present?
+       "Zone: #{zone_label} • dist_support #{dist_to_support || "—"}% • dist_resist #{dist_to_resist || "—"}%"
+     else
+       "Zone: #{zone_label}"
+     end
+%>
+
+<% flow_ctx = flow.present? ? "TrueFlow 24h: inflow #{inflow_txt} BTC • outflow #{outflow_txt} BTC • net #{netflow_txt} BTC • ratio30 x#{ratio_txt} (#{flow.status})" : "TrueFlow: —" %>
+
+<% ctx  = "#{zone_ctx} • #{flow_ctx}" %>
+<% tags = "lecture,price_zones,trueflow,decision" %>
+<% body = "Observation:\n#{ctx}\n\nHypothèse:\n\nDécision:\n\nRisque / invalidation:\n" %>
+
+<section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="text-xl sm:text-2xl font-semibold mb-1">Lecture du jour (Zones + Flow)</h2>
+      <p class="text-sm text-gray-400">
+        Pont “où est le prix ?” + “pression (flow)” → plan de lecture.
+        <span class="text-gray-500">Pas un conseil financier.</span>
+      </p>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <span class="text-xs px-3 py-1 rounded-full border <%= flow_classes %>"><%= flow_label %></span>
+
+      <%= link_to new_journal_entry_path(
+            occurred_at: Time.current.strftime("%Y-%m-%dT%H:%M"),
+            kind: "observation",
+            mood: mood,
+            context: ctx,
+            tags: tags,
+            body: body
+          ),
+          class: "inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs
+                  bg-gray-900/70 border border-gray-700 text-gray-200
+                  hover:bg-gray-800 hover:border-gray-600 transition" do %>
+        📝 Journaliser la lecture
+      <% end %>
+    </div>
+  </div>
+
+  <div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+      <div class="text-xs text-gray-400">Position (référence)</div>
+      <div class="mt-1 text-sm font-semibold text-gray-100"><%= zone_label %></div>
+      <div class="mt-2 text-[11px] text-gray-500">
+        Prix ref :
+        <span class="font-mono"><%= price_ref.present? ? number_to_currency(price_ref.to_f, unit: "$", precision: 0, delimiter: " ") : "—" %></span>
+        <% if price_live.present? %>
+          <span class="text-gray-600">• live</span>
+          <span class="font-mono"><%= number_to_currency(price_live.to_f, unit: "$", precision: 0, delimiter: " ") %></span>
+        <% end %>
+      </div>
+      <div class="mt-2 text-[11px] text-gray-500">
+        dist support: <span class="font-mono"><%= dist_to_support.present? ? "#{dist_to_support}%" : "—" %></span>
+        • dist resist: <span class="font-mono"><%= dist_to_resist.present? ? "#{dist_to_resist}%" : "—" %></span>
+      </div>
+    </div>
+
+    <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+      <div class="text-xs text-gray-400">Flow (24h)</div>
+      <% if flow.present? %>
+        <div class="mt-1 text-sm font-semibold text-gray-100">
+          Inflow <span class="font-mono"><%= inflow_txt %></span> • Outflow <span class="font-mono"><%= outflow_txt %></span>
+        </div>
+        <div class="mt-2 text-[11px] text-gray-500">
+          Netflow : <span class="font-mono"><%= netflow_txt %></span> BTC — <%= net_dir %>
+        </div>
+        <div class="mt-2 text-[11px] text-gray-500">
+          Ratio vs 30j : <span class="font-mono">x <%= ratio_txt %></span>
+        </div>
+      <% else %>
+        <div class="mt-1 text-sm text-gray-300">—</div>
+      <% end %>
+    </div>
+
+    <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+      <div class="text-xs text-gray-400"><%= decision_title %></div>
+      <div class="mt-2 space-y-1">
+        <% decision_lines.first(3).each do |line| %>
+          <p class="text-sm text-gray-200">• <%= line %></p>
+        <% end %>
+      </div>
+      <p class="mt-3 text-[11px] text-gray-500">
+        Astuce : journalise surtout quand on est “proche zone” + (🟡/🔴) ou quand il y a cassure/rejet clair.
+      </p>
+    </div>
+  </div>
+</section>

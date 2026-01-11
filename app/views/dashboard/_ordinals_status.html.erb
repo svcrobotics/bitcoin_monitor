@@ -1,0 +1,37 @@
+<%# locals: brc20_scan_stats:, brc20_scan_done:, brc20_last_sync_run: %>
+
+<section class="mt-6 bg-gray-900/40 border border-gray-800 rounded-2xl p-5 sm:p-6">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div>
+      <h2 class="text-lg sm:text-xl font-semibold text-gray-100 mb-1">Écosystème (Ordinals)</h2>
+      <p class="text-xs text-gray-500">Runes + BRC-20 — liens rapides et statut de synchro.</p>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <%= link_to "Runes →", runes_path, class: "inline-flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300" %>
+      <%= link_to "BRC-20 →", brc20_path, class: "inline-flex items-center gap-2 text-sm text-indigo-400 hover:text-indigo-300" %>
+    </div>
+  </div>
+
+  <div class="mt-4 bg-gray-900/60 border border-gray-800 rounded-xl p-4">
+    <p class="text-sm text-gray-200 font-semibold mb-1">Statut BRC-20</p>
+
+    <% if brc20_scan_stats.present? %>
+      <% if brc20_scan_done %>
+        <p class="text-gray-200">
+          Scan : <span class="inline-flex items-center gap-1 font-semibold text-green-300">Synchronisé</span>
+        </p>
+      <% else %>
+        <p class="text-gray-200">
+          Scan : <span class="inline-flex items-center gap-1 font-semibold text-red-400">En cours…</span>
+        </p>
+      <% end %>
+
+      <% if brc20_last_sync_run %>
+        <p class="text-xs text-gray-500 mt-1">Dernière mise à jour : <%= l brc20_last_sync_run %></p>
+      <% end %>
+    <% else %>
+      <p class="text-xs text-gray-500">Aucune donnée BRC-20 disponible.</p>
+    <% end %>
+  </div>
+</section>

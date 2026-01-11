@@ -1,0 +1,52 @@
+<%# locals: snapshot: %>
+<% return unless snapshot&.status == "ok" %>
+
+<section class="mt-4 bg-gray-900/60 border border-gray-700 rounded-2xl p-4">
+  <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+    <div>
+      <h2 class="text-sm font-semibold text-gray-100">🧭 Contexte marché</h2>
+      <p class="text-xs text-gray-400 mt-0.5">
+        Snapshot macro • MA200 • cycle • risque
+      </p>
+    </div>
+
+    <span class="text-xs px-3 py-1 rounded-full border <%= risk_badge_classes(snapshot.risk_level) %>">
+      Risque <%= snapshot.risk_level.to_s.upcase %>
+    </span>
+  </div>
+
+  <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
+    <div>
+      <div class="text-xs text-gray-400">Biais</div>
+      <div class="font-semibold text-gray-100"><%= snapshot.market_bias %></div>
+    </div>
+
+    <div>
+      <div class="text-xs text-gray-400">Cycle</div>
+      <div class="font-semibold text-gray-100"><%= snapshot.cycle_zone %></div>
+    </div>
+
+    <div>
+      <div class="text-xs text-gray-400">vs MA200</div>
+      <div class="font-mono <%= pct_color_class(snapshot.price_vs_ma200_pct) %>">
+        <%= fmt_pct(snapshot.price_vs_ma200_pct, precision: 2, assume: :ratio, show_plus: true) %>
+      </div>
+    </div>
+
+    <div>
+      <div class="text-xs text-gray-400">Drawdown ATH</div>
+      <div class="font-mono text-rose-300">
+        <%= fmt_pct(snapshot.drawdown_pct.to_f.abs, precision: 2, assume: :ratio) %>
+      </div>
+    </div>
+
+    <% if snapshot.reasons.respond_to?(:each) && snapshot.reasons.any? %>
+      <div class="mt-3 flex flex-wrap gap-2">
+        <% snapshot.reasons.each do |reason| %>
+          <span class="text-[11px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700 text-gray-300">
+            <%= reason %>
+          </span>
+        <% end %>
+      </div>
+    <% end %>
+</section>

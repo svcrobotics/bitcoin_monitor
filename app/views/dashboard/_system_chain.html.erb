@@ -1,0 +1,28 @@
+<%# locals: blockchain: %>
+<section class="bg-gray-800/70 border border-gray-700 rounded-2xl p-5 sm:p-6 shadow-xl">
+  <h3 class="text-lg sm:text-xl font-semibold mb-4">État de la blockchain</h3>
+
+  <div class="grid gap-4 sm:grid-cols-2">
+    <div>
+      <p class="text-gray-400 text-sm uppercase tracking-wide mb-1">Réseau</p>
+      <p class="text-lg text-gray-100 font-semibold"><%= network_name(blockchain["chain"]) %></p>
+    </div>
+
+    <div>
+      <p class="text-gray-400 text-sm uppercase tracking-wide mb-1">Bloc actuel</p>
+      <p class="text-lg text-gray-100 font-semibold"><%= blockchain["blocks"] %></p>
+    </div>
+
+    <div>
+      <p class="text-gray-400 text-sm uppercase tracking-wide mb-1">Headers</p>
+      <p class="text-lg text-gray-100 font-semibold"><%= blockchain["headers"] %></p>
+    </div>
+
+    <div>
+      <p class="text-gray-400 text-sm uppercase tracking-wide mb-1">Progression</p>
+      <p class="text-lg text-gray-100 font-semibold">
+        <%= (blockchain["verificationprogress"].to_f * 100).round(4) %> %
+      </p>
+    </div>
+  </div>
+</section>

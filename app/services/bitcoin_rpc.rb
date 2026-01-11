@@ -26,16 +26,18 @@ class BitcoinRpc
     @password = password
     @id_seq   = 0
 
-    # ✅ Cookie auth (bitcoind datadir sur /mnt/bitcoin)
-    cookie_path = ENV["BITCOIN_RPC_COOKIE"].presence || "/mnt/bitcoin/.cookie"
-    if (@user.blank? || @password.blank?) && File.exist?(cookie_path)
+    # ✅ Cookie auth (optionnel). Utilisé seulement si BITCOIN_RPC_COOKIE est défini.
+    cookie_path = ENV["BITCOIN_RPC_COOKIE"].presence
+    
+    if (@user.blank? || @password.blank?) && cookie_path.present? && File.exist?(cookie_path)
       u, p = File.read(cookie_path).strip.split(":", 2)
       @user = u
       @password = p
     end
 
     if @user.blank? || @password.blank?
-      raise Error, "RPC credentials manquants. Mets BITCOIN_RPC_USER/PASSWORD ou BITCOIN_RPC_COOKIE=#{cookie_path}"
+      hint = cookie_path.present? ? " ou BITCOIN_RPC_COOKIE=#{cookie_path}" : ""
+      raise Error, "RPC credentials manquants. Mets BITCOIN_RPC_USER/PASSWORD#{hint}"
     end
   end
 
@@ -65,16 +67,35 @@ class BitcoinRpc
 
     uri = URI.parse("http://#{@host}:#{@port}#{path}")
 
-    req = Net::HTTP::Post.new(uri)
+    req = Net::HTTP::Post.new(uri.request_uri)
     req.basic_auth(@user, @password)
     req["Content-Type"] = "application/json"
+    req["Accept"] = "application/json"
+    req["Connection"] = "close"
+    req["Proxy-Connection"] = "close"
     req.body = { jsonrpc: "1.0", id: @id_seq, method: method.to_s, params: params }.to_json
 
-    http = Net::HTTP.new(uri.host, uri.port)
-    http.read_timeout = Integer(ENV.fetch("BITCOIN_RPC_TIMEOUT", "60"))
-    http.open_timeout = Integer(ENV.fetch("BITCOIN_RPC_OPEN_TIMEOUT", "10"))
+    open_timeout = Integer(ENV.fetch("BITCOIN_RPC_OPEN_TIMEOUT", "10"))
+    read_timeout = Integer(ENV.fetch("BITCOIN_RPC_TIMEOUT", "60"))
 
-    res = http.request(req)
+    transport_attempts = 0
+
+    begin
+      res = Net::HTTP.start(uri.host, uri.port, open_timeout: open_timeout, read_timeout: read_timeout) do |h|
+        h.keep_alive_timeout = 0 if h.respond_to?(:keep_alive_timeout=)
+        h.max_retries = 0 if h.respond_to?(:max_retries=)
+        h.close_on_empty_response = true if h.respond_to?(:close_on_empty_response=)
+        h.request(req)
+      end
+    rescue Net::ReadTimeout, EOFError, Errno::ECONNRESET => e
+      transport_attempts += 1
+      if transport_attempts <= 1
+        sleep 0.05
+        retry
+      end
+      raise Error, "#{method} timeout/closed (after retry). host=#{@host} port=#{@port} path=#{path} wallet=#{wallet.inspect} : #{e.class} - #{e.message}"
+    end
+
     payload = JSON.parse(res.body) rescue nil
     raise Error, "RPC invalid JSON response: #{res.body.to_s[0, 300]}" if payload.nil?
 
@@ -86,7 +107,6 @@ class BitcoinRpc
       # ✅ auto-load wallet si pas chargé (code -18) ET qu'on appelle le wallet par défaut
       if code == -18 && wallet == :default && @wallet.present?
         ensure_wallet_loaded!
-        # retry 1 fois seulement
         return rpc_call(method, params, wallet: wallet)
       end
 

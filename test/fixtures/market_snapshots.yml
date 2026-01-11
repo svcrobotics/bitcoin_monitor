@@ -1,0 +1,31 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  computed_at: 2025-12-30 14:19:57
+  price_now_usd: 9.99
+  ma200_usd: 9.99
+  price_vs_ma200_pct: 9.99
+  ath_usd: 9.99
+  drawdown_pct: 9.99
+  amplitude_30d_pct: 9.99
+  market_bias: MyString
+  cycle_zone: MyString
+  risk_level: MyString
+  reasons: 
+  status: MyString
+  error_message: MyText
+
+two:
+  computed_at: 2025-12-30 14:19:57
+  price_now_usd: 9.99
+  ma200_usd: 9.99
+  price_vs_ma200_pct: 9.99
+  ath_usd: 9.99
+  drawdown_pct: 9.99
+  amplitude_30d_pct: 9.99
+  market_bias: MyString
+  cycle_zone: MyString
+  risk_level: MyString
+  reasons: 
+  status: MyString
+  error_message: MyText

@@ -1,0 +1,228 @@
+<%# app/views/dashboard/_true_exchange_flow.html.erb (ou ton partial actuel) %>
+<% flow    = ExchangeTrueFlow.recent.first %>
+<% min_occ = Integer(ENV.fetch("EXCHANGE_ADDR_MIN_OCC", "8")) rescue 8 %>
+
+<%# --- badge helper (mapping UNIQUE) --- %>
+<% badge_for = lambda do |status|
+     case status.to_s
+     when "red"   then ["🔴 Excès",   "text-rose-300 bg-rose-500/10 border-rose-700/50"]
+     when "amber" then ["🟡 Tension", "text-amber-300 bg-amber-500/10 border-amber-700/50"]
+     when "green" then ["🟢 Normal",  "text-emerald-300 bg-emerald-500/10 border-emerald-700/50"]
+     else              ["—",          "text-gray-300 bg-white/5 border-gray-700"]
+     end
+   end
+%>
+
+<% mood_for = lambda do |status|
+     case status.to_s
+     when "red" then "red"
+     when "amber" then "amber"
+     else "green"
+     end
+   end
+%>
+
+<%# netflow: positif = dépôts nets vers exchanges (risque vendeuse) => rose %>
+<% net_color_for = lambda do |net|
+     n = net.to_d
+     if n > 0
+       "text-rose-300"
+     elsif n < 0
+       "text-emerald-300"
+     else
+       "text-gray-200"
+     end
+   end
+%>
+
+<% net_label_for = lambda do |net|
+     n = net.to_d
+     if n > 0
+       "Les exchanges reçoivent net"
+     elsif n < 0
+       "Les exchanges distribuent net"
+     else
+       "Équilibre"
+     end
+   end
+%>
+
+<section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="text-xl sm:text-2xl font-semibold mb-1">True exchange flow (24h)</h2>
+      <p class="text-sm text-gray-400">
+        Estimation on-chain : dépôts vers le set “exchange” (inflow) et retraits (outflow).
+        <span class="text-gray-500">
+          Set auto-détecté • min occurrences:
+          <span class="font-mono"><%= min_occ %></span>
+        </span>
+      </p>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <% if flow.present? %>
+        <% lbl, klass = badge_for.call(flow.status) %>
+        <span class="text-xs px-3 py-1 rounded-full border <%= klass %>"><%= lbl %></span>
+
+        <% mood = mood_for.call(flow.status) %>
+        <% ratio_txt   = flow.ratio30.present? ? number_with_precision(flow.ratio30, precision: 2) : "—" %>
+        <% inflow_txt  = number_with_precision(flow.inflow_btc, precision: 2, delimiter: " ") %>
+        <% outflow_txt = number_with_precision(flow.outflow_btc, precision: 2, delimiter: " ") %>
+        <% netflow_txt = number_with_precision(flow.netflow_btc, precision: 2, delimiter: " ") %>
+
+        <% ctx  = "TrueFlow 24h: inflow #{inflow_txt} BTC • outflow #{outflow_txt} BTC • net #{netflow_txt} BTC • ratio30 x#{ratio_txt} (#{flow.status})" %>
+        <% tags = "trueflow,exchange,inflow,outflow,netflow" %>
+        <% body = "Observation:\n#{ctx}\n\nHypothèse:\n\nDécision:\n\nRisque / invalidation:\n" %>
+
+        <%= link_to new_journal_entry_path(
+              occurred_at: Time.current.strftime("%Y-%m-%dT%H:%M"),
+              kind: "observation",
+              mood: mood,
+              context: ctx,
+              tags: tags,
+              body: body
+            ),
+            class: "inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs
+                    bg-gray-900/70 border border-gray-700 text-gray-200
+                    hover:bg-gray-800 hover:border-gray-600 transition" do %>
+          📝 Journaliser
+        <% end %>
+      <% else %>
+        <% lbl, klass = badge_for.call(nil) %>
+        <span class="text-xs px-3 py-1 rounded-full border <%= klass %>"><%= lbl %></span>
+      <% end %>
+    </div>
+  </div>
+
+  <% if flow.present? %>
+    <% net_cls = net_color_for.call(flow.netflow_btc) %>
+    <% net_val = flow.netflow_btc.to_d %>
+
+    <div class="mt-6 grid grid-cols-1 sm:grid-cols-5 gap-4">
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Inflow (24h)</div>
+        <div class="mt-1 text-lg font-semibold">
+          <%= number_with_precision(flow.inflow_btc, precision: 2, delimiter: " ") %> BTC
+        </div>
+      </div>
+
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Outflow (24h)</div>
+        <div class="mt-1 text-lg font-semibold">
+          <%= number_with_precision(flow.outflow_btc, precision: 2, delimiter: " ") %> BTC
+        </div>
+      </div>
+
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Netflow (24h)</div>
+        <div class="mt-1 text-lg font-semibold <%= net_cls %>">
+          <%= net_val > 0 ? "+" : "" %><%= number_with_precision(net_val, precision: 2, delimiter: " ") %> BTC
+        </div>
+        <div class="mt-1 text-[11px] text-gray-500">
+          <%= net_label_for.call(net_val) %>
+        </div>
+      </div>
+
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Moy. 30j (inflow)</div>
+        <div class="mt-1 text-lg font-semibold">
+          <%= number_with_precision(flow.avg30 || 0, precision: 2, delimiter: " ") %> BTC
+        </div>
+      </div>
+
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Ratio inflow vs 30j</div>
+        <div class="mt-1 text-lg font-semibold">
+          <%= flow.ratio30.present? ? "x #{number_with_precision(flow.ratio30, precision: 2)}" : "—" %>
+        </div>
+      </div>
+    </div>
+
+    <div class="mt-4 text-xs text-gray-500 leading-relaxed">
+      <p>
+        🔴 = dépôts vers le set “exchange” anormalement élevés vs moyenne 30j.
+        <span class="text-gray-400">
+          Ce n’est pas un signal de trade : c’est un indicateur de risque à recouper avec le prix / niveaux.
+        </span>
+      </p>
+    </div>
+
+    <% last7 = ExchangeTrueFlow.order(day: :desc).limit(7).to_a %>
+
+    <div class="mt-5">
+      <details class="group">
+        <summary class="cursor-pointer select-none text-xs text-indigo-300 hover:text-indigo-200 inline-flex items-center gap-2">
+          <span class="font-semibold">Voir les 7 derniers jours</span>
+          <span class="text-gray-500 group-open:hidden">▸</span>
+          <span class="text-gray-500 hidden group-open:inline">▾</span>
+        </summary>
+
+        <div class="mt-3 bg-gray-900/60 border border-gray-700 rounded-xl overflow-hidden">
+          <table class="w-full text-sm">
+            <thead class="bg-black/30">
+              <tr class="text-xs text-gray-400">
+                <th class="text-left px-4 py-3">Jour</th>
+                <th class="text-right px-4 py-3">Inflow</th>
+                <th class="text-right px-4 py-3">Outflow</th>
+                <th class="text-right px-4 py-3">Net</th>
+                <th class="text-right px-4 py-3">Ratio30</th>
+                <th class="text-right px-4 py-3">Statut</th>
+              </tr>
+            </thead>
+
+            <tbody class="divide-y divide-gray-800">
+              <% last7.each do |d| %>
+                <% row_net_cls = net_color_for.call(d.netflow_btc) %>
+                <% lbl, klass = badge_for.call(d.status) %>
+                <% day_txt = (l(d.day, format: :short) rescue d.day.to_s) %>
+
+                <tr class="hover:bg-white/5">
+                  <td class="px-4 py-3 text-gray-200">
+                    <span class="text-xs text-gray-400"><%= day_txt %></span>
+                  </td>
+
+                  <td class="px-4 py-3 text-right font-mono text-gray-200">
+                    <%= number_with_precision(d.inflow_btc, precision: 2, delimiter: " ") %> BTC
+                  </td>
+
+                  <td class="px-4 py-3 text-right font-mono text-gray-200">
+                    <%= number_with_precision(d.outflow_btc, precision: 2, delimiter: " ") %> BTC
+                  </td>
+
+                  <td class="px-4 py-3 text-right font-mono <%= row_net_cls %>">
+                    <%= d.netflow_btc.to_d > 0 ? "+" : "" %><%= number_with_precision(d.netflow_btc, precision: 2, delimiter: " ") %> BTC
+                  </td>
+
+                  <td class="px-4 py-3 text-right font-mono text-gray-200">
+                    <%= d.ratio30.present? ? number_with_precision(d.ratio30, precision: 2) : "—" %>
+                  </td>
+
+                  <td class="px-4 py-3 text-right">
+                    <span class="inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-full border <%= klass %>">
+                      <%= lbl %>
+                    </span>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+
+        <p class="mt-2 text-[11px] text-gray-500">
+          Astuce : regarde si le 🔴 est isolé (1 jour) ou en série (régime). Journalise seulement quand ça compte.
+        </p>
+
+        <p class="mt-2 text-[11px] text-gray-500">
+          Excès = dépôts vers exchanges très supérieurs à la moyenne (pression vendeuse potentielle).
+          Ce n’est pas un signal, mais un contexte de risque.
+        </p>
+      </details>
+    </div>
+
+  <% else %>
+    <p class="mt-6 text-sm text-gray-400">
+      Pas de données. Lance <span class="font-mono">EXCHANGE_ADDR_MIN_OCC=8 bin/rails exchange_true_flow:rebuild</span>.
+    </p>
+  <% end %>
+</section>

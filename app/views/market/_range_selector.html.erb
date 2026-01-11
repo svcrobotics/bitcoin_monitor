@@ -1,0 +1,11 @@
+<%# locals: range:, alerts_mode: %>
+<div class="mt-4 flex flex-wrap gap-2">
+  <% { "7d" => "7 jours", "30d" => "30 jours", "1y" => "1 an" }.each do |key, label| %>
+    <% active = (range == key) %>
+    <%= link_to label,
+                market_price_path(range: key, alerts_mode: alerts_mode),
+                class: "px-3 py-1.5 rounded-xl border text-sm transition " +
+                       (active ? "bg-indigo-500/15 border-indigo-500/50 text-indigo-200"
+                               : "bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800") %>
+  <% end %>
+</div>

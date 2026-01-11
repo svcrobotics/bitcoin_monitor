@@ -1,0 +1,45 @@
+<%# app/views/market/price.html.erb %>
+
+<section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+  <%= render "market/header",
+        range: @range,
+        alerts_mode: @alerts_mode,
+        trader_alerts: @trader_alerts,
+        journal_body_all: @journal_body_all %>
+
+  <%= render "shared/market_snapshot", snapshot: @snapshot if @snapshot.present? %>
+
+  <%= render "market/range_selector", range: @range, alerts_mode: @alerts_mode %>
+  
+  <%= render "market/one_liner", one_liner: @one_liner %>
+
+  <%= render "market/period_metrics",
+        perf_pct: @perf_pct,
+        high: @high,
+        low: @low,
+        pos_pct: @pos_pct,
+        max_drawdown_pct: @max_drawdown_pct,
+        vol_label: @vol_label,
+        vol_pct: @vol_pct %>
+
+  <%= render "market/ma200",
+        ma200: @ma200,
+        ma_badge: @ma_badge,
+        px_vs_ma200_pct: @px_vs_ma200_pct,
+        px_now: @px_now %>
+
+  <%= render "market/alignment", alignment: @alignment, sell_verdict: @sell_verdict %>
+
+  <%= render "market/trader_alerts",
+        trader_alerts: @trader_alerts,
+        range: @range,
+        alerts_mode: @alerts_mode,
+        perf_pct: @perf_pct,
+        pos_pct: @pos_pct,
+        vol_pct: @vol_pct,
+        max_drawdown_pct: @max_drawdown_pct,
+        alignment: @alignment %>
+
+  <%= render "market/price_chart", price_series: @price_series %>
+
+</section>

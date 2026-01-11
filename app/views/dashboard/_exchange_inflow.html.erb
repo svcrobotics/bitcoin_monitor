@@ -1,0 +1,57 @@
+<% flow = ExchangeFlow.recent.first %>
+
+<section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <h2 class="text-xl sm:text-2xl font-semibold mb-1">Exchange-like activity (24h)</h2>
+      <p class="text-sm text-gray-400">
+        Estimation basée sur WhaleAlerts (exchange_likelihood ≥ 70), volume = total_out_btc.
+      </p>
+      <p class="text-sm text-gray-400">
+        Cet indicateur mesure l’activité liée aux exchanges, pas encore les dépôts nets.
+      </p>
+    </div>
+
+    <% badge =
+      case flow&.status
+      when "red"   then ["🔴 Excès",   "text-rose-300 bg-rose-500/10 border-rose-700/50"]
+      when "amber" then ["🟡 Tension", "text-amber-300 bg-amber-500/10 border-amber-700/50"]
+      else              ["🟢 Normal",  "text-emerald-300 bg-emerald-500/10 border-emerald-700/50"]
+      end
+    %>
+
+    <span class="text-xs px-3 py-1 rounded-full border <%= badge[1] %>"><%= badge[0] %></span>
+  </div>
+
+  <% if flow.present? %>
+    <div class="mt-6 grid grid-cols-1 sm:grid-cols-4 gap-4">
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Exchange-like volume (24h)</div>
+        <div class="mt-1 text-lg font-semibold"><%= number_with_precision(flow.inflow_btc, precision: 2) %> BTC</div>
+      </div>
+
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Moy. 7j</div>
+        <div class="mt-1 text-lg font-semibold"><%= number_with_precision(flow.avg7 || 0, precision: 2) %> BTC</div>
+      </div>
+
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Moy. 30j</div>
+        <div class="mt-1 text-lg font-semibold"><%= number_with_precision(flow.avg30 || 0, precision: 2) %> BTC</div>
+      </div>
+
+      <div class="bg-black/30 border border-gray-700 rounded-xl p-4">
+        <div class="text-xs text-gray-400">Ratio vs 30j</div>
+        <div class="mt-1 text-lg font-semibold"><%= flow.ratio30 || "—" %></div>
+      </div>
+    </div>
+
+    <p class="mt-4 text-xs text-gray-500">
+      🔴 = pression vendeuse potentielle élevée (contexte fragile). Ce n’est pas un signal, c’est un indicateur de risque.
+    </p>
+  <% else %>
+    <p class="mt-6 text-sm text-gray-400">
+      Pas de données. Lance <span class="font-mono">bin/rails exchange_flow:rebuild</span>.
+    </p>
+  <% end %>
+</section>

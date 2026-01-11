@@ -1,0 +1,61 @@
+<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+  <div class="flex items-center justify-between gap-4">
+    <h1 class="text-2xl font-semibold text-gray-100">Journal</h1>
+    <%= link_to "➕ Nouvelle entrée", new_journal_entry_path,
+          class: "px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold" %>
+  </div>
+  <div class="flex w-full flex-col gap-2 sm:w-auto sm:items-end">
+          <%= link_to dashboard_path,
+            class: "inline-flex items-center justify-center gap-2 rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2 text-sm font-semibold text-gray-200 hover:bg-gray-900/60 transition" do %>
+            ⬅️ <span>Retour au dashboard</span>
+          <% end %>
+  </div>
+  <div class="mt-6 space-y-4">
+    <% @journal_entries.each do |e| %>
+      <div class="bg-gray-800/80 border border-gray-700 rounded-2xl p-5 shadow">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <div class="text-xs text-gray-400">
+              <%= e.occurred_at.strftime("%Y-%m-%d %H:%M") %>
+              <% if e.kind.present? %> · <span class="text-gray-300"><%= e.kind %></span><% end %>
+              <% if e.btc_price_eur.present? %> · <span class="text-gray-300"><%= number_to_currency(e.btc_price_eur, unit: "€", format: "%n %u") %></span><% end %>
+            </div>
+
+            <% if e.context.present? %>
+              <div class="mt-2 text-sm text-gray-200"><%= e.context %></div>
+            <% end %>
+          </div>
+
+          <% mood_badge =
+            case e.mood
+            when "red" then ["🔴", "text-rose-300 bg-rose-500/10 border-rose-700/50"]
+            when "amber" then ["🟡", "text-amber-300 bg-amber-500/10 border-amber-700/50"]
+            when "green" then ["🟢", "text-emerald-300 bg-emerald-500/10 border-emerald-700/50"]
+            else ["•", "text-gray-300 bg-white/5 border-gray-700"]
+            end
+          %>
+          <span class="text-xs px-2 py-1 rounded-full border <%= mood_badge[1] %>"><%= mood_badge[0] %></span>
+        </div>
+
+        <% if e.body.present? %>
+          <p class="mt-3 text-sm text-gray-300 whitespace-pre-line"><%= e.body %></p>
+        <% end %>
+
+        <% if e.tags_list.any? %>
+          <div class="mt-3 flex flex-wrap gap-2">
+            <% e.tags_list.each do |t| %>
+              <span class="text-xs px-2 py-1 rounded-full border border-gray-700 bg-black/20 text-gray-300"><%= t %></span>
+            <% end %>
+          </div>
+        <% end %>
+
+        <div class="mt-4 flex items-center gap-3 text-sm">
+          <%= link_to "Voir", e, class: "text-indigo-400 hover:text-indigo-300" %>
+          <%= link_to "Éditer", edit_journal_entry_path(e), class: "text-gray-400 hover:text-gray-200" %>
+          <%= button_to "Supprimer", e, method: :delete, data: { turbo_confirm: "Supprimer cette entrée ?" },
+                class: "text-rose-300 hover:text-rose-200" %>
+        </div>
+      </div>
+    <% end %>
+  </div>
+</div>

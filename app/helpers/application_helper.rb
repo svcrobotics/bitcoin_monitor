@@ -72,4 +72,35 @@ module ApplicationHelper
 	def btc_raw(amount)
       amount.to_d.to_s("F")
     end
+
+    def format_btc(amount, precision: 2)
+	  return "0.00" if amount.blank?
+
+	  number_with_precision(
+	    amount.to_d,
+	    precision: precision,
+	    strip_insignificant_zeros: false
+	  )
+	end
+
+    def fmt_pct(value, precision: 2, assume: :auto, show_plus: false)
+	  return "—" if value.nil?
+
+	  x = value.is_a?(String) ? value.tr(",", ".").to_f : value.to_f
+
+	  pct =
+	    case assume
+	    when :ratio then x * 100.0
+	    when :pct   then x
+	    else             x.abs <= 1.5 ? x * 100.0 : x
+	    end
+
+	  txt = number_with_precision(pct, precision: precision, strip_insignificant_zeros: true)
+	  txt = "+#{txt}" if show_plus && pct.positive?
+	  "#{txt}%"
+	end
+
+	def pct_color_class(value)
+	  value.to_f >= 0 ? "text-emerald-300" : "text-rose-300"
+	end
 end

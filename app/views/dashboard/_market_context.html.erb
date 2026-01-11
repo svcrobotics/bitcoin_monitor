@@ -1,0 +1,208 @@
+<%# app/views/dashboard/_market_context.html.erb %>
+
+<% snapshot = @snapshot || @market_snapshot %>
+
+<section class="mt-6 bg-gray-800/80 border border-gray-700 rounded-2xl p-6 sm:p-8 shadow-xl">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div class="min-w-0">
+      <h2 class="text-xl sm:text-2xl font-semibold mb-1">
+        <%= simple_mode? ? "Marché Bitcoin (simple)" : "Contexte Marché (BTC)" %>
+      </h2>
+
+      <div data-controller="toggle" class="mt-3">
+        <button type="button"
+                data-action="toggle#toggle"
+                class="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+          <%= simple_mode? ? "ℹ️ Comprendre (version simple)" : "ℹ️ Comprendre ces indicateurs (version trader)" %>
+        </button>
+
+        <div data-toggle-target="content"
+             class="hidden mt-3 bg-gray-900/70 border border-gray-700 rounded-xl p-4 text-sm text-gray-200 space-y-3 text-left">
+
+          <% if simple_mode? %>
+            <p>
+              Ce bloc résume <strong>l’état général du marché</strong> à partir de données objectives :
+              tendance long terme (MA200), position vs plus haut, et agitation (volatilité).
+              <span class="text-gray-400">(pas un conseil financier)</span>
+            </p>
+
+            <div>
+              <h4 class="font-semibold text-gray-100 mb-1">📈 Tendance (MA200)</h4>
+              <p class="text-gray-300">
+                Si le prix est au-dessus de la MA200 → tendance plutôt positive. En dessous → plutôt négative.
+              </p>
+            </div>
+
+            <div>
+              <h4 class="font-semibold text-gray-100 mb-1">🔁 Cycle (distance au max)</h4>
+              <p class="text-gray-300">
+                Plus on est proche du max, plus la zone peut être instable. Loin du max → zone plus “basse”.
+              </p>
+            </div>
+
+            <div>
+              <h4 class="font-semibold text-gray-100 mb-1">⚠️ Risque (volatilité)</h4>
+              <p class="text-gray-300">
+                Plus la volatilité est forte, plus le marché peut partir vite dans les deux sens.
+              </p>
+            </div>
+
+            <div class="text-xs text-gray-500 pt-2 border-t border-gray-700">
+              Source : closes journaliers • MA200 = moyenne 200j • volatilité = amplitude 30j.
+            </div>
+          <% else %>
+            <p>
+              Snapshot basé sur <strong>closes journaliers</strong> :
+              MA200 (trend filter), drawdown vs max (cycle proxy), amplitude 30j (vol proxy).
+              <span class="text-gray-400">Aide à la décision — pas un conseil financier.</span>
+            </p>
+
+            <div class="text-xs text-gray-500 pt-2 border-t border-gray-700">
+              Source : CoinGecko (closes) • MA200 calculée sur 200 jours dispo.
+            </div>
+          <% end %>
+        </div>
+      </div>
+
+      <% if snapshot&.computed_at %>
+        <p class="text-xs text-gray-400 mt-2">
+          Dernière mise à jour :
+          <span class="font-mono"><%= l(snapshot.computed_at, format: :short) %></span>
+        </p>
+      <% else %>
+        <p class="text-xs text-gray-400 mt-2">
+          Aucun snapshot pour le moment — lance un refresh pour initialiser.
+        </p>
+      <% end %>
+    </div>
+
+    <div class="flex items-center gap-2">
+      <%= button_to market_context_refresh_path,
+                    method: :post,
+                    class: "inline-flex items-center gap-2 rounded-xl px-4 py-3
+                            bg-gray-900/70 border border-gray-700 text-gray-100 text-sm
+                            hover:bg-gray-800 hover:border-gray-600 transition" do %>
+        <span class="text-base">↻</span>
+        <span class="font-semibold text-sm sm:text-[13px]">
+          <%= simple_mode? ? "Mettre à jour" : "Rafraîchir" %>
+        </span>
+      <% end %>
+    </div>
+  </div>
+
+  <% if snapshot.present? %>
+    <% bias  = snapshot.market_bias.to_s %>
+    <% cycle = snapshot.cycle_zone.to_s %>
+    <% risk  = snapshot.risk_level.to_s %>
+
+    <% price_now = snapshot.price_now_usd.to_f %>
+    <% ma200     = snapshot.ma200_usd.to_f %>
+
+    <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
+      <%# --- Bias --- %>
+      <% bias_label_simple =
+           case bias
+           when "bull" then "Plutôt haussier"
+           when "bear" then "Plutôt baissier"
+           else             "Mitigé"
+           end
+      %>
+
+      <% bias_classes =
+           case bias
+           when "bull"   then "border-emerald-500/60 text-emerald-200 hover:bg-emerald-600/20 hover:border-emerald-400"
+           when "bear"   then "border-rose-500/60 text-rose-200 hover:bg-rose-600/20 hover:border-rose-400"
+           else               "border-gray-500/60 text-gray-200 hover:bg-gray-700/40 hover:border-gray-400"
+           end
+      %>
+
+      <div class="bg-gray-900/70 border rounded-xl px-4 py-3 <%= bias_classes %> transition">
+        <p class="text-[11px] uppercase tracking-wide opacity-80"><%= simple_mode? ? "Tendance" : "Marché" %></p>
+        <p class="text-lg font-semibold">
+          <%= simple_mode? ? bias_label_simple : content_tag(:span, bias, class: "font-mono") %>
+        </p>
+
+        <% if ma200.positive? %>
+          <% delta_pct = ((price_now - ma200) / ma200 * 100).round(1) %>
+          <p class="text-xs text-gray-300 mt-1">
+            Prix vs MA200 : <span class="font-mono"><%= delta_pct.positive? ? "+" : "" %><%= delta_pct %>%</span>
+          </p>
+          <p class="text-xs text-gray-400 mt-1">
+            MA200 : <span class="font-mono"><%= number_to_currency(ma200, unit: "$", precision: 0, delimiter: " ") %></span>
+          </p>
+        <% else %>
+          <p class="text-xs text-gray-400 mt-1"><%= simple_mode? ? "Tendance long terme via MA200." : "Biais long terme via MA200." %></p>
+        <% end %>
+      </div>
+
+      <%# --- Cycle --- %>
+      <% cycle_label_simple =
+           case cycle
+           when "near_ath"     then "Proche des sommets"
+           when "accumulation" then "Zone plus basse"
+           else                     "Intermédiaire"
+           end
+      %>
+
+      <% cycle_label_trader =
+           case cycle
+           when "near_ath"     then "Proche ATH"
+           when "accumulation" then "Accumulation"
+           else                     "Intermédiaire"
+           end
+      %>
+
+      <% cycle_classes =
+           case cycle
+           when "near_ath"     then "border-amber-500/60 text-amber-200 hover:bg-amber-600/20 hover:border-amber-400"
+           when "accumulation" then "border-emerald-500/60 text-emerald-200 hover:bg-emerald-600/20 hover:border-emerald-400"
+           else                     "border-gray-500/60 text-gray-200 hover:bg-gray-700/40 hover:border-gray-400"
+           end
+      %>
+
+      <div class="bg-gray-900/70 border rounded-xl px-4 py-3 <%= cycle_classes %> transition">
+        <p class="text-[11px] uppercase tracking-wide opacity-80">Cycle</p>
+        <p class="text-lg font-semibold">
+          <%= simple_mode? ? cycle_label_simple : cycle_label_trader %>
+          <% unless simple_mode? %><span class="text-xs text-gray-400 font-mono ml-1">(<%= cycle %>)</span><% end %>
+        </p>
+        <p class="text-xs text-gray-400 mt-1"><%= simple_mode? ? "Position vs plus haut (~12 mois)." : "Basé sur la distance au plus haut." %></p>
+      </div>
+
+      <%# --- Risk --- %>
+      <% risk_label =
+           case risk
+           when "high" then "Élevé"
+           when "low"  then "Faible"
+           else             "Moyen"
+           end
+      %>
+
+      <% risk_classes =
+           case risk
+           when "high" then "border-rose-500/60 text-rose-200 hover:bg-rose-600/20 hover:border-rose-400"
+           when "low"  then "border-emerald-500/60 text-emerald-200 hover:bg-emerald-600/20 hover:border-emerald-400"
+           else             "border-amber-500/60 text-amber-200 hover:bg-amber-600/20 hover:border-amber-400"
+           end
+      %>
+
+      <div class="bg-gray-900/70 border rounded-xl px-4 py-3 <%= risk_classes %> transition">
+        <p class="text-[11px] uppercase tracking-wide opacity-80">Risque</p>
+        <p class="text-lg font-semibold">
+          <%= risk_label %>
+          <% unless simple_mode? %><span class="text-xs text-gray-400 font-mono ml-1">(<%= risk %>)</span><% end %>
+        </p>
+        <p class="text-xs text-gray-400 mt-1"><%= simple_mode? ? "Basé sur volatilité 30 jours." : "Combine structure + volatilité 30j." %></p>
+      </div>
+    </div>
+
+  <% else %>
+    <div class="mt-5 bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+      <p class="text-sm text-gray-200 mb-2">Aucun snapshot disponible.</p>
+      <p class="text-xs text-gray-400">
+        Clique sur <span class="font-semibold"><%= simple_mode? ? "Mettre à jour" : "Rafraîchir" %></span>
+        pour importer les prix et calculer la MA200.
+      </p>
+    </div>
+  <% end %>
+</section>
