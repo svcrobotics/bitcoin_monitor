@@ -80,7 +80,7 @@ gem "commonmarker"
 
 require "open3"
 
-gem "stringio", "3.0.4"
+gem "stringio", "3.2.0"
 
 gem "chartkick"
 gem "groupdate"
