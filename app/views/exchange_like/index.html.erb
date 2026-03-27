@@ -1,0 +1,142 @@
+<div class="max-w-6xl mx-auto px-4 py-8">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-100">Exchange Like</h1>
+    <p class="mt-1 text-sm text-gray-500">
+      Discovery, observed activity and engine health for the exchange-like module.
+    </p>
+  </div>
+
+  <!-- Summary -->
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold text-gray-100 mb-3">Summary</h2>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Total addresses</p>
+        <p class="text-xl font-mono text-gray-100"><%= @addresses_total %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Operational</p>
+        <p class="text-xl font-mono text-gray-100"><%= @addresses_operational %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Scannable</p>
+        <p class="text-xl font-mono text-gray-100"><%= @addresses_scannable %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Observed UTXO</p>
+        <p class="text-xl font-mono text-gray-100"><%= @observed_total %></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Charts -->
+  <section class="mb-8 space-y-6">
+
+    <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+      <div class="mb-3">
+        <h2 class="text-lg font-semibold text-gray-100">Builder evolution</h2>
+        <p class="text-xs text-gray-500 mt-1">
+          New exchange-like addresses discovered per day.
+        </p>
+      </div>
+
+      <%= line_chart @builder_daily_discovery,
+        height: "360px",
+        points: false,
+        discrete: true,
+        thousands: ","
+      %>
+    </div>
+
+    <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+      <div class="mb-3">
+        <h2 class="text-lg font-semibold text-gray-100">Scanner evolution</h2>
+        <p class="text-xs text-gray-500 mt-1">
+          Observed UTXO activity per day.
+        </p>
+      </div>
+
+      <%= line_chart [
+            { name: "Seen", data: @scanner_seen_daily },
+            { name: "Spent", data: @scanner_spent_daily }
+          ],
+          height: "360px",
+          points: false,
+          discrete: true,
+          thousands: ","
+      %>
+    </div>
+  </section>
+
+  <!-- Top addresses -->
+  <section class="mb-8">
+    <div class="mb-3">
+      <h2 class="text-lg font-semibold text-gray-100">Top exchange-like addresses</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Highest-confidence and highest-occurrence addresses in the current operational set.
+      </p>
+    </div>
+
+    <div class="overflow-x-auto border border-gray-800 rounded-xl">
+      <table class="min-w-full text-sm">
+        <thead class="bg-black/30 text-gray-400 text-xs">
+          <tr>
+            <th class="text-left px-4 py-3">Address</th>
+            <th class="text-left px-4 py-3">Occurrences</th>
+            <th class="text-left px-4 py-3">Confidence</th>
+            <th class="text-left px-4 py-3">Last seen</th>
+          </tr>
+        </thead>
+
+        <tbody class="text-gray-300">
+          <% @top_addresses.each do |a| %>
+            <tr class="border-t border-gray-800 hover:bg-white/5">
+              <td class="px-4 py-3 font-mono text-xs"><%= a.address %></td>
+              <td class="px-4 py-3 font-mono"><%= a.occurrences %></td>
+              <td class="px-4 py-3 font-mono"><%= a.confidence %></td>
+              <td class="px-4 py-3 font-mono text-xs"><%= a.last_seen_at&.strftime("%Y-%m-%d") || "—" %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Engine status -->
+  <section>
+    <div class="mb-3">
+      <h2 class="text-lg font-semibold text-gray-100">Engine status</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Current cursors and synchronization status.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Builder cursor</p>
+        <p class="text-xl font-mono text-gray-100"><%= @builder_status[:cursor_height] || "—" %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Scanner cursor</p>
+        <p class="text-xl font-mono text-gray-100"><%= @scanner_status[:cursor_height] || "—" %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Best block</p>
+        <p class="text-xl font-mono text-gray-100"><%= @best_height || "—" %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Scanner lag</p>
+        <p class="text-xl font-mono text-gray-100"><%= @scanner_status[:lag] || "—" %></p>
+      </div>
+    </div>
+  </section>
+
+</div>

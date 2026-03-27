@@ -1,84 +1,209 @@
-<%# locals: ai_insight:, simple_mode: %>
+<%# dashboard/_ai_insight_content.html.erb %>
+<%# locals: ai_insight: %>
+<% return unless ai_insight.present? && ai_insight.is_a?(Hash) %>
+
+<%
+  data = ai_insight
+
+  # Fallback ancien format (si jamais des anciens restent en DB)
+  if data["trader"].is_a?(Hash) && data["as_of_day"].blank?
+    data = data["trader"]
+  end
+
+  as_of_day  = data["as_of_day"].to_s.presence
+  headline   = data["headline"].to_s.presence || data["summary"].to_s.presence
+  regime     = data["regime"].to_s.presence
+
+  drivers    = Array(data["drivers"]).select { |x| x.is_a?(String) && x.present? }
+  risk       = Array(data["risk"]).select { |x| x.is_a?(String) && x.present? }
+  scenarios  = Array(data["scenarios"]).select { |x| x.is_a?(Hash) }
+
+  weekly     = data["weekly"].is_a?(Hash) ? data["weekly"] : {}
+  monthly    = data["monthly"].is_a?(Hash) ? data["monthly"] : {}
+
+  wk_sum     = weekly["summary"].to_s.presence
+  wk_drv     = Array(weekly["drivers"]).select { |x| x.is_a?(String) && x.present? }
+
+  mo_sum     = monthly["summary"].to_s.presence
+  mo_drv     = Array(monthly["drivers"]).select { |x| x.is_a?(String) && x.present? }
+
+  levels     = data["levels"].is_a?(Hash) ? data["levels"] : {}
+  sup        = levels["support"].is_a?(Hash) ? levels["support"] : nil
+  res        = levels["resistance"].is_a?(Hash) ? levels["resistance"] : nil
+  bonus      = Array(levels["bonus"]).select { |x| x.is_a?(Hash) }
+
+  disclaimer = data["disclaimer"].to_s.presence || "Cette analyse est informative et ne constitue pas un conseil financier."
+%>
 
 <div class="bg-gray-800/70 border border-gray-700 rounded-2xl p-5 sm:p-6 shadow-xl">
-  <% if simple_mode %>
-    <% simple = ai_insight["simple"].is_a?(Hash) ? ai_insight["simple"] : {} %>
-    <% headline = simple["headline"].to_s.presence || "Analyse IA" %>
-    <% bullets = Array(simple["bullets"]).select { |x| x.is_a?(String) && x.present? } %>
-    <% watch  = Array(simple["what_to_watch"]).select { |x| x.is_a?(String) && x.present? } %>
-    <% disclaimer = simple["disclaimer"].to_s.presence || "Ce n’est pas un conseil financier." %>
-
-    <p class="text-sm font-semibold text-gray-100"><%= headline %></p>
-
-    <% if bullets.any? %>
-      <div class="mt-2 space-y-1">
-        <% bullets.each do |b| %>
-          <p class="text-sm text-gray-200">• <%= b %></p>
+  <% if headline.present? || as_of_day.present? %>
+    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+      <div class="min-w-0">
+        <% if headline.present? %>
+          <p class="text-sm font-semibold text-gray-100"><%= headline %></p>
+        <% end %>
+        <% if as_of_day.present? %>
+          <p class="text-xs text-gray-500 mt-1">
+            Date : <span class="font-mono text-gray-400"><%= as_of_day %></span>
+          </p>
         <% end %>
       </div>
-    <% end %>
 
-    <% if watch.any? %>
-      <div class="mt-4">
-        <p class="text-xs uppercase tracking-wide text-gray-400 mb-2">À surveiller</p>
-        <div class="space-y-1">
-          <% watch.each do |w| %>
-            <p class="text-sm text-gray-200">• <%= w %></p>
+      <% if regime.present? %>
+        <span class="text-[11px] px-2 py-1 rounded-full border border-gray-700 bg-gray-900/40 text-gray-200">
+          Regime: <span class="font-mono text-gray-300"><%= regime %></span>
+        </span>
+      <% end %>
+    </div>
+  <% end %>
+
+  <div class="<%= (headline.present? || as_of_day.present?) ? "mt-4" : "" %> grid grid-cols-1 lg:grid-cols-3 gap-3">
+    <!-- Drivers -->
+    <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4 lg:col-span-2">
+      <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Drivers</p>
+
+      <% list = drivers.presence || wk_drv.presence || mo_drv.presence || [] %>
+      <% if list.any? %>
+        <ul class="space-y-1 text-sm text-gray-200">
+          <% list.first(6).each do |d| %>
+            <li class="flex gap-2">
+              <span class="text-gray-500">•</span>
+              <span><%= d %></span>
+            </li>
+          <% end %>
+        </ul>
+      <% else %>
+        <p class="text-sm text-gray-400">—</p>
+      <% end %>
+
+      <% if wk_sum.present? || mo_sum.present? %>
+        <div class="mt-3 flex flex-wrap gap-2">
+          <% if wk_sum.present? %>
+            <span class="text-[11px] px-2 py-1 rounded-full border border-gray-700 bg-black/20 text-gray-300">
+              7j: <span class="text-gray-200"><%= wk_sum %></span>
+            </span>
+          <% end %>
+          <% if mo_sum.present? %>
+            <span class="text-[11px] px-2 py-1 rounded-full border border-gray-700 bg-black/20 text-gray-300">
+              30j: <span class="text-gray-200"><%= mo_sum %></span>
+            </span>
           <% end %>
         </div>
-      </div>
-    <% end %>
+      <% end %>
+    </div>
 
-    <p class="text-xs text-gray-500 mt-4"><%= disclaimer %></p>
+    <!-- Risk -->
+    <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+      <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Risk</p>
+      <% if risk.any? %>
+        <ul class="space-y-1 text-sm text-gray-200">
+          <% risk.first(5).each do |r| %>
+            <li class="flex gap-2">
+              <span class="text-gray-500">•</span>
+              <span><%= r %></span>
+            </li>
+          <% end %>
+        </ul>
+      <% else %>
+        <p class="text-sm text-gray-400">—</p>
+      <% end %>
+    </div>
+  </div>
 
-  <% else %>
-    <% trader = ai_insight["trader"].is_a?(Hash) ? ai_insight["trader"] : {} %>
-    <% regime = trader["regime"].to_s.presence %>
-    <% notes  = Array(trader["notes"]).select { |x| x.is_a?(String) && x.present? } %>
-    <% scenarios = Array(trader["scenarios"]).select { |x| x.is_a?(Hash) } %>
-    <% disclaimer = trader["disclaimer"].to_s.presence || "Ce n’est pas un conseil financier." %>
+  <!-- Levels -->
+  <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+    <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+      <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Support</p>
+      <% if sup.present? %>
+        <p class="text-sm text-gray-200">
+          Zone :
+          <span class="font-mono text-gray-100">
+            <%= number_with_precision(sup["low"], precision: 0, delimiter: " ") %> –
+            <%= number_with_precision(sup["high"], precision: 0, delimiter: " ") %> $
+          </span>
+        </p>
+        <p class="text-xs text-gray-500 mt-1">
+          Strength: <span class="text-gray-300"><%= sup["strength"].presence || "—" %></span>
+          <% if sup["touches"].present? %>
+            <span class="text-gray-600">•</span>
+            Touches: <span class="text-gray-300"><%= sup["touches"] %></span>
+          <% end %>
+        </p>
+      <% else %>
+        <p class="text-sm text-gray-400">—</p>
+      <% end %>
+    </div>
 
-    <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-      <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
-        <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Regime</p>
-        <p class="text-lg font-semibold text-gray-100"><%= regime.presence || "—" %></p>
-        <p class="text-xs text-gray-400 mt-1">Résumé du régime de marché par l’IA.</p>
-      </div>
+    <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+      <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Résistance</p>
+      <% if res.present? %>
+        <p class="text-sm text-gray-200">
+          Zone :
+          <span class="font-mono text-gray-100">
+            <%= number_with_precision(res["low"], precision: 0, delimiter: " ") %> –
+            <%= number_with_precision(res["high"], precision: 0, delimiter: " ") %> $
+          </span>
+        </p>
+        <p class="text-xs text-gray-500 mt-1">
+          Strength: <span class="text-gray-300"><%= res["strength"].presence || "—" %></span>
+          <% if res["touches"].present? %>
+            <span class="text-gray-600">•</span>
+            Touches: <span class="text-gray-300"><%= res["touches"] %></span>
+          <% end %>
+        </p>
+      <% else %>
+        <p class="text-sm text-gray-400">—</p>
+      <% end %>
+    </div>
+  </div>
 
-      <div class="bg-gray-900/70 border border-gray-700 rounded-xl p-4">
-        <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-1">Notes</p>
-        <% if notes.any? %>
-          <div class="space-y-1">
-            <% notes.each do |n| %>
-              <p class="text-sm text-gray-200">• <%= n %></p>
-            <% end %>
-          </div>
-        <% else %>
-          <p class="text-sm text-gray-400">—</p>
+  <% if bonus.any? %>
+    <div class="mt-3 bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+      <p class="text-[11px] uppercase tracking-wide text-gray-400 mb-2">Bonus zones</p>
+      <div class="flex flex-wrap gap-2">
+        <% bonus.first(6).each do |b| %>
+          <span class="text-[11px] px-2 py-1 rounded-full border border-gray-700 bg-gray-950/40 text-gray-300 font-mono">
+            <%= b["kind"].presence || "zone" %>:
+            <%= number_with_precision(b["low"], precision: 0, delimiter: " ") %>–
+            <%= number_with_precision(b["high"], precision: 0, delimiter: " ") %>
+          </span>
         <% end %>
       </div>
     </div>
-
-    <% if scenarios.any? %>
-      <div class="mt-4 bg-gray-900/70 border border-gray-700 rounded-xl p-4">
-        <p class="text-xs uppercase tracking-wide text-gray-400 mb-2">Scénarios</p>
-        <div class="space-y-2">
-          <% scenarios.first(3).each do |s| %>
-            <% if_txt = s["if"].to_s %>
-            <% then_txt = s["then"].to_s %>
-            <div class="rounded-xl border border-gray-700 bg-gray-950/40 p-3">
-              <p class="text-sm text-gray-200">
-                <span class="text-gray-400">Si</span> <%= if_txt.presence || "…" %>
-              </p>
-              <p class="text-sm text-gray-200 mt-1">
-                <span class="text-gray-400">Alors</span> <%= then_txt.presence || "…" %>
-              </p>
-            </div>
-          <% end %>
-        </div>
-      </div>
-    <% end %>
-
-    <p class="text-xs text-gray-500 mt-4"><%= disclaimer %></p>
   <% end %>
+
+  <!-- Scenarios -->
+  <% if scenarios.any? %>
+    <div class="mt-4 bg-gray-900/70 border border-gray-700 rounded-xl p-4">
+      <div class="flex items-center justify-between gap-3 mb-2">
+        <p class="text-xs uppercase tracking-wide text-gray-400">Scénarios</p>
+        <p class="text-[11px] text-gray-500">conditions + invalidations</p>
+      </div>
+
+      <div class="space-y-2">
+        <% scenarios.first(3).each do |s| %>
+          <% if_txt  = s["if"].to_s.presence %>
+          <% then_txt = s["then"].to_s.presence %>
+          <% inv_txt  = s["invalidation"].to_s.presence || s["invalid"].to_s.presence %>
+
+          <div class="rounded-xl border border-gray-700 bg-gray-950/40 p-3">
+            <p class="text-sm text-gray-200">
+              <span class="text-gray-400">Si</span> <%= if_txt || "…" %>
+            </p>
+            <p class="text-sm text-gray-200 mt-1">
+              <span class="text-gray-400">Alors</span> <%= then_txt || "…" %>
+            </p>
+
+            <% if inv_txt.present? %>
+              <p class="text-[11px] text-gray-400 mt-2">
+                <span class="text-gray-500">Invalidation :</span> <%= inv_txt %>
+              </p>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+
+  <p class="text-xs text-gray-500 mt-4"><%= disclaimer %></p>
 </div>

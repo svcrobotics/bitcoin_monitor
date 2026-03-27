@@ -3,15 +3,79 @@
 
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
 
+  <% invested_eur = @trade_simulation.respond_to?(:buy_amount_eur) ? @trade_simulation.buy_amount_eur : nil %>
+  <% btc_amount   = @trade_simulation.btc_amount %>
+
+  <%# ---- Fees (buy) ---- %>
+  <%
+    buy_fee_pct   = @trade_simulation.respond_to?(:buy_fee_pct) ? @trade_simulation.buy_fee_pct.to_f : 0.0
+    buy_fee_fixed = @trade_simulation.respond_to?(:buy_fee_fixed_eur) ? @trade_simulation.buy_fee_fixed_eur.to_f : 0.0
+    slippage_pct  = @trade_simulation.respond_to?(:slippage_pct) ? @trade_simulation.slippage_pct.to_f : 0.0
+  %>
+
+  <%# ---- Option A base display (investi + frais achat) ---- %>
+  <%
+    fallback_cost_total =
+      if invested_eur.present?
+        inv = invested_eur.to_f
+        # ⚠️ MVP: ici on n’inclut pas le slippage car c’est appliqué sur le gross (prix * btc) dans le moteur.
+        inv + (inv * buy_fee_pct / 100.0) + buy_fee_fixed
+      end
+  %>
+
+  <%# ---- (A2) Preview: "Si je vends aujourd’hui" avec frais vente = frais achat ---- %>
+  <%
+    preview_a2 = nil
+    preview_a2_day = nil
+
+    if @trade_simulation.open? && defined?(TradeSimulator)
+      last_day = @points&.last&.day
+      if last_day.present?
+        preview_a2_day = last_day
+        begin
+          sim = @trade_simulation.dup
+          sim.sell_day = last_day
+
+          # A2: on force les frais de vente = frais d'achat (pct + fixe)
+          if sim.respond_to?(:sell_fee_pct=)
+            sim.sell_fee_pct = @trade_simulation.buy_fee_pct
+          end
+          if sim.respond_to?(:sell_fee_fixed_eur=)
+            sim.sell_fee_fixed_eur = @trade_simulation.buy_fee_fixed_eur
+          end
+
+          preview_a2 = TradeSimulator.call(sim)
+        rescue TradeSimulator::PriceMissing => e
+          preview_a2 = e
+        rescue => e
+          preview_a2 = e
+        end
+      end
+    end
+  %>
+
   <%# ---- Header ---- %>
   <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
     <div class="min-w-0">
       <h1 class="text-2xl sm:text-3xl font-semibold text-gray-100">Trade simulator</h1>
+
       <p class="text-sm text-gray-400 mt-1">
         Simulation <span class="font-mono text-gray-200">#<%= @trade_simulation.id %></span>
         · Achat <span class="font-mono text-gray-200"><%= @trade_simulation.buy_day %></span>
-        → Vente <span class="font-mono text-gray-200"><%= @trade_simulation.sell_day %></span>
-        · BTC <span class="font-mono text-gray-200"><%= @trade_simulation.btc_amount %></span>
+
+        <% if @trade_simulation.closed? %>
+          → Vente <span class="font-mono text-gray-200"><%= @trade_simulation.sell_day %></span>
+        <% else %>
+          · <span class="text-amber-200 font-semibold">OUVERTE</span>
+        <% end %>
+
+        <% if invested_eur.present? %>
+          · Investi <span class="font-mono text-gray-200"><%= number_to_currency(invested_eur, unit: "€") %></span>
+        <% end %>
+
+        <% if btc_amount.present? %>
+          · BTC <span class="font-mono text-gray-200"><%= btc_amount %></span>
+        <% end %>
       </p>
     </div>
 
@@ -22,11 +86,19 @@
                 hover:bg-cyan-600/25 hover:border-cyan-400 hover:text-cyan-100 transition
                 text-sm font-semibold" %>
 
-      <%= link_to "Modifier", edit_trade_simulation_path(@trade_simulation),
-        class: "inline-flex items-center justify-center rounded-xl px-4 py-2
-                bg-gray-900/60 border border-gray-700/60 text-gray-200
-                hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100 transition
-                text-sm font-semibold" %>
+      <% if @trade_simulation.open? %>
+        <%= link_to "Clôturer", close_trade_simulation_path(@trade_simulation),
+          class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                  bg-amber-600/15 border border-amber-500/50 text-amber-200
+                  hover:bg-amber-600/25 hover:border-amber-400 hover:text-amber-100 transition
+                  text-sm font-semibold" %>
+
+        <%= link_to "Modifier", edit_trade_simulation_path(@trade_simulation),
+          class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                  bg-gray-900/60 border border-gray-700/60 text-gray-200
+                  hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100 transition
+                  text-sm font-semibold" %>
+      <% end %>
 
       <%= link_to "Retour", trade_simulations_path,
         class: "inline-flex items-center justify-center rounded-xl px-4 py-2
@@ -57,6 +129,106 @@
     </div>
   <% end %>
 
+  <%# ---- Status banner ---- %>
+  <% if @trade_simulation.open? %>
+    <div class="mb-4 rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-200 text-sm">
+      <div>
+        Position ouverte : la courbe montre “si tu vendais chaque jour”.
+        Le résultat final s’affiche après clôture.
+      </div>
+
+      <% if @pnl_info.present? %>
+        <div class="mt-2 text-xs text-amber-100/90">
+          <div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span>Dernier net :</span>
+            <span class="font-mono text-gray-100"><%= number_to_currency(@pnl_info[:last_net], unit: "€") %></span>
+
+            <span class="text-gray-500">•</span>
+            <span>Best :</span>
+            <span class="font-mono"><%= @pnl_info[:best_day] %></span>
+            (<span class="font-mono text-emerald-200"><%= number_with_precision(@pnl_info[:best_pnl_pct], precision: 2) %>%</span>)
+
+            <span class="text-gray-500">•</span>
+            <span>Worst :</span>
+            <span class="font-mono"><%= @pnl_info[:worst_day] %></span>
+            (<span class="font-mono text-rose-200"><%= number_with_precision(@pnl_info[:worst_pnl_pct], precision: 2) %>%</span>)
+          </div>
+
+          <div class="mt-1 text-[11px] text-amber-100/80">
+            Base (Option A) :
+            <span class="font-semibold">coût total</span> (investi + frais d’achat)
+            <% if fallback_cost_total.present? %>
+              — <span class="font-mono text-gray-100"><%= number_to_currency(fallback_cost_total, unit: "€") %></span>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+
+      <%# ---- A2 preview card ---- %>
+      <div class="mt-3 rounded-xl border border-amber-500/20 bg-black/20 px-4 py-3">
+        <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2">
+          <div class="min-w-0">
+            <p class="text-xs text-amber-100/80">
+              Si je vends <span class="font-semibold">au dernier jour disponible</span>
+              <% if preview_a2_day.present? %>
+                (<span class="font-mono"><%= preview_a2_day %></span>)
+              <% end %>
+              — <span class="font-semibold">frais de vente = frais d’achat</span>
+            </p>
+            <p class="text-[11px] text-amber-100/70 mt-0.5">
+              Sell fees = <span class="font-mono"><%= buy_fee_pct %>% + <%= number_to_currency(buy_fee_fixed, unit: "€") %></span>
+              · Slippage = <span class="font-mono"><%= slippage_pct %>%</span>
+            </p>
+          </div>
+
+          <% if preview_a2.is_a?(TradeSimulator::Result) %>
+            <div class="shrink-0 text-right">
+              <div class="text-xs text-gray-400">Net</div>
+              <div class="font-mono text-gray-100">
+                <%= number_to_currency(preview_a2.sell_net.to_f, unit: "€") %>
+              </div>
+            </div>
+          <% end %>
+        </div>
+
+        <% if preview_a2.is_a?(TradeSimulator::Result) %>
+          <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
+            <div class="rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2">
+              <div class="text-gray-500">PnL</div>
+              <div class="font-mono <%= preview_a2.pnl.to_f >= 0 ? "text-emerald-200" : "text-rose-200" %>">
+                <%= number_to_currency(preview_a2.pnl.to_f, unit: "€") %>
+              </div>
+            </div>
+            <div class="rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2">
+              <div class="text-gray-500">PnL (%)</div>
+              <div class="font-mono text-gray-100">
+                <%= number_with_precision(preview_a2.pnl_pct.to_f, precision: 2) %>%
+              </div>
+            </div>
+            <div class="rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2">
+              <div class="text-gray-500">Coût total (moteur)</div>
+              <div class="font-mono text-gray-100">
+                <%= number_to_currency(preview_a2.buy_total.to_f, unit: "€") %>
+              </div>
+            </div>
+          </div>
+        <% elsif preview_a2.is_a?(Exception) %>
+          <p class="mt-2 text-xs text-rose-200">
+            Preview A2 indisponible : <span class="font-mono"><%= preview_a2.message %></span>
+          </p>
+        <% else %>
+          <p class="mt-2 text-xs text-amber-100/70">
+            Preview A2 indisponible (pas de point / pas de prix / pas de moteur).
+          </p>
+        <% end %>
+      </div>
+    </div>
+  <% else %>
+    <div class="mb-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-emerald-200 text-sm">
+      Position clôturée ✅ — résultat final calculé au <span class="font-mono"><%= @trade_simulation.sell_day %></span>.
+    </div>
+  <% end %>
+
   <%# ---- Summary card (paramètres) ---- %>
   <section class="rounded-2xl border border-gray-800 bg-gray-900/50 p-5">
     <div class="flex items-start justify-between gap-3">
@@ -64,43 +236,64 @@
         <h2 class="text-lg font-semibold text-gray-100">Paramètres</h2>
         <p class="text-sm text-gray-400 mt-1">Montant, dates, frais et slippage.</p>
       </div>
-      <span class="shrink-0 text-cyan-200 border border-cyan-500/40 bg-cyan-600/10 rounded-full px-2 py-1 text-xs font-semibold">
-        Paper
-      </span>
+
+      <% if @trade_simulation.open? %>
+        <span class="shrink-0 text-amber-200 border border-amber-500/40 bg-amber-600/10 rounded-full px-2 py-1 text-xs font-semibold">
+          Ouverte
+        </span>
+      <% else %>
+        <span class="shrink-0 text-emerald-200 border border-emerald-500/40 bg-emerald-600/10 rounded-full px-2 py-1 text-xs font-semibold">
+          Clôturée
+        </span>
+      <% end %>
     </div>
 
     <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-sm">
       <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
-        <p class="text-xs text-gray-500">BTC</p>
-        <p class="font-mono text-gray-100"><%= @trade_simulation.btc_amount %></p>
+        <p class="text-xs text-gray-500">Investi (EUR)</p>
+        <p class="font-mono text-gray-100">
+          <%= invested_eur.present? ? number_to_currency(invested_eur, unit: "€") : "—" %>
+        </p>
+      </div>
+
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+        <p class="text-xs text-gray-500">BTC (déduit)</p>
+        <p class="font-mono text-gray-100"><%= btc_amount.present? ? btc_amount : "—" %></p>
       </div>
 
       <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
         <p class="text-xs text-gray-500">Dates</p>
-        <p class="font-mono text-gray-100"><%= @trade_simulation.buy_day %> → <%= @trade_simulation.sell_day %></p>
-      </div>
-
-      <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
-        <p class="text-xs text-gray-500">Frais achat</p>
         <p class="font-mono text-gray-100">
-          <%= @trade_simulation.buy_fee_pct %>% + <%= @trade_simulation.buy_fee_fixed_eur %>
+          <%= @trade_simulation.buy_day %>
+          <% if @trade_simulation.closed? %>
+            → <%= @trade_simulation.sell_day %>
+          <% else %>
+            → <span class="text-amber-200">—</span>
+          <% end %>
         </p>
       </div>
 
       <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
-        <p class="text-xs text-gray-500">Frais vente</p>
-        <p class="font-mono text-gray-100">
-          <%= @trade_simulation.sell_fee_pct %>% + <%= @trade_simulation.sell_fee_fixed_eur %>
-        </p>
-      </div>
-
-      <div class="rounded-xl border border-gray-800 bg-black/20 p-3 sm:col-span-2 lg:col-span-1">
         <p class="text-xs text-gray-500">Slippage</p>
         <p class="font-mono text-gray-100"><%= @trade_simulation.slippage_pct %>%</p>
       </div>
 
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-3 sm:col-span-2">
+        <p class="text-xs text-gray-500">Frais achat</p>
+        <p class="font-mono text-gray-100">
+          <%= @trade_simulation.buy_fee_pct %>% + <%= number_to_currency(@trade_simulation.buy_fee_fixed_eur, unit: "€") %>
+        </p>
+      </div>
+
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-3 sm:col-span-2">
+        <p class="text-xs text-gray-500">Frais vente</p>
+        <p class="font-mono text-gray-100">
+          <%= @trade_simulation.sell_fee_pct %>% + <%= number_to_currency(@trade_simulation.sell_fee_fixed_eur, unit: "€") %>
+        </p>
+      </div>
+
       <% if @trade_simulation.notes.present? %>
-        <div class="rounded-xl border border-gray-800 bg-black/20 p-3 sm:col-span-2 lg:col-span-3">
+        <div class="rounded-xl border border-gray-800 bg-black/20 p-3 sm:col-span-2 lg:col-span-4">
           <p class="text-xs text-gray-500">Notes</p>
           <p class="text-gray-100 whitespace-pre-wrap"><%= @trade_simulation.notes %></p>
         </div>
@@ -108,42 +301,45 @@
     </div>
 
     <p class="text-xs text-gray-500 mt-4">
-      Note: tes prix viennent de <span class="font-mono">btc_price_days.close_usd</span>. Assure-toi que les frais fixes sont dans la même devise pour le MVP.
+      Note: tes prix viennent de <span class="font-mono">btc_price_days.close_eur</span> (EUR).
+      Les frais fixes sont en EUR : cohérent ✅
     </p>
   </section>
 
-  <%# ---- Résultats ---- %>
-  <% if @result %>
+  <%= render "combo_chart", combo_series: @combo_series, pnl_info: @pnl_info %>
+
+  <%# ---- Résultats (uniquement si clôturée) ---- %>
+  <% if @result.present? %>
     <section class="mt-6">
       <div class="flex items-center justify-between gap-3 mb-3">
         <div>
           <h2 class="text-lg font-semibold text-gray-100">Résultats</h2>
-          <p class="text-sm text-gray-400">Calculs (USD) avec frais + slippage.</p>
+          <p class="text-sm text-gray-400">Calculs (EUR) avec frais + slippage.</p>
         </div>
 
         <span class="text-xs text-gray-500">
-          Source prix: <span class="font-mono">close_usd</span>
+          Source prix: <span class="font-mono">close_eur</span>
         </span>
       </div>
 
       <div class="grid gap-4 sm:grid-cols-2">
         <div class="rounded-2xl border border-gray-800 bg-gray-900/50 p-5">
-          <h3 class="font-semibold text-gray-100">Achat (USD)</h3>
+          <h3 class="font-semibold text-gray-100">Achat (EUR)</h3>
           <div class="text-sm text-gray-300 mt-3 leading-6">
-            Prix: <span class="font-mono"><%= number_to_currency(@result.buy_price, unit: "$") %></span><br>
-            Brut: <span class="font-mono"><%= number_to_currency(@result.buy_gross, unit: "$") %></span><br>
-            Frais: <span class="font-mono"><%= number_to_currency(@result.buy_fees, unit: "$") %></span><br>
-            Total: <span class="font-mono"><%= number_to_currency(@result.buy_total, unit: "$") %></span>
+            Prix: <span class="font-mono"><%= number_to_currency(@result.buy_price.to_f, unit: "€") %></span><br>
+            Brut: <span class="font-mono"><%= number_to_currency(@result.buy_gross.to_f, unit: "€") %></span><br>
+            Frais: <span class="font-mono"><%= number_to_currency(@result.buy_fees.to_f, unit: "€") %></span><br>
+            Total: <span class="font-mono"><%= number_to_currency(@result.buy_total.to_f, unit: "€") %></span>
           </div>
         </div>
 
         <div class="rounded-2xl border border-gray-800 bg-gray-900/50 p-5">
-          <h3 class="font-semibold text-gray-100">Vente (USD)</h3>
+          <h3 class="font-semibold text-gray-100">Vente (EUR)</h3>
           <div class="text-sm text-gray-300 mt-3 leading-6">
-            Prix: <span class="font-mono"><%= number_to_currency(@result.sell_price, unit: "$") %></span><br>
-            Brut: <span class="font-mono"><%= number_to_currency(@result.sell_gross, unit: "$") %></span><br>
-            Frais: <span class="font-mono"><%= number_to_currency(@result.sell_fees, unit: "$") %></span><br>
-            Net: <span class="font-mono"><%= number_to_currency(@result.sell_net, unit: "$") %></span>
+            Prix: <span class="font-mono"><%= number_to_currency(@result.sell_price.to_f, unit: "€") %></span><br>
+            Brut: <span class="font-mono"><%= number_to_currency(@result.sell_gross.to_f, unit: "€") %></span><br>
+            Frais: <span class="font-mono"><%= number_to_currency(@result.sell_fees.to_f, unit: "€") %></span><br>
+            Net: <span class="font-mono"><%= number_to_currency(@result.sell_net.to_f, unit: "€") %></span>
           </div>
         </div>
 
@@ -155,8 +351,8 @@
             </div>
 
             <span class="text-xs px-2 py-1 rounded-full border
-                         <%= @result.pnl >= 0 ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-200" : "border-rose-500/40 bg-rose-600/10 text-rose-200" %>">
-              <%= @result.pnl >= 0 ? "Profit" : "Perte" %>
+                         <%= @result.pnl.to_f >= 0 ? "border-emerald-500/40 bg-emerald-600/10 text-emerald-200" : "border-rose-500/40 bg-rose-600/10 text-rose-200" %>">
+              <%= @result.pnl.to_f >= 0 ? "Profit" : "Perte" %>
             </span>
           </div>
 
@@ -164,13 +360,13 @@
             <div class="flex flex-col sm:flex-row sm:items-baseline sm:justify-between gap-2">
               <div>
                 PnL:
-                <span class="font-mono <%= @result.pnl >= 0 ? "text-emerald-300" : "text-rose-300" %>">
-                  <%= number_to_currency(@result.pnl, unit: "$") %>
+                <span class="font-mono <%= @result.pnl.to_f >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+                  <%= number_to_currency(@result.pnl.to_f, unit: "€") %>
                 </span>
               </div>
 
               <div class="text-gray-400">
-                Soit <span class="font-mono text-gray-200"><%= number_with_precision(@result.pnl_pct, precision: 2) %>%</span>
+                Soit <span class="font-mono text-gray-200"><%= number_with_precision(@result.pnl_pct.to_f, precision: 2) %>%</span>
               </div>
             </div>
           </div>
@@ -178,13 +374,5 @@
       </div>
     </section>
   <% end %>
-
-  <%# ---- (Plus tard) Decision Engine placeholder ---- %>
-  <section class="mt-6 rounded-2xl border border-gray-800 bg-gray-900/30 p-5">
-    <h2 class="text-lg font-semibold text-gray-100">Décision</h2>
-    <p class="text-sm text-gray-400 mt-1">
-      Prochaine étape : afficher un <span class="font-mono text-gray-200">ExitScore</span> + raisons de vendre / ne pas vendre (basé sur MarketSnapshot au jour de vente).
-    </p>
-  </section>
 
 </div>

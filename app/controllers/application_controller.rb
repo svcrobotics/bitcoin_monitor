@@ -2,105 +2,116 @@
 
 # app/controllers/application_controller.rb
 #
-# 🧱 Contrôleur de base de l'application
+# 🧱 Contrôleur racine de l’application
 #
-# RÔLE
-# ----
-# ApplicationController est la classe parente de tous les contrôleurs Rails
-# de l'application. Tout ce qui est défini ici est :
-# - hérité par l'ensemble des contrôleurs
-# - disponible dans toutes les vues (via helper_method)
-#
-# Il centralise :
-# - des règles globales (navigateur autorisé)
-# - des helpers d'état utilisateur
-# - des helpers liés au mode d'affichage de l'interface (UX)
+# Centralise :
+# - gestion navigateur
+# - gestion I18n
+# - helpers globaux
+# - mode UI
 #
 class ApplicationController < ActionController::Base
 
-  # Autorise uniquement les navigateurs "modernes".
-  #
-  # Cette directive bloque volontairement les navigateurs trop anciens
-  # qui ne supportent pas certaines fonctionnalités clés utilisées par l'app :
-  # - images WebP
-  # - Web Push / Badges
-  # - Import Maps
-  # - CSS nesting
-  # - sélecteur CSS :has()
-  #
-  # Objectif :
-  # - simplifier le code front
-  # - éviter des fallbacks complexes
-  # - garantir une UX cohérente et moderne
-  #
+  # 🔐 Autorise uniquement les navigateurs modernes
   allow_browser versions: :modern
 
-  # Inclusion d'un module de debug transverse.
-  #
-  # DebugTrace est supposé fournir :
-  # - des helpers de log
-  # - des traces d'exécution
-  # - ou des outils d'inspection pendant le développement
-  #
+  # 🧩 Debug transverse
   include DebugTrace
 
-  # Expose la méthode vaults_signed_in? aux vues.
-  #
-  # Cette méthode permet de savoir si un utilisateur est connecté
-  # à la partie "Vaults" de l'application (système distinct du user principal).
-  #
-  helper_method :vaults_signed_in?
+  # 🌍 Gestion multilingue
+  before_action :set_locale
 
-  # Indique si un utilisateur "Vaults" est connecté.
+  # Expose aux vues
+  helper_method :vaults_signed_in?,
+                :simple_mode?,
+                :trader_mode?
+
+  # ============================================================
+  # 🌍 I18N — Gestion de la langue
+  # ============================================================
+
+  private
+
+  # Définit la langue utilisée par l'application.
   #
-  # Logique :
-  # - on se base sur la présence de session[:vaults_user_id]
+  # Priorité :
+  # 1. paramètre URL (?locale=es)
+  # 2. session utilisateur
+  # 3. langue navigateur (Accept-Language)
+  # 4. langue par défaut
   #
-  # Utilisation typique :
-  # - afficher / masquer certaines parties de l'UI
-  # - protéger l'accès à des écrans sensibles
+  def set_locale
+    requested =
+      params[:locale].presence ||
+      session[:locale].presence ||
+      extract_locale_from_accept_language_header
+
+    locale = normalize_locale(requested)
+
+    if available_locale?(locale)
+      I18n.locale = locale
+      session[:locale] = locale
+    else
+      I18n.locale = I18n.default_locale
+    end
+  end
+
+  # Normalise la locale :
+  # - "en-US" → "en"
+  # - "zh-CN" → "zh-CN"
+  # - "fr" → "fr"
   #
-  # @return [Boolean]
+  def normalize_locale(loc)
+    return nil if loc.blank?
+
+    loc = loc.to_s
+
+    # Si locale exacte existe (ex: zh-CN)
+    return loc if available_locale?(loc)
+
+    # Sinon fallback sur les 2 premières lettres (ex: en-US → en)
+    short = loc.split("-").first
+    return short if available_locale?(short)
+
+    nil
+  end
+
+  def available_locale?(loc)
+    I18n.available_locales.map(&:to_s).include?(loc.to_s)
+  end
+
+  # Extrait la première langue du header navigateur
   #
+  # Exemple :
+  # "en-US,en;q=0.9,fr;q=0.8"
+  # → "en-US"
+  #
+  def extract_locale_from_accept_language_header
+    header = request.env["HTTP_ACCEPT_LANGUAGE"].to_s
+    header.scan(/[a-z]{2}(?:-[A-Z]{2})?/).first
+  end
+
+  # Conserve automatiquement la locale dans toutes les URLs
+  def default_url_options
+    { locale: I18n.locale }
+  end
+
+  # ============================================================
+  # 👤 AUTH VAULTS
+  # ============================================================
+
   def vaults_signed_in?
     session[:vaults_user_id].present?
   end
 
-  # Expose les helpers de mode UI aux vues.
-  #
-  # Ces méthodes permettent de basculer entre :
-  # - un mode "simple" (grand public)
-  # - un mode "trader" (utilisateur avancé)
-  #
-  helper_method :simple_mode?, :trader_mode?
+  # ============================================================
+  # 🎛️ MODE UI
+  # ============================================================
 
-  # Indique si l'interface est en mode "simple".
-  #
-  # Règle :
-  # - par défaut, l'interface est en mode simple
-  # - si session[:ui_mode] == "trader", alors simple_mode? devient false
-  #
-  # Objectif UX :
-  # - réduire la complexité visuelle
-  # - masquer les indicateurs avancés au grand public
-  #
-  # @return [Boolean]
-  #
   def simple_mode?
     session[:ui_mode] != "trader"
   end
 
-  # Indique si l'interface est en mode "trader".
-  #
-  # Règle :
-  # - trader_mode? est true uniquement si session[:ui_mode] == "trader"
-  #
-  # Objectif UX :
-  # - afficher des indicateurs techniques
-  # - fournir une lecture plus dense / experte du marché
-  #
-  # @return [Boolean]
-  #
   def trader_mode?
     session[:ui_mode] == "trader"
   end

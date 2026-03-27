@@ -1,0 +1,95 @@
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="mb-8">
+    <div class="mb-2">
+      <%= link_to "← Retour aux clusters", clusters_path, class: "text-sm text-violet-400 hover:text-violet-300" %>
+    </div>
+
+    <h1 class="text-2xl sm:text-3xl font-bold text-gray-100">
+      Cluster #<%= @cluster.id %>
+    </h1>
+
+    <p class="mt-2 text-sm text-gray-400">
+      Vue détaillée V1 d’un cluster multi-input.
+    </p>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+      <div class="text-xs uppercase tracking-wide text-gray-500">Addresses</div>
+      <div class="mt-2 text-2xl font-bold text-gray-100"><%= number_with_delimiter(@cluster.address_count) %></div>
+    </div>
+
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+      <div class="text-xs uppercase tracking-wide text-gray-500">First seen</div>
+      <div class="mt-2 text-2xl font-bold text-gray-100"><%= @cluster.first_seen_height || "-" %></div>
+    </div>
+
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+      <div class="text-xs uppercase tracking-wide text-gray-500">Last seen</div>
+      <div class="mt-2 text-2xl font-bold text-gray-100"><%= @cluster.last_seen_height || "-" %></div>
+    </div>
+
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+      <div class="text-xs uppercase tracking-wide text-gray-500">Sent sats</div>
+      <div class="mt-2 text-2xl font-bold text-gray-100"><%= number_with_delimiter(@cluster.total_sent_sats || 0) %></div>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-800">
+        <h2 class="text-sm font-semibold text-gray-100">Addresses</h2>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-950/60 text-gray-400">
+            <tr>
+              <th class="px-4 py-3 text-left">Address</th>
+              <th class="px-4 py-3 text-left">Tx count</th>
+              <th class="px-4 py-3 text-left">Sent sats</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800">
+            <% @addresses.each do |address| %>
+              <tr class="text-gray-200">
+                <td class="px-4 py-3 font-mono text-xs"><%= address.address %></td>
+                <td class="px-4 py-3"><%= address.tx_count %></td>
+                <td class="px-4 py-3"><%= number_with_delimiter(address.total_sent_sats || 0) %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 overflow-hidden">
+      <div class="px-5 py-4 border-b border-gray-800">
+        <h2 class="text-sm font-semibold text-gray-100">Links</h2>
+      </div>
+
+      <div class="overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="bg-gray-950/60 text-gray-400">
+            <tr>
+              <th class="px-4 py-3 text-left">A</th>
+              <th class="px-4 py-3 text-left">B</th>
+              <th class="px-4 py-3 text-left">Txid</th>
+              <th class="px-4 py-3 text-left">Height</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-gray-800">
+            <% @links.each do |link| %>
+              <tr class="text-gray-200">
+                <td class="px-4 py-3"><%= link.address_a_id %></td>
+                <td class="px-4 py-3"><%= link.address_b_id %></td>
+                <td class="px-4 py-3 font-mono text-xs"><%= link.txid %></td>
+                <td class="px-4 py-3"><%= link.block_height %></td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+</div>

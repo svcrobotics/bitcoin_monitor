@@ -1,0 +1,83 @@
+<%# app/views/market/_maturity_index.html.erb %>
+<%# locals: maturity: %>
+<% return unless maturity.present? %>
+
+<%
+  f = maturity.facts || {}
+  vol_pct = f[:vol_pct]
+  whales  = f[:whale_events].to_i
+  score   = f[:score]
+%>
+
+<section class="mt-4 bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-5">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div class="min-w-0">
+      <h3 class="text-sm sm:text-base font-semibold text-gray-100">
+        Maturité du marché (<%= maturity.window_days %>j)
+      </h3>
+      <p class="mt-1 text-xs sm:text-sm text-gray-400">
+        Lecture factuelle de la <span class="font-semibold text-gray-200">stabilité</span> (volatilité) et de l’<span class="font-semibold text-gray-200">activité extrême</span> (événements majeurs).
+        <span class="text-gray-500">Aucune prédiction.</span>
+      </p>
+    </div>
+
+    <span class="text-xs px-3 py-1 rounded-full border <%= maturity.badge_cls %>">
+      <%= maturity.label %>
+    </span>
+  </div>
+
+  <p class="mt-3 text-sm text-gray-200 leading-relaxed">
+    <%= maturity.summary %>
+  </p>
+
+  <div class="mt-4 grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+      <div class="text-gray-500">Volatilité moy.</div>
+      <div class="mt-1 font-mono text-gray-100">
+        <%= vol_pct.present? ? "#{vol_pct.to_f.round(2)}%/j" : "N/A" %>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+      <div class="text-gray-500">Événements majeurs</div>
+      <div class="mt-1 font-mono text-gray-100">
+        <%= whales %>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+      <div class="text-gray-500">Score (v1)</div>
+      <div class="mt-1 font-mono text-gray-100">
+        <%= score %>
+      </div>
+    </div>
+  </div>
+
+  <details class="group mt-4">
+    <summary class="cursor-pointer select-none inline-flex items-center gap-2 text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-black/20 text-indigo-200 hover:bg-white/5">
+      ℹ️ Comprendre (maturité)
+      <span class="text-gray-500 group-open:hidden">▸</span>
+      <span class="text-gray-500 hidden group-open:inline">▾</span>
+    </summary>
+
+    <div class="mt-3 max-w-3xl bg-gray-900/60 border border-gray-700 rounded-2xl p-4 text-[12px] leading-relaxed text-gray-200 space-y-3">
+      <p class="font-semibold text-gray-100">Idée</p>
+      <p>
+        Plus un marché est <span class="font-semibold">mature</span>, plus il est généralement <span class="font-semibold">stable</span> (volatilité contenue)
+        et moins on observe d’<span class="font-semibold">événements extrêmes</span> (grosses transactions inhabituelles).
+      </p>
+
+      <p class="font-semibold text-gray-100">Ce que ça mesure</p>
+      <ul class="list-disc pl-5 space-y-1 text-gray-300">
+        <li><span class="font-semibold text-gray-100">Volatilité moyenne</span> : agitation quotidienne observée sur la période.</li>
+        <li><span class="font-semibold text-gray-100">Événements majeurs</span> : fréquence de mouvements extrêmes détectés.</li>
+      </ul>
+
+      <p class="font-semibold text-gray-100">Important</p>
+      <p>
+        Ce bloc est <span class="font-semibold">descriptif</span> et <span class="font-semibold">ne prédit pas</span> le prix.
+        Il aide à comprendre si le marché est plutôt <span class="font-semibold">nerveux</span> ou <span class="font-semibold">stabilisé</span>.
+      </p>
+    </div>
+  </details>
+</section>

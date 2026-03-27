@@ -209,14 +209,19 @@
 
         <p class="text-sm text-gray-300 mb-2">
           <strong>Total :</strong>
+
           <span class="font-mono">
-            <%= format_btc(@balance_btc) %> BTC
-            (<%= format_sats(@balance_sats) %> sats)
+            <span class="text-gray-100 font-semibold">
+              <%= format_sats(@balance_sats) %> sats
+            </span>
+            <span class="text-gray-500">
+              • ≈ <%= format("%.8f", @balance_btc.to_d) %> BTC
+            </span>
           </span>
 
-          <% if @btc_eur.present? %>
+          <% if @btc_eur.present? && @balance_eur.present? %>
             <span class="ml-2 text-gray-400">
-              ≈ <span class="font-semibold text-emerald-300"><%= number_with_precision(@balance_btc.to_f * @btc_eur.to_f, precision: 2, delimiter: " ") %> €</span>
+              ≈ <span class="font-semibold text-emerald-300"><%= number_with_precision(@balance_eur.to_f, precision: 2, delimiter: " ") %> €</span>
             </span>
           <% end %>
         </p>
@@ -264,17 +269,19 @@
                 <div class="mt-3">
                   <p class="text-[11px] text-gray-400">Montant</p>
 
-                  <p class="font-mono text-sm text-gray-100">
-                    <%= format_btc_amount(u["amount"]) %> BTC
-                    <% if @btc_eur.present? %>
-                      <span class="ml-2 text-xs text-emerald-300">
-                        ≈ <%= number_with_precision(u["amount"].to_f * @btc_eur.to_f, precision: 2, delimiter: " ") %> €
-                      </span>
-                    <% end %>
+                  <% sats = (u["amount"].to_d * 100_000_000).to_i %>
+
+                  <p class="font-mono text-sm font-semibold text-gray-100">
+                    <%= format_sats(sats) %> sats
                   </p>
 
-                  <p class="font-mono text-[11px] text-gray-500">
-                    <%= (u["amount"].to_f * 100_000_000).to_i %> sats
+                  <p class="font-mono text-[11px] text-gray-400">
+                    ≈ <%= format("%.8f", u["amount"].to_d) %> BTC
+                    <% if @btc_eur.present? %>
+                      • ≈ <span class="text-emerald-300">
+                        <%= number_with_precision(u["amount"].to_d * @btc_eur.to_d, precision: 2, delimiter: " ") %> €
+                      </span>
+                    <% end %>
                   </p>
                 </div>
 
@@ -298,13 +305,18 @@
                   <tr class="border-b border-gray-800 hover:bg-gray-800/30">
                     <td class="py-3 px-4 font-mono text-xs text-blue-300 break-all"><%= u["txid"] %></td>
                     <td class="py-3 px-4 font-mono text-xs text-gray-300"><%= u["vout"] %></td>
+                    <% sats = (u["amount"].to_d * 100_000_000).to_i %>
                     <td class="py-3 px-4 font-mono text-xs text-gray-200">
-                      <%= format_btc_amount(u["amount"]) %> BTC
+                      <div class="font-semibold text-gray-100">
+                        <%= format_sats(sats) %> sats
+                      </div>
 
                       <div class="text-gray-500 text-[10px]">
-                        <%= (u["amount"].to_f * 100_000_000).to_i %> sats
+                        ≈ <%= format("%.8f", u["amount"].to_d) %> BTC
                         <% if @btc_eur.present? %>
-                          • ≈ <span class="text-emerald-300"><%= number_with_precision(u["amount"].to_f * @btc_eur.to_f, precision: 2, delimiter: " ") %> €</span>
+                          • ≈ <span class="text-emerald-300">
+                            <%= number_with_precision(u["amount"].to_d * @btc_eur.to_d, precision: 2, delimiter: " ") %> €
+                          </span>
                         <% end %>
                       </div>
                     </td>

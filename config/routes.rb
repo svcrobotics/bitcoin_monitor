@@ -1,5 +1,15 @@
 Rails.application.routes.draw do
-  resources :trade_simulations
+  get "pages/about"
+  get "/address-search", to: "address_lookup#search", as: :address_search
+  get "/address/:address", to: "address_lookup#show", as: :address_lookup
+  
+  resources :trade_simulations do
+    member do
+      get  :close
+      patch :close, action: :close_update
+    end
+  end
+
   resources :journal_entries
   
   
@@ -21,8 +31,7 @@ Rails.application.routes.draw do
   # root "posts#index"
   resources :blocks, only: [:index, :show]
   resources :transactions, only: [:show]
-  resources :guides, only: [:index, :show]
-
+  resources :guides, param: :slug
 
   # Page dédiée BRC-20
   get "brc20", to: "brc20#index", as: :brc20
@@ -66,5 +75,28 @@ Rails.application.routes.draw do
   post "/ai/dashboard_insight", to: "ai#dashboard_insight", as: :ai_dashboard_insight
 
   get "/market/price", to: "market#price", as: :market_price
+
+  get "/system", to: "system#index"
+
+  resources :opsec_assessments, only: %i[new create show]
+  get "/opsec", to: "opsec_assessments#new"
+
+  get "/about", to: "pages#about"
+  
+  get "/terms", to: "pages#terms", as: :terms
+  get "/privacy", to: "pages#privacy", as: :privacy
+  get "/risk-disclosure", to: "pages#risk", as: :risk_disclosure
+  get "/contact", to: "pages#contact", as: :contact
+
+  get "exchange_like", to: "exchange_like#index"
+  get "inflow_outflow", to: "inflow_outflow#index"
+
+  resources :clusters, only: [:index, :show]
+  get "/cluster_signals", to: "cluster_signals#index"
+  get "/cluster_signals/top", to: "cluster_signals#top", as: :top_cluster_signals
+
+  get "/system/tests", to: "system#tests", as: :system_tests
+  post "/system/tests/run", to: "system#run_tests", as: :run_system_tests
+
 
 end

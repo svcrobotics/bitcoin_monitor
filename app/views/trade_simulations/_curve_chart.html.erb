@@ -3,7 +3,7 @@
   <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-2 mb-2">
     <div>
       <h3 class="text-sm font-semibold text-gray-200">
-        Évolution de la position — Net (USD)
+        Évolution de la position — Net (EUR)
       </h3>
       <% pnl_info ||= nil %>
 
@@ -11,7 +11,7 @@
         <p class="text-xs text-gray-500 mt-1">
           Dernier point :
           <span class="font-mono text-gray-300"><%= pnl_info[:last_day] %></span> —
-          <span class="font-mono text-gray-200"><%= number_to_currency(pnl_info[:last_net], unit: "$") %></span>
+          <span class="font-mono text-gray-200"><%= number_to_currency(pnl_info[:last_net], unit: "€") %></span>
           (<span class="font-mono <%= pnl_info[:last_pnl_pct].to_f >= 0 ? "text-emerald-300" : "text-rose-300" %>">
             <%= number_with_precision(pnl_info[:last_pnl_pct], precision: 2) %>%
           </span>)
@@ -46,9 +46,11 @@
          end
     %>
 
+    <% chart_id = "pnlNetChart_#{@trade_simulation&.id || "one"}" %>
+
     <div class="mt-3 rounded-2xl border border-gray-800 bg-black/20 p-3">
       <div class="relative" style="height: 320px;">
-        <canvas id="pnlNetChart"></canvas>
+        <canvas id="<%= chart_id %>"></canvas>
       </div>
     </div>
 
@@ -65,7 +67,7 @@
         const labels = points.map(p => p[0]);
         const values = points.map(p => Number(p[1]));
 
-        const el = document.getElementById("pnlNetChart");
+        const el = document.getElementById("<%= chart_id %>");
         if (!el) return;
 
         if (el._chart) { el._chart.destroy(); el._chart = null; }
@@ -75,7 +77,7 @@
           data: {
             labels,
             datasets: [{
-              label: "Net (USD)",
+              label: "Net (EUR)",
               data: values
             }]
           },
@@ -86,7 +88,7 @@
             plugins: { legend: { display: false } },
             scales: {
               x: { type: "category" },
-              y: { position: "left", title: { display: true, text: "Net (USD)" } }
+              y: { position: "left", title: { display: true, text: "Net (EUR)" } }
             }
           }
         });
@@ -94,7 +96,7 @@
     </script>
 
     <p class="text-xs text-gray-500 mt-2">
-      Lecture : la courbe <span class="text-gray-300">Net</span> montre la valeur nette si tu vends ce jour-là (après frais + slippage).
+      Lecture : la courbe <span class="text-gray-300">Net</span> montre la valeur nette en EUR si tu vends ce jour-là (après frais + slippage).
     </p>
   <% else %>
     <p class="text-sm text-gray-400">Pas de données (points non générés).</p>

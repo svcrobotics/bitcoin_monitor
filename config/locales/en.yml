@@ -1,31 +1,413 @@
-# Files in the config/locales directory are used for internationalization and
-# are automatically loaded by Rails. If you want to use locales other than
-# English, add the necessary files in this directory.
-#
-# To use the locales, use `I18n.t`:
-#
-#     I18n.t "hello"
-#
-# In views, this is aliased to just `t`:
-#
-#     <%= t("hello") %>
-#
-# To use a different locale, set it with `I18n.locale`:
-#
-#     I18n.locale = :es
-#
-# This would use the information in config/locales/es.yml.
-#
-# To learn more about the API, please read the Rails Internationalization guide
-# at https://guides.rubyonrails.org/i18n.html.
-#
-# Be aware that YAML interprets the following case-insensitive strings as
-# booleans: `true`, `false`, `on`, `off`, `yes`, `no`. Therefore, these strings
-# must be quoted to be interpreted as strings. For example:
-#
-#     en:
-#       "yes": yup
-#       enabled: "ON"
-
 en:
-  hello: "Hello world"
+  date:
+    formats:
+      default: "%m/%d/%Y"
+      short: "%b %d"
+      long: "%B %e, %Y"
+
+    day_names: [Sunday, Monday, Tuesday, Wednesday, Thursday, Friday, Saturday]
+    abbr_day_names: [Sun, Mon, Tue, Wed, Thu, Fri, Sat]
+
+    month_names: [~, January, February, March, April, May, June, July, August, September, October, November, December]
+    abbr_month_names: [~, Jan, Feb, Mar, Apr, May, Jun, Jul, Aug, Sep, Oct, Nov, Dec]
+
+  time:
+    formats:
+      default: "%B %e, %Y %H:%M"
+      short: "%b %d %H:%M"
+      long: "%A, %B %e, %Y %H:%M"
+
+  datetime:
+    distance_in_words:
+      half_a_minute: "half a minute"
+      less_than_x_seconds:
+        one: "less than 1 second"
+        other: "less than %{count} seconds"
+      x_seconds:
+        one: "1 second"
+        other: "%{count} seconds"
+      less_than_x_minutes:
+        one: "less than 1 minute"
+        other: "less than %{count} minutes"
+      x_minutes:
+        one: "1 minute"
+        other: "%{count} minutes"
+      about_x_hours:
+        one: "about 1 hour"
+        other: "about %{count} hours"
+      x_days:
+        one: "1 day"
+        other: "%{count} days"
+      about_x_months:
+        one: "about 1 month"
+        other: "about %{count} months"
+      x_months:
+        one: "1 month"
+        other: "%{count} months"
+      about_x_years:
+        one: "about 1 year"
+        other: "about %{count} years"
+      over_x_years:
+        one: "over 1 year"
+        other: "over %{count} years"
+      almost_x_years:
+        one: "almost 1 year"
+        other: "almost %{count} years"
+
+  helpers:
+    distance_of_time_in_words:
+      x_minutes:
+        one: "1 minute"
+        other: "%{count} minutes"
+
+  dashboard:
+    title: "Bitcoin Monitor"
+    subtitle: "Fewer signals • more discipline • better decisions"
+    security:
+      label: "Security"
+      title: "🛡️ Reduce your exposure (OPSEC) — quick audit"
+      description_html: "“Wrench” attacks mainly target <span class='font-semibold text-gray-200'>exposure</span> (identity ↔ crypto ↔ home) and the <span class='font-semibold text-gray-200'>ability to force a transfer</span>. Take a 1-minute audit to see where you are vulnerable and how to improve."
+      disclaimer: "No external scan • Based on your answers • No personal data stored"
+      button: "Start OPSEC audit"
+      duration: "~ 1 minute"
+    errors:
+      rpc: "Bitcoin RPC connection error"
+      dashboard:
+    shortcuts:
+      header: "Shortcuts"
+      subheader: "Quick access to modules"
+      show: "Show"
+      hide: "Hide"
+      groups:
+        market: "Market"
+        onchain: "On-chain activity"
+        research: "Analysis & research"
+        docs: "Documentation & methodology"
+        security: "Security & protection"
+        system: "System"
+      items:
+        market_price: "Bitcoin — price chart"
+        trade_simulator: "Trade simulator"
+        whale_alerts: "Whale Alerts"
+        brc20: "BRC-20 analysis"
+        runes: "Runes analysis"
+        blocks: "Explore blocks"
+        p2wsh_wallets: "P2WSH wallets"
+        journal: "Journal"
+        guides: "Guides & help"
+        feature_requests: "Ideas & improvements"
+        about: "About"
+        opsec: "OPSEC Score (exposure audit)"
+        system: "System"
+    market_summary:
+      title: "Market — Summary"
+      subtitle: "Quick overview (snapshot • metrics • MA200 • verdict)"
+      view: "View"
+    price_zones:
+      title: "Price zones"
+      kicker: "support / resistance • 365d"
+      desc: "Ranges built from pivots + clustering (not single lines)."
+
+      help: "Methodology"
+      recompute: "Recompute"
+
+      price_now: "Current price"
+      daily_close: "daily close"
+
+      strength:
+        strong: "Strong"
+        medium: "Medium"
+        weak: "Weak"
+
+      support: "Support"
+      resistance: "Resistance"
+      level: "Level"
+      distance: "Distance"
+      touches: "Touches"
+
+      no_support: "No clear support below the current price."
+      no_resistance: "No clear resistance above the current price."
+
+      support_hint: "Nearest support below current price (mid-zone distance)."
+      resistance_hint: "Nearest resistance above current price (mid-zone distance)."
+
+      bonus_title: "Bonus (strong zones)"
+      bonus_suffix: "(bonus)"
+
+      footer: "Calc: pivots (N=3) + clustering ±1.2% over 365 days • Strength = touches + recency."
+
+      methodology:
+        p1: "Computed over ~365 days: daily pivots grouped into ranges. Zone = low → high."
+        li1_html: "Local pivots on closes (<span class='font-mono'>N=3</span>)"
+        li2_html: "Clustering tolerance <span class='font-mono'>±1.2%</span>"
+        li3: "Strength (0–100): touches + recency"
+        params: "Params: pivots N=3, cluster ±1.2%"
+
+      empty:
+        title: "No zones available."
+        hint_html: "Click <span class='font-semibold'>%{recompute}</span> to generate zones from daily prices."
+    true_flow:
+      title_24h: "True exchange flow (24h)"
+      net_badge: "Net"
+      tiers: "Tiers"
+      tiers_hint: "Whale deposit tiers (event size): B=100–299 BTC • A=300–999 BTC • S=≥1000 BTC"
+
+      intro_html: "Flows on the auto-detected “exchange” set: inflow / outflow / net (24h). <span class='text-gray-500'>Auto-detected set • min occurrences: <span class='font-mono'>%{min_occ}</span></span>"
+
+      window_7: "7d"
+      window_14: "14d"
+      window_30: "30d"
+      window_hint_html: "Window <span class='font-mono'>%{days}d</span> <span class='text-gray-700'>•</span> longer = better to see the “regime”"
+      learn: "Learn"
+
+      learn_sections:
+        structure: "Indicator structure"
+
+      learn_html: >
+        <ul class="mt-2 space-y-1 list-disc pl-5 text-gray-300">
+          <li><strong>Inflow</strong> = BTC sent to the “exchange” set. <span class="text-gray-400">Often a sell intent (deposit).</span></li>
+          <li><strong>Outflow</strong> = BTC that <em>leave</em> the “exchange” set, in <em>observed</em> mode. <span class="text-gray-400">On pruned nodes (no txindex), we track a stock of UTXOs deposited to the exchange set and detect when they get spent.</span></li>
+          <li><strong>Net flow</strong> = inflow − outflow. <span class="text-gray-400">Positive = net selling pressure • Negative = net withdrawals.</span></li>
+          <li><strong>ratio30</strong> = inflow / average of the previous 30 days. <span class="text-gray-400">x1 ≈ normal • x2 = 2× normal • ∞ = baseline≈0 • 0 = no deposits.</span></li>
+          <li><strong>Tiers</strong> = B=100–299, A=300–999, S=≥1000 BTC.</li>
+        </ul>
+
+      status:
+        red: "Excess"
+        amber: "Tension"
+        green: "Normal"
+        na: "—"
+
+      coverage:
+        not_covered: "Not covered"
+        ok: "OK"
+        zero_events: "0 events"
+        events: "%{count} events"
+        events_zero_deposit: "%{count} events • 0 deposit"
+        events_touching: "%{count} events • %{touching} touching"
+
+      warn_zero_deposit_html: "Day covered, whales detected, but no deposit to your exchange set. <span class='text-gray-300'>Outflow can still move (observed stock withdrawals).</span>"
+
+      kpi:
+        inflow: "Inflow"
+        outflow: "Outflow"
+        net: "Net flow"
+        ratio30: "ratio30"
+        ratio_vs_30d: "Ratio vs 30d (inflow)"
+
+      net_formula: "inflow − outflow"
+
+      events_line: "%{count} events%{touching,select,0{}other{ • %{touching} touching}}"
+
+      ratio_hint:
+        no_data: "Not covered"
+        baseline_missing: "Baseline too small"
+        no_deposit: "No deposits"
+        infinite: "vs baseline 0"
+
+      ratio_comment: >
+        %{ratio,select,
+          nil{Comparison unavailable}
+          other{%{ratio}}
+        }
+
+      outflow:
+        observed_pruned: "Observed via UTXO tracking (pruned)"
+        micro:
+          detail: "Detail"
+          observed: "Observed"
+        parts:
+          ext: "Ext"
+          int: "Int"
+          gross: "Gross"
+          conf: "conf"
+          kind: "kind"
+          tx: "tx"
+
+      price_cell:
+        future: "Pending"
+        pending: "In progress"
+        missing: "Missing price"
+
+      sales:
+        na: "—"
+        low: "Low"
+        to_confirm: "To confirm"
+        price_missing: "Missing price"
+        possible: "Possible"
+        probable: "Likely"
+        absorbed: "Absorbed"
+
+      qualif:
+        stock_out: "observed stock outflows"
+
+      footer_note: "Inflow/Outflow = deposits and observed withdrawals on the exchange set. Price on D+1/D+2 is used as confirmation (sold vs absorbed)."
+
+      history_title: "Last %{days} days"
+      table:
+        day: "Day"
+        inflow: "Inflow"
+        outflow: "Outflow"
+        net: "Net"
+        ratio30: "Ratio30"
+        p1: "Price D+1"
+        p2: "Price D+2"
+        sales: "Sales?"
+        qualif: "Qualif."
+        status: "Status"
+
+      sales_heuristic_note: "“Sales?” = UI heuristic (ratio30 ≥ 2.5 + price drop on D+1/D+2). This is not on-chain proof."
+
+      journal:
+        button: "Log it"
+        ctx_prefix: "TrueFlow 24h"
+        body_observation: "Observation:"
+        body_hypothesis: "Hypothesis:"
+        body_decision: "Decision:"
+        body_risk: "Risk / invalidation:"
+
+      no_data_html: "No data. Run <span class='font-mono'>EXCHANGE_ADDR_MIN_OCC=8 bin/rails exchange_true_flow:rebuild</span>."
+    ai_insight:
+      title: "AI analysis (neutral)"
+      source_label: "Source"
+      source_name: "OpenAI"
+      date_label: "Date"
+      recompute: "Recompute"
+      show: "Show"
+      hide: "Hide"
+      headline_label: "Headline"
+      regime_label: "Regime"
+      week_tag: "7d"
+      month_tag: "30d"
+      fallback_headline: "AI analysis available"
+
+      drivers:
+        title: "Drivers"
+      weekly:
+        title: "Week (7d)"
+      monthly:
+        title: "Month (30d)"
+      risk:
+        title: "Risk"
+    ai_insight_help:
+      title: "How to read the AI analysis"
+      show: "Show"
+      hide: "Hide"
+
+      p1_html: "Neutral market read for day D, built from dashboard data (price, MA200, drawdown, volatility, supports/resistances, flows if available). <span class='text-gray-400'>Not financial advice.</span>"
+
+      items:
+        headline:
+          k: "Headline"
+          v: "market state as of the date."
+        regime:
+          k: "Regime"
+          v: "dominant structure (trend / range, risk-on / risk-off)."
+        wm:
+          k: "7d / 30d"
+          v: "short-term dynamics vs monthly context."
+        drivers:
+          k: "Drivers"
+          v: "key factors explaining the read."
+        levels:
+          k: "Levels"
+          v: "support/resistance zones and secondary zones."
+        scenarios:
+          k: "Scenarios"
+          v: "conditions and invalidations."
+        risk:
+          k: "Risk"
+          v: "fragility points in the context."
+
+      footer: "Intended use: context read, plan preparation, day-by-day tracking."    
+    ai_insight_help:
+      title: "Cómo leer el análisis de IA"
+      show: "Mostrar"
+      hide: "Ocultar"
+
+      p1_html: "Lectura neutral del mercado en el día D, construida a partir de los datos del dashboard (precio, MA200, drawdown, volatilidad, soportes/resistencias, flujos si están disponibles). <span class='text-gray-400'>No es consejo financiero.</span>"
+
+      items:
+        headline:
+          k: "Titular"
+          v: "estado del mercado a fecha."
+        regime:
+          k: "Régimen"
+          v: "estructura dominante (tendencia / rango, risk-on / risk-off)."
+        wm:
+          k: "7d / 30d"
+          v: "dinámica de corto plazo vs contexto mensual."
+        drivers:
+          k: "Drivers"
+          v: "factores clave que explican la lectura."
+        levels:
+          k: "Niveles"
+          v: "zonas de soporte/resistencia y zonas secundarias."
+        scenarios:
+          k: "Escenarios"
+          v: "condiciones e invalidaciones."
+        risk:
+          k: "Riesgo"
+          v: "puntos de fragilidad del contexto."
+
+      footer: "Uso previsto: lectura de contexto, preparación de plan y seguimiento día a día."  
+
+  footer:
+      brand: "Bitcoin Monitor"
+      tagline: "Less noise. More discipline. Better-structured decisions."
+      built_for: "Data • transparency • user control"
+
+      sections:
+        product: "Product"
+        company: "Company"
+        legal: "Legal"
+
+      links:
+        dashboard: "Dashboard"
+        guides: "Guides & help"
+        security: "Security (OPSEC)"
+        about: "About"
+        status: "System status"
+        contact: "Contact"
+        terms: "Terms of Service"
+        privacy: "Privacy Policy"
+        risk: "Risk Disclosure"
+
+      disclaimer: "Information is provided for educational and informational purposes only and does not constitute financial advice. Digital assets are volatile; you may lose some or all of your capital."
+      rights: "All rights reserved."
+
+  about:
+    title: "About Bitcoin Monitor"
+
+    hero:
+      headline: "About Bitcoin Monitor"
+      subtitle: "An international platform for neutral and structured Bitcoin market analysis."
+
+    mission:
+      title: "Our Mission"
+      p1: "Bitcoin Monitor provides analytical tools designed to deliver clear, methodical and transparent market insights."
+      p2: "The platform is built for traders, analysts and long-term participants seeking structure, discipline and contextual understanding."
+      p3: "We prioritize methodological consistency, analytical neutrality and data integrity."
+
+    data:
+      title: "Data Transparency"
+      p1: "Bitcoin Monitor processes exclusively publicly available blockchain and market data."
+      bullets:
+        b1: "No user wallet connections"
+        b2: "No private keys requested"
+        b3: "No personal financial data collected"
+        b4: "Security tools and questionnaires operate without nominative storage"
+      p2: "Computation methodologies are documented and technical limitations are explicitly disclosed."
+
+    technology:
+      title: "Technology & Artificial Intelligence"
+      p1: "Bitcoin Monitor integrates artificial intelligence models as advanced analytical tools."
+      p2: "AI is used to structure information, explore scenarios and accelerate analysis."
+      p3: "Architecture, validation and decision-making remain under human oversight."
+
+    vision:
+      title: "Vision"
+      p1: "To build an independent, scalable and international analytical infrastructure aligned with the evolving Bitcoin market."
+      p2: "To provide an environment where data is prioritized, methodology is explicit, and users retain control."
+
+    disclaimer: "The information provided by Bitcoin Monitor is for educational and informational purposes only and does not constitute financial advice. Digital assets are volatile and involve risk."

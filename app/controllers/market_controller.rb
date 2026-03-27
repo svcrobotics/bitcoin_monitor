@@ -3,10 +3,37 @@
 # app/controllers/market_controller.rb
 class MarketController < ApplicationController
   def price
-    # ---- Params ----
-    @range = params[:range].presence_in(%w[7d 30d 1y]) || "30d"
-    @alerts_mode = params[:alerts_mode].presence_in(%w[normal strict]) || "strict"
+    allowed_ranges = %w[7d 30d 1y].freeze
 
+    # ------------------------------------------------------------------
+    # 1) Range selection:
+    #    - if params[:range] is present and valid -> use it and persist
+    #    - else, if params[:days] is present -> map to a range (7d/30d/1y)
+    #    - else -> session -> default "30d"
+    # ------------------------------------------------------------------
+
+    if params[:range].present? && allowed_ranges.include?(params[:range])
+      session[:market_range] = params[:range]
+    elsif params[:days].present?
+      # allow old links like ?days=365
+      days_i = params[:days].to_i
+      mapped =
+        if days_i >= 365
+          "1y"
+        elsif days_i >= 30
+          "30d"
+        else
+          "7d"
+        end
+      session[:market_range] = mapped
+    end
+
+    @range =
+      params[:range].presence_in(allowed_ranges) ||
+      session[:market_range].to_s.presence_in(allowed_ranges) ||
+      "30d"
+
+    # Days window (from range)
     days =
       case @range
       when "7d"  then 7
@@ -21,8 +48,8 @@ class MarketController < ApplicationController
     @snapshot = MarketSnapshot.order(computed_at: :desc).first
 
     # ---- Fenêtre daily: J-1 (bougie du jour pas stable) ----
-    from_day = days.days.ago.to_date
     to_day   = Date.current - 1
+    from_day = to_day - (days - 1)
 
     # ---- Prix OHLC (USD) depuis la DB (composite en priorité) ----
     rows = BtcPriceDay
@@ -31,28 +58,27 @@ class MarketController < ApplicationController
       .order(:day)
       .pluck(:day, :open_usd, :high_usd, :low_usd, :close_usd, :source)
 
-    composite_rows = rows.select { |(_d, _o, _h, _l, _c, src)| src.to_s == "composite" }
-    chosen_rows = composite_rows.any? ? composite_rows : rows
+    # ---- Choisir la meilleure ligne par jour :
+    # composite si dispo ce jour-là, sinon fallback sur une autre source.
+    rows_by_day = rows.group_by { |(d, _o, _h, _l, _c, _src)| d }
 
-    @price_points = chosen_rows.map do |d, _o, _h, _l, c, _src|
-      [d.strftime("%Y-%m-%d"), c.to_f]
-    end
+    chosen_rows = rows_by_day.keys.sort.map do |day|
+      day_rows = rows_by_day[day]
+
+      # 1) composite prioritaire
+      best = day_rows.find { |(_d, _o, _h, _l, _c, src)| src.to_s == "composite" }
+
+      # 2) sinon première ligne non-nil (ordre DB déjà :day, mais sources mélangées)
+      best ||= day_rows.find { |(_d, _o, _h, _l, c, _src)| c.present? }
+
+      best
+    end.compact
+
+    @price_points = chosen_rows.map { |d, _o, _h, _l, c, _src| [d.strftime("%Y-%m-%d"), c.to_f] }
 
     # close series "YYYY-MM-DD" => close
     @series = chosen_rows.to_h { |d, _o, _h, _l, c, _src| [d.strftime("%Y-%m-%d"), c.to_f] }
     @price_series = @series
-
-    # candles for Chart.js financial
-    @candles = chosen_rows.map do |d, o, h, l, c, src|
-      {
-        x: d.strftime("%Y-%m-%d"),
-        o: o.to_f,
-        h: h.to_f,
-        l: l.to_f,
-        c: c.to_f,
-        source: src.to_s
-      }
-    end
 
     # ---- True Exchange Flow (même période) ----
     flow_rows = ExchangeTrueFlow
@@ -63,18 +89,18 @@ class MarketController < ApplicationController
     flow_by_day = {}
     flow_rows.each do |d, inflow, outflow, net|
       k = d.strftime("%Y-%m-%d")
-      flow_by_day[k] = {
-        inflow: inflow.to_f,
-        outflow: outflow.to_f,
-        netflow: net.to_f
-      }
+      flow_by_day[k] = { inflow: inflow&.to_d, outflow: outflow&.to_d, netflow: net&.to_d }
     end
 
-    # flows alignés sur les jours des bougies (référence principale)
-    candle_days = @candles.map { |c| c[:x] }
-    @flows = candle_days.map do |k|
-      f = flow_by_day[k] || { inflow: 0.0, outflow: 0.0, netflow: 0.0 }
-      { x: k, inflow: f[:inflow], outflow: f[:outflow], netflow: f[:netflow] }
+    price_days = @price_points.map { |(day_str, _close)| day_str }
+    @flows = price_days.map do |k|
+      f = flow_by_day[k]
+      {
+        x: k,
+        inflow:  f ? f[:inflow]&.to_f  : nil,
+        outflow: f ? f[:outflow]&.to_f : nil,
+        netflow: f ? f[:netflow]&.to_f : nil
+      }
     end
 
     # ---- Métriques période (sur close) ----
@@ -113,9 +139,10 @@ class MarketController < ApplicationController
       @vol_label = nil
     end
 
-    # ---- Alignement prix/flows (ton moteur existant) ----
+    # ---- Alignement prix/flows ----
     @alignment = PriceFlowAlignment.compute(days: days, price_series: @series)
 
+    # ---- Alertes (strict-only via ton service actuel) ----
     @trader_alerts = TraderAlerts.for_market(
       price_metrics: {
         perf_pct: @perf_pct,
@@ -126,13 +153,14 @@ class MarketController < ApplicationController
       alignment: @alignment
     )
 
+    # ---- Journal body ----
     alerts_txt =
       if @trader_alerts.present?
         @trader_alerts.map do |a|
-          "- (#{a.level.to_s.upcase}) #{a.title}\n  #{a.message}\n  Suggestion: #{a.hint}"
+          "- (#{a.level.to_s.upcase}) #{a.title}\n  #{a.message}\n  Action: #{a.hint}\n  Trigger: #{a.trigger}\n  Values: #{a.values.inspect}"
         end.join("\n")
       else
-        "- Aucune alerte (mode #{@alerts_mode})"
+        "- Aucune alerte"
       end
 
     @one_liner ||= nil
@@ -165,9 +193,9 @@ class MarketController < ApplicationController
       Risque / invalidation:
     TXT
 
-    # ---- Heuristique "ventes confirmées ?" ----
+    # ---- Heuristique "ventes confirmées ?" (si tu veux la garder) ----
     flow_net = @alignment&.flow_net_btc.to_f
-    flow_strong = (@alerts_mode == "strict" ? 400.0 : 200.0)
+    flow_strong = 400.0
 
     if flow_net >= flow_strong
       if @perf_pct.to_f < -0.5
@@ -198,6 +226,121 @@ class MarketController < ApplicationController
           ["Sous MA200", "bg-rose-500/10 border-rose-700/50 text-rose-200"]
         end
     end
+
+    # ---- Indicateur "Pression spéculative" (FIXE sur 30 jours) ----
+    pressure_days = 30
+    p_to   = Date.current - 1
+    p_from = p_to - (pressure_days - 1)
+
+    # Flows 30j
+    p_flow = ExchangeTrueFlow
+      .where(day: p_from..p_to)
+      .order(:day)
+      .pluck(:day, :inflow_btc, :outflow_btc, :netflow_btc)
+
+    inflow_30  = p_flow.sum { |(_d, i, _o, _n)| i.to_d }.to_f
+    outflow_30 = p_flow.sum { |(_d, _i, o, _n)| o.to_d }.to_f
+    net_30     = p_flow.sum { |(_d, _i, _o, n)| n.to_d }.to_f
+
+    # ratio30 (si la colonne existe) : on prend le dernier jour dispo
+    ratio30_latest =
+      begin
+        ExchangeTrueFlow.where(day: p_from..p_to).order(day: :desc).limit(1).pick(:ratio30)&.to_f
+      rescue StandardError
+        nil
+      end
+
+    # Volatilité 30j (sur close)
+    p_rows = BtcPriceDay
+      .where(day: p_from..p_to)
+      .where.not(close_usd: nil)
+      .order(:day)
+      .pluck(:day, :close_usd, :source)
+
+    p_composite = p_rows.select { |(_d, _c, src)| src.to_s == "composite" }
+    p_chosen    = p_composite.any? ? p_composite : p_rows
+    p_values    = p_chosen.map { |(_d, c, _src)| c.to_f }
+
+    vol_30 =
+      if p_values.size >= 2
+        rets = p_values.each_cons(2).map { |a, b| a.abs < 1e-12 ? 0.0 : ((b - a) / a * 100.0).abs }
+        rets.empty? ? nil : (rets.sum / rets.size.to_f).round(2)
+      else
+        nil
+      end
+
+    # Whale events 30j (si modèle existant)
+    whale_events_30 =
+      begin
+        WhaleAlert.where(occurred_at: p_from.beginning_of_day..p_to.end_of_day).count
+      rescue StandardError
+        0
+      end
+
+    @pressure_index = MarketPressureIndex.call(
+      window_days: pressure_days,
+      ratio30: ratio30_latest,
+      vol_pct: vol_30,
+      inflow_btc: inflow_30,
+      outflow_btc: outflow_30,
+      netflow_btc: net_30,
+      whale_events: whale_events_30
+    )
+
+    #Rails.logger.warn("[pressure_index] label=#{@pressure_index&.label.inspect} ratio=#{@pressure_index&.facts&.dig(:ratio30).inspect} vol=#{@pressure_index&.facts&.dig(:vol_pct).inspect}")
+    # ---- Indicateur "Maturité du marché" (30j glissants) ----
+    maturity_days = 30
+    m_to   = Date.current - 1
+    m_from = m_to - (maturity_days - 1)
+
+    # Volatilité 30j (réutilise la logique déjà utilisée pour pressure)
+    m_rows = BtcPriceDay
+      .where(day: m_from..m_to)
+      .where.not(close_usd: nil)
+      .order(:day)
+      .pluck(:day, :close_usd, :source)
+
+    m_composite = m_rows.select { |(_d, _c, src)| src.to_s == "composite" }
+    m_chosen    = m_composite.any? ? m_composite : m_rows
+    m_values    = m_chosen.map { |(_d, c, _src)| c.to_f }
+
+    m_vol =
+      if m_values.size >= 2
+        rets = m_values.each_cons(2).map { |a, b| a.abs < 1e-12 ? 0.0 : ((b - a) / a * 100.0).abs }
+        rets.empty? ? nil : (rets.sum / rets.size.to_f).round(2)
+      else
+        nil
+      end
+
+    # Whale events 30j (même source que pressure)
+    m_whales =
+      begin
+        WhaleAlert.where(occurred_at: m_from.beginning_of_day..m_to.end_of_day).count
+      rescue StandardError
+        0
+      end
+
+    @maturity_index = MarketMaturityIndex.call(
+      window_days: maturity_days,
+      vol_pct: m_vol,
+      whale_events: m_whales
+    )
+    
+    # ---- Indicateur "Absorption / Distribution" (30j) ----
+    @absorption_index = MarketAbsorptionIndex.call(
+      window_days: 30,
+      netflow_btc: net_30,
+      perf_pct: @perf_pct
+    )
+
+    # ---- Synthèse macro (30j) ----
+    @market_synthesis = MarketSynthesis.call(
+      window_days: 30,
+      pressure: @pressure_index,
+      maturity: @maturity_index,
+      absorption: @absorption_index
+    )
+
   end
 
   private

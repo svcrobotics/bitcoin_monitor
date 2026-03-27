@@ -2,84 +2,58 @@
 
 # app/services/exchange_inflow_rebuilder.rb
 #
-# 🔁 Recalcul de la série temporelle "Exchange Inflow"
+# 🔁 Rebuild "Exchange Inflow" (proxy / legacy)
 #
 # OBJECTIF
 # --------
-# Ce service reconstruit, jour par jour, une estimation simplifiée des
-# dépôts de BTC vers les exchanges ("inflow").
+# Reconstruit une série journalière d'inflow vers exchanges à partir des WhaleAlerts,
+# sans RPC. C’est une approximation utile comme :
+# - indicateur "tension / risque" macro
+# - comparaison avec le True Flow
+# - fallback si le moteur RPC est indisponible
 #
-# ⚠️ IMPORTANT
-# Ce n'est PAS le "True Exchange Flow".
-# Ici, on utilise une APPROXIMATION basée uniquement sur les données WhaleAlert,
-# sans analyse des transactions brutes via Bitcoin RPC.
+# COUVERTURE (TRÈS IMPORTANT)
+# --------------------------
+# On distingue :
+# - Avant le début réel de collecte : pas de données => inflow = nil
+# - Après le début de collecte :
+#   - si aucune WhaleAlert ce jour-là ET scan considéré "actif" => inflow = 0.0 (mesure = zéro)
+#   - si scan probablement inactif => inflow = nil (jour manquant)
 #
-# Cet indicateur sert :
-# - de version legacy / simplifiée
-# - de point de comparaison
-# - ou de fallback si le moteur RPC est indisponible
-#
-# PRINCIPE DE CALCUL
-# ------------------
-# Pour chaque jour :
-# - on sélectionne les WhaleAlerts jugées "probablement liées à un exchange"
-# - on additionne leur volume (total_out_btc)
-# - on stocke ce total comme inflow journalier
-#
-# Ensuite :
-# - on calcule des moyennes glissantes (7j / 30j / 200j)
-# - on calcule un ratio inflow vs moyenne 30j
-# - on attribue un statut (green / amber / red)
+# Heuristique de couverture (sans table dédiée) :
+# - un jour est "couvert" si au moins 1 WhaleAlert existe dans les N derniers jours
+#   (incluant le jour courant). Sinon => on considère que le scan n’a pas tourné.
 #
 class ExchangeInflowRebuilder
-  # Seuil minimum pour considérer qu'une WhaleAlert est liée à un exchange
-  #
-  # Priorité :
-  # - exchange_likelihood >= 70
-  #
-  # Fallback :
-  # - exchange_likelihood NULL
-  # - score >= 70
-  #
-  EXCHANGE_LIKELIHOOD_MIN = 70
+  EXCHANGE_LIKELIHOOD_MIN  = 70
+  WINDOWS                 = [7, 30, 200].freeze
+  COVERAGE_LOOKBACK_DAYS  = 3
 
-  # Fenêtres utilisées pour les moyennes glissantes
-  WINDOWS = [7, 30, 200].freeze
-
-  # Point d'entrée principal (convention Rails)
-  #
-  # @param days_back [Integer] nombre de jours à recalculer dans le passé
-  #
-  # Exemple :
-  #   ExchangeInflowRebuilder.call(days_back: 220)
-  #
-  def self.call(days_back: 220)
-    new(days_back: days_back).call
+  def self.call(days_back: 220, only_missing: false)
+    new(days_back: days_back, only_missing: only_missing).call
   end
 
-  # Initialisation du service
-  #
-  # @param days_back [Integer] nombre de jours à recalculer
-  #
-  def initialize(days_back:)
-    @days_back = days_back
+  def initialize(days_back:, only_missing: false)
+    @days_back    = days_back
+    @only_missing = only_missing
   end
 
-  # Méthode principale d'exécution
-  #
-  # Étapes :
-  # 1. Parcourt chaque jour sur la période demandée
-  # 2. Calcule l'inflow qualifié pour ce jour
-  # 3. Sauvegarde le résultat dans ExchangeFlow
-  # 4. Recalcule les moyennes et statuts
-  #
   def call
+    # ✅ début réel de collecte (première WhaleAlert connue)
+    first_bt = WhaleAlert.minimum(:block_time) || WhaleAlert.minimum(:created_at)
+    @coverage_start_day = first_bt&.to_date
+
     range = (@days_back.days.ago.to_date)..Date.current
 
     range.each do |day|
-      inflow = qualified_inflow_for_day(day)
-
       row = ExchangeFlow.find_or_initialize_by(day: day)
+
+      if @only_missing
+        # "calculé" = pas nil (0.0 compte)
+        next unless row.inflow_btc.nil?
+      end
+
+      inflow = qualified_inflow_for_day(day)
       row.inflow_btc = inflow
       row.save!
     end
@@ -89,54 +63,43 @@ class ExchangeInflowRebuilder
 
   private
 
-  # Scope de base des WhaleAlerts considérées comme "exchange-like"
+  # Scope WhaleAlerts "exchange-like"
   #
-  # Logique :
-  # - On privilégie exchange_likelihood (plus précis)
-  # - Si exchange_likelihood est NULL (cas historiques ou incomplets),
-  #   on utilise le champ score comme approximation
-  #
-  # Pourquoi ?
-  # - Éviter de perdre des données
-  # - Accepter un peu de bruit plutôt qu'un trou statistique
-  #
-  # @return [ActiveRecord::Relation]
-  #
+  # - Priorité: exchange_likelihood >= 70
+  # - Fallback: exchange_likelihood NULL + score >= 70 (historique)
   def qualified_scope
-    scope = WhaleAlert.where(
-      "exchange_likelihood >= ?", EXCHANGE_LIKELIHOOD_MIN
-    )
-
-    scope = scope.or(
-      WhaleAlert
-        .where(exchange_likelihood: nil)
-        .where("score >= ?", EXCHANGE_LIKELIHOOD_MIN)
-    )
-
-    scope
+    WhaleAlert
+      .where("exchange_likelihood >= ?", EXCHANGE_LIKELIHOOD_MIN)
+      .or(
+        WhaleAlert
+          .where(exchange_likelihood: nil)
+          .where("score >= ?", EXCHANGE_LIKELIHOOD_MIN)
+      )
   end
 
-  # Calcule l'inflow qualifié pour une journée donnée
+  # Jour "couvert" si au moins 1 WhaleAlert existe dans les N derniers jours.
+  # (Sans table de scan, c'est un garde-fou pour éviter de créer des faux "0.0".)
+  def day_covered?(day)
+    return false if @coverage_start_day.present? && day < @coverage_start_day
+
+    from = (day - COVERAGE_LOOKBACK_DAYS).beginning_of_day
+    to   = day.end_of_day
+
+    WhaleAlert.where(block_time: from..to).exists? ||
+      WhaleAlert.where(block_time: nil).where(created_at: from..to).exists?
+  end
+
+  # Inflow journalier estimé (proxy) :
+  # - somme total_out_btc des WhaleAlerts qualifiées du jour
   #
-  # Étapes :
-  # 1. Définition de la fenêtre temporelle (00:00 → 23:59)
-  # 2. Tentative avec block_time (temps réel blockchain)
-  # 3. Fallback avec created_at si aucune donnée trouvée
-  # 4. Somme de total_out_btc comme proxy de volume
-  #
-  # ⚠️ LIMITES IMPORTANTES
-  # - total_out_btc représente le volume total sorti d'une transaction,
-  #   PAS forcément uniquement ce qui va vers un exchange
-  # - Il peut y avoir :
-  #   - du double comptage
-  #   - des faux positifs
-  #
-  # 👉 C'est un INDICATEUR DE TENSION, pas un flux exact.
-  #
-  # @param day [Date]
-  # @return [BigDecimal] inflow estimé en BTC
-  #
+  # Couverture :
+  # - avant coverage_start => nil
+  # - jour non couvert => nil
+  # - jour couvert mais aucune alerte qualifiée => 0.0
   def qualified_inflow_for_day(day)
+    return nil if @coverage_start_day.present? && day < @coverage_start_day
+    return nil unless day_covered?(day)
+
     start_t = day.beginning_of_day
     end_t   = day.end_of_day
 
@@ -145,22 +108,19 @@ class ExchangeInflowRebuilder
 
     # Fallback si block_time absent ou vide
     if scope.none?
-      scope = qualified_scope.where(created_at: start_t..end_t)
+      scope = qualified_scope.where(block_time: nil).where(created_at: start_t..end_t)
     end
+
+    # ✅ jour couvert mais aucune alerte qualifiée => 0.0 (mesure = zéro)
+    return 0.to_d if scope.none?
 
     scope.sum(:total_out_btc).to_d
   end
 
-  # Recalcule les moyennes glissantes et le statut pour chaque jour
+  # Recalcule les moyennes glissantes et le statut.
   #
-  # Champs calculés :
-  # - avg7, avg30, avg200 : moyennes des inflows passés
-  # - ratio30 : inflow / moyenne 30j
-  # - status : green / amber / red
-  #
-  # ⚠️ Ici, la moyenne INCLUT le jour courant
-  # (contrairement au True Exchange Flow, plus strict)
-  #
+  # ⚠️ Moyennes calculées sur les jours précédents (idx-1..),
+  # et en ignorant les jours "nil" (pas de données).
   def compute_baselines_and_status!
     flows = ExchangeFlow.order(:day).to_a
 
@@ -176,52 +136,29 @@ class ExchangeInflowRebuilder
     end
   end
 
-  # Calcule une moyenne glissante sur une fenêtre donnée
-  #
-  # ⚠️ Comportement actuel :
-  # - la moyenne inclut le jour courant
-  #
-  # Conséquence :
-  # - le ratio est légèrement atténué
-  # - acceptable pour un indicateur "macro"
-  #
-  # @param flows [Array<ExchangeFlow>]
-  # @param idx [Integer] index courant
-  # @param window [Integer] taille de la fenêtre
-  # @return [BigDecimal, nil]
-  #
+  # ✅ Moyenne glissante sur les jours précédents, en ignorant nil (pas de données).
+  # Les vrais 0.0 comptent.
   def avg_over(flows, idx, window)
-    from  = [0, idx - (window - 1)].max
-    slice = flows[from..idx]
+    to = idx - 1
+    return nil if to < 0
+
+    from  = [0, to - (window - 1)].max
+    slice = flows[from..to]
+    return nil if slice.blank?
+
+    slice = slice.reject { |x| x.inflow_btc.nil? }
     return nil if slice.empty?
 
     sum = slice.sum { |x| x.inflow_btc.to_d }
     (sum / slice.size).to_d
   end
 
-  # Calcule le ratio inflow / moyenne
-  #
-  # Utilisé pour détecter les anomalies
-  #
-  # @param value [Numeric]
-  # @param baseline [Numeric]
-  # @return [BigDecimal, nil]
-  #
   def ratio(value, baseline)
+    return nil if value.nil?
     return nil if baseline.blank? || baseline.to_d <= 0
     (value.to_d / baseline.to_d).round(4)
   end
 
-  # Détermine le statut de marché à partir du ratio
-  #
-  # Seuils :
-  # - green  : ratio < 1.3 → normal
-  # - amber  : ratio < 2.0 → tension
-  # - red    : ratio ≥ 2.0 → excès / anomalie
-  #
-  # @param ratio [Numeric]
-  # @return [String, nil]
-  #
   def status_from_ratio(ratio)
     return nil if ratio.blank?
     r = ratio.to_d

@@ -4,6 +4,19 @@ class WhaleAlertsController < ApplicationController
   WANTED_TYPES = %w[consolidation distribution batching].freeze
 
   def index
+    # ---- Range (7/14/30 jours) ----
+    @range = params[:range].presence_in(%w[7d 14d 30d]) || "14d"
+    @days =
+      case @range
+      when "7d"  then 7
+      when "14d" then 14
+      else 30
+      end
+
+    @start_time = @days.days.ago.beginning_of_day
+    @end_time   = Time.current
+
+    # ---- Filters ----
     @mode         = params[:mode].presence_in(%w[interesting all]) || "interesting"
     @type         = params[:type].presence
     @min_btc      = params[:min_btc].presence
@@ -24,15 +37,21 @@ class WhaleAlertsController < ApplicationController
 
     @alerts = base.limit(500)
 
+    # scope sans order pour agrégations (sinon group/sum parfois pénibles)
     base_for_agg = base.unscope(:order)
 
+    # ---- Counts (global pour le scope filtré) ----
     @counts = base_for_agg.group(:alert_type).count
 
-    build_volume_points!(scope: base_for_agg, days_back: 14)
-    build_stacked_counts!(scope: base_for_agg, days_back: 14)
+    # ---- Charts (sur @days) ----
+    build_volume_points!(scope: base_for_agg, days_back: @days)
+    build_stacked_counts!(scope: base_for_agg, days_back: @days)
 
-    build_kpis_today!(scope: base_for_agg)          # ✅ KPIs filtrés
-    build_counts_summary!(days_back: 14)
+    # ---- KPIs today (filtrés) ----
+    build_kpis_today!(scope: base_for_agg)
+
+    # ---- Summary (sur @days) ----
+    build_counts_summary!(days_back: @days)
   end
 
   private
@@ -64,10 +83,15 @@ class WhaleAlertsController < ApplicationController
 
     days.each do |day|
       btc = (raw_btc[day] || 0).to_d
-
       delta_pct = ((btc - prev) / prev) * 100 if prev&.positive?
 
-      @volume_points << { day: day, btc: btc, eur: (@btc_eur ? (btc * @btc_eur) : nil), delta_pct: delta_pct }
+      @volume_points << {
+        day: day,
+        btc: btc,
+        eur: (@btc_eur ? (btc * @btc_eur) : nil),
+        delta_pct: delta_pct
+      }
+
       prev = btc
     end
   end
@@ -95,7 +119,13 @@ class WhaleAlertsController < ApplicationController
 
       delta_pct = ((total - prev_total).to_f / prev_total) * 100 if prev_total&.positive?
 
-      @chart_counts << { day: day, by_type: by_type, total: total, delta_pct: delta_pct }
+      @chart_counts << {
+        day: day,
+        by_type: by_type,
+        total: total,
+        delta_pct: delta_pct
+      }
+
       prev_total = total
     end
   end
@@ -110,12 +140,13 @@ class WhaleAlertsController < ApplicationController
   end
 
   def build_counts_summary!(days_back:)
-    to_time   = Time.current
-    from_time = (to_time - (days_back - 1).days).beginning_of_day
-    range     = from_time..to_time
+    to_time     = Time.current
+    from_time   = (to_time - (days_back - 1).days).beginning_of_day
+    range       = from_time..to_time
     today_range = Time.current.beginning_of_day..Time.current.end_of_day
 
-    @counts_14d =
+    # ⚠️ summary global (pas filtré par les inputs), comme avant
+    @counts_range =
       WhaleAlert.where(block_time: range, alert_type: WANTED_TYPES).group(:alert_type).count
 
     @counts_today =

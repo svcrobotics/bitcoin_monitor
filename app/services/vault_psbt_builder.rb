@@ -1,4 +1,15 @@
+# frozen_string_literal: true
+
 # app/services/vault_psbt_builder.rb
+#
+# Construit une PSBT P2WSH multisig (Vault) pour dépenser un set d'UTXOs
+# vers une adresse de destination, avec frais fixes (fee_sats).
+#
+# Objectif :
+# - rester 100% safe sur les montants (pas de float)
+# - injecter witness_script + bip32_derivs (Ledger/HWI)
+# - sanity check strict (inputs/outpoints, destination, montant, fee, champs PSBT)
+#
 require "bigdecimal"
 require "bigdecimal/util"
 
@@ -81,6 +92,7 @@ class VaultPsbtBuilder
     # 5) Injecte les bip32 derivations (Ledger/HWI)
     base_path = @vault.derivation_path.presence || "m/48'/0'/0'/2'"
     ensure_bip48_path!(base_path)
+    ensure_derivation_index!
 
     psbt = PsbtTools.inject_bip32_derivs(
       psbt,
@@ -108,12 +120,12 @@ class VaultPsbtBuilder
     # 6) Sanity check renforcé (structure + montants + scripts + bip32)
     sanity_check!(
       psbt,
-      expected_inputs: inputs,
-      expected_destination: @destination_address,
+      expected_inputs:        inputs,
+      expected_destination:   @destination_address,
       expected_total_in_sats: total_in_sats,
       expected_total_out_sats: total_out_sats,
-      expected_fee_sats: @fee_sats,
-      expected_base_path: base_path
+      expected_fee_sats:      @fee_sats,
+      expected_base_path:     base_path
     ) if @sanity_check
 
     Result.new(
@@ -166,12 +178,19 @@ class VaultPsbtBuilder
     # Pour P2WSH multisig, on veut BIP48 (m/48'/coin'/account'/2')
     p = base_path.to_s
     raise "derivation_path vide" if p.blank?
+
     unless p.start_with?("m/48'/") || p.start_with?("m/48h/")
       raise "derivation_path invalide pour multisig P2WSH (attendu BIP48 m/48'/.../2'): #{p}"
     end
+
     unless p.include?("/2'") || p.include?("/2h/")
       raise "derivation_path invalide: doit contenir /2' (P2WSH multisig): #{p}"
     end
+  end
+
+  def ensure_derivation_index!
+    idx = @vault.derivation_index.to_i
+    raise "derivation_index invalide" if idx < 0
   end
 
   def try_walletprocesspsbt(psbt)
@@ -179,6 +198,20 @@ class VaultPsbtBuilder
     res.is_a?(Hash) && res["psbt"].present? ? res["psbt"] : psbt
   rescue
     psbt
+  end
+
+  def build_debug(psbt, inputs_count:, outputs_count:, total_in_sats:, fee_sats:, total_out_sats:)
+    {
+      "inputs_count"   => inputs_count,
+      "outputs_count"  => outputs_count,
+      "total_in_sats"  => total_in_sats,
+      "total_out_sats" => total_out_sats,
+      "fee_sats"       => fee_sats,
+      "total_in_btc"   => sats_to_btc_str(total_in_sats),
+      "total_out_btc"  => sats_to_btc_str(total_out_sats),
+      "fee_btc"        => sats_to_btc_str(fee_sats),
+      "psbt_len"       => psbt.to_s.bytesize
+    }
   end
 
   def sanity_check!(psbt,
@@ -236,4 +269,16 @@ class VaultPsbtBuilder
       # paths BIP48 cohérents
       (i["bip32_derivs"] || []).each do |d|
         p = d["path"].to_s
-        # Tolère h ou ' selon
+
+        # Tolère h ou ' selon les logiciels (m/48h/... vs m/48'/...)
+        p = p.tr("h", "'")
+
+        unless p.start_with?(base)
+          raise "Input##{idx}: mauvais path. expected_prefix=#{base.inspect} got=#{p.inspect}"
+        end
+      end
+    end
+
+    true
+  end
+end

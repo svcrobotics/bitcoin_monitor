@@ -1,0 +1,550 @@
+<!-- app/views/inflow_outflow/index.html.erb -->
+<div class="max-w-6xl mx-auto px-4 py-8">
+
+  <div class="mb-8">
+    <h1 class="text-2xl font-bold text-gray-100">Inflow / Outflow</h1>
+    <p class="mt-1 text-sm text-gray-500">
+      Daily exchange-like flow aggregation built from observed UTXOs.
+    </p>
+  </div>
+
+  <!-- Summary -->
+  <section class="mb-8">
+    <h2 class="text-lg font-semibold text-gray-100 mb-3">Summary</h2>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Latest day</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= @summary[:day]&.strftime("%Y-%m-%d") || "—" %>
+        </p>
+        <% if @latest_day_in_progress %>
+          <p class="mt-1 text-[11px] text-amber-300">journée en cours</p>
+        <% end %>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Inflow</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= number_with_delimiter(@summary[:inflow_btc].to_d.round, delimiter: " ") %> BTC
+        </p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Outflow</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= number_with_delimiter(@summary[:outflow_btc].to_d.round, delimiter: " ") %> BTC
+        </p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Netflow</p>
+        <p class="text-xl font-mono <%= @summary[:netflow_btc].to_d >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+          <%= number_with_delimiter(@summary[:netflow_btc].to_d.round, delimiter: " ") %> BTC
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <!-- Charts -->
+  <section class="mb-8 space-y-6">
+    <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+      <div class="mb-3">
+        <h2 class="text-lg font-semibold text-gray-100">Flow evolution</h2>
+        <p class="text-xs text-gray-500 mt-1">
+          Daily inflow and outflow over the last 30 days.
+        </p>
+      </div>
+
+      <%= line_chart [
+            { name: "Inflow", data: @inflow_daily },
+            { name: "Outflow", data: @outflow_daily }
+          ],
+          height: "360px",
+          points: false,
+          discrete: true,
+          thousands: ","
+      %>
+    </div>
+
+    <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+      <div class="mb-3">
+        <h2 class="text-lg font-semibold text-gray-100">Netflow evolution</h2>
+        <p class="text-xs text-gray-500 mt-1">
+          Daily netflow over the last 30 days.
+        </p>
+      </div>
+
+      <%= line_chart @netflow_daily,
+          height: "360px",
+          points: false,
+          discrete: true,
+          thousands: ","
+      %>
+    </div>
+  </section>
+
+  <!-- V2 Deposit structure -->
+  <section class="mb-8">
+    <div class="mb-3">
+      <h2 class="text-lg font-semibold text-gray-100">Deposit structure</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Composition of observed inflows by deposit size.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Deposit count</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= number_with_delimiter(@deposit_summary[:deposit_count], delimiter: " ") %>
+        </p>
+        <% if @latest_day_in_progress %>
+          <p class="mt-1 text-[11px] text-amber-300">journée en cours</p>
+        <% end %>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Average deposit</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= number_with_precision(@deposit_summary[:avg_deposit_btc], precision: 2, delimiter: " ") %> BTC
+        </p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Largest deposit</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= number_with_delimiter(@deposit_summary[:max_deposit_btc].to_d.round, delimiter: " ") %> BTC
+        </p>
+      </div>
+    </div>
+
+    <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5 mb-6">
+      <div class="mb-3">
+        <h3 class="text-base font-semibold text-gray-100">Deposit count by bucket</h3>
+        <p class="text-xs text-gray-500 mt-1">
+          Number of observed deposits for the latest computed day.
+        </p>
+      </div>
+
+      <%= column_chart @deposit_bucket_count_chart,
+          height: "320px",
+          thousands: ","
+      %>
+    </div>
+
+    <div class="overflow-x-auto border border-gray-800 rounded-xl">
+      <table class="min-w-full text-sm">
+        <thead class="bg-black/30 text-gray-400 text-xs">
+          <tr>
+            <th class="text-left px-4 py-3">Bucket</th>
+            <th class="text-left px-4 py-3">Deposit count</th>
+            <th class="text-left px-4 py-3">Volume BTC</th>
+          </tr>
+        </thead>
+
+        <tbody class="text-gray-300">
+          <% @deposit_buckets.each do |bucket| %>
+            <tr class="border-t border-gray-800 hover:bg-white/5">
+              <td class="px-4 py-3 font-mono text-xs"><%= bucket[:label] %></td>
+              <td class="px-4 py-3 font-mono"><%= number_with_delimiter(bucket[:count], delimiter: " ") %></td>
+              <td class="px-4 py-3 font-mono"><%= number_with_delimiter(bucket[:btc].round, delimiter: " ") %> BTC</td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- V2 Withdrawal structure -->
+  <section class="mb-8">
+    <div class="mb-3">
+      <h2 class="text-lg font-semibold text-gray-100">Withdrawal structure</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Composition of observed outflows by withdrawal size.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Withdrawal count</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= number_with_delimiter(@withdrawal_summary[:withdrawal_count], delimiter: " ") %>
+        </p>
+        <% if @latest_day_in_progress %>
+          <p class="mt-1 text-[11px] text-amber-300">journée en cours</p>
+        <% end %>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Average withdrawal</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= number_with_precision(@withdrawal_summary[:avg_withdrawal_btc], precision: 2, delimiter: " ") %> BTC
+        </p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Largest withdrawal</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= number_with_delimiter(@withdrawal_summary[:max_withdrawal_btc].to_d.round, delimiter: " ") %> BTC
+        </p>
+      </div>
+    </div>
+
+    <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5 mb-6">
+      <div class="mb-3">
+        <h3 class="text-base font-semibold text-gray-100">Withdrawal count by bucket</h3>
+        <p class="text-xs text-gray-500 mt-1">
+          Number of observed withdrawals for the latest computed day.
+        </p>
+      </div>
+
+      <%= column_chart @withdrawal_bucket_count_chart,
+          height: "320px",
+          thousands: ","
+      %>
+    </div>
+
+    <div class="overflow-x-auto border border-gray-800 rounded-xl">
+      <table class="min-w-full text-sm">
+        <thead class="bg-black/30 text-gray-400 text-xs">
+          <tr>
+            <th class="text-left px-4 py-3">Bucket</th>
+            <th class="text-left px-4 py-3">Withdrawal count</th>
+            <th class="text-left px-4 py-3">Volume BTC</th>
+          </tr>
+        </thead>
+
+        <tbody class="text-gray-300">
+          <% @withdrawal_buckets.each do |bucket| %>
+            <tr class="border-t border-gray-800 hover:bg-white/5">
+              <td class="px-4 py-3 font-mono text-xs"><%= bucket[:label] %></td>
+              <td class="px-4 py-3 font-mono"><%= number_with_delimiter(bucket[:count], delimiter: " ") %></td>
+              <td class="px-4 py-3 font-mono"><%= number_with_delimiter(bucket[:btc].round, delimiter: " ") %> BTC</td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- V3 Market behavior -->
+  <section class="mb-8">
+    <div class="mb-3">
+      <h2 class="text-lg font-semibold text-gray-100">Market behavior</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Behavioral ratios and concentration scores derived from V1 and V2.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <% @behavior_scores.each do |item| %>
+        <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+          <p class="text-xs text-gray-500"><%= item[:label] %></p>
+          <p class="text-xl font-mono text-gray-100">
+            <%= number_with_precision(item[:value].to_d * 100, precision: 2, delimiter: " ") %>%
+          </p>
+          <% if @latest_day_in_progress %>
+            <p class="mt-1 text-[11px] text-amber-300">journée en cours</p>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+        <div class="mb-3">
+          <h3 class="text-base font-semibold text-gray-100">Deposit behavior ratios</h3>
+          <p class="text-xs text-gray-500 mt-1">
+            Retail / whale / institutional estimated share of deposits.
+          </p>
+        </div>
+
+        <%= column_chart @deposit_behavior_chart,
+            height: "320px",
+            suffix: "%",
+            thousands: ","
+        %>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+        <div class="mb-3">
+          <h3 class="text-base font-semibold text-gray-100">Withdrawal behavior ratios</h3>
+          <p class="text-xs text-gray-500 mt-1">
+            Retail / whale / institutional estimated share of withdrawals.
+          </p>
+        </div>
+
+        <%= column_chart @withdrawal_behavior_chart,
+            height: "320px",
+            suffix: "%",
+            thousands: ","
+        %>
+      </div>
+    </div>
+
+    <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5 mb-6">
+      <div class="mb-3">
+        <h3 class="text-base font-semibold text-gray-100">Behavior scores</h3>
+        <p class="text-xs text-gray-500 mt-1">
+          Concentration and directional behavior scores for the latest computed day.
+        </p>
+      </div>
+
+      <%= bar_chart @behavior_score_chart,
+          height: "320px",
+          suffix: "%",
+          thousands: ","
+      %>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="overflow-x-auto border border-gray-800 rounded-xl">
+        <table class="min-w-full text-sm">
+          <thead class="bg-black/30 text-gray-400 text-xs">
+            <tr>
+              <th class="text-left px-4 py-3">Deposit behavior</th>
+              <th class="text-left px-4 py-3">Value</th>
+            </tr>
+          </thead>
+
+          <tbody class="text-gray-300">
+            <% @deposit_behavior_ratios.each do |item| %>
+              <tr class="border-t border-gray-800 hover:bg-white/5">
+                <td class="px-4 py-3 text-xs"><%= item[:label] %></td>
+                <td class="px-4 py-3 font-mono">
+                  <%= number_with_precision(item[:value].to_d * 100, precision: 2, delimiter: " ") %>%
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="overflow-x-auto border border-gray-800 rounded-xl">
+        <table class="min-w-full text-sm">
+          <thead class="bg-black/30 text-gray-400 text-xs">
+            <tr>
+              <th class="text-left px-4 py-3">Withdrawal behavior</th>
+              <th class="text-left px-4 py-3">Value</th>
+            </tr>
+          </thead>
+
+          <tbody class="text-gray-300">
+            <% @withdrawal_behavior_ratios.each do |item| %>
+              <tr class="border-t border-gray-800 hover:bg-white/5">
+                <td class="px-4 py-3 text-xs"><%= item[:label] %></td>
+                <td class="px-4 py-3 font-mono">
+                  <%= number_with_precision(item[:value].to_d * 100, precision: 2, delimiter: " ") %>%
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- V4 Capital behavior -->
+  <section class="mb-8">
+    <div class="mb-3">
+      <h2 class="text-lg font-semibold text-gray-100">Capital behavior</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Capital-weighted view of deposits and withdrawals derived from V2 and V3.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+      <% @capital_scores.each do |item| %>
+        <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+          <p class="text-xs text-gray-500"><%= item[:label] %></p>
+          <p class="text-xl font-mono text-gray-100">
+            <%= number_with_precision(item[:value].to_d * 100, precision: 2, delimiter: " ") %>%
+          </p>
+          <% if @latest_day_in_progress %>
+            <p class="mt-1 text-[11px] text-amber-300">journée en cours</p>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-6">
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+        <div class="mb-3">
+          <h3 class="text-base font-semibold text-gray-100">Deposit capital ratios</h3>
+          <p class="text-xs text-gray-500 mt-1">
+            Share of incoming BTC volume attributed to retail, whale and institutional buckets.
+          </p>
+        </div>
+
+        <%= column_chart @deposit_capital_chart,
+            height: "320px",
+            suffix: "%",
+            thousands: ","
+        %>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5">
+        <div class="mb-3">
+          <h3 class="text-base font-semibold text-gray-100">Withdrawal capital ratios</h3>
+          <p class="text-xs text-gray-500 mt-1">
+            Share of outgoing BTC volume attributed to retail, whale and institutional buckets.
+          </p>
+        </div>
+
+        <%= column_chart @withdrawal_capital_chart,
+            height: "320px",
+            suffix: "%",
+            thousands: ","
+        %>
+      </div>
+    </div>
+
+    <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-5 mb-6">
+      <div class="mb-3">
+        <h3 class="text-base font-semibold text-gray-100">Capital scores</h3>
+        <p class="text-xs text-gray-500 mt-1">
+          Dominance, distribution, accumulation and divergence scores for the latest computed day.
+        </p>
+      </div>
+
+      <%= bar_chart @capital_score_chart,
+          height: "320px",
+          suffix: "%",
+          thousands: ","
+      %>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      <div class="overflow-x-auto border border-gray-800 rounded-xl">
+        <table class="min-w-full text-sm">
+          <thead class="bg-black/30 text-gray-400 text-xs">
+            <tr>
+              <th class="text-left px-4 py-3">Deposit capital</th>
+              <th class="text-left px-4 py-3">Value</th>
+            </tr>
+          </thead>
+
+          <tbody class="text-gray-300">
+            <% @deposit_capital_ratios.each do |item| %>
+              <tr class="border-t border-gray-800 hover:bg-white/5">
+                <td class="px-4 py-3 text-xs"><%= item[:label] %></td>
+                <td class="px-4 py-3 font-mono">
+                  <%= number_with_precision(item[:value].to_d * 100, precision: 2, delimiter: " ") %>%
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="overflow-x-auto border border-gray-800 rounded-xl">
+        <table class="min-w-full text-sm">
+          <thead class="bg-black/30 text-gray-400 text-xs">
+            <tr>
+              <th class="text-left px-4 py-3">Withdrawal capital</th>
+              <th class="text-left px-4 py-3">Value</th>
+            </tr>
+          </thead>
+
+          <tbody class="text-gray-300">
+            <% @withdrawal_capital_ratios.each do |item| %>
+              <tr class="border-t border-gray-800 hover:bg-white/5">
+                <td class="px-4 py-3 text-xs"><%= item[:label] %></td>
+                <td class="px-4 py-3 font-mono">
+                  <%= number_with_precision(item[:value].to_d * 100, precision: 2, delimiter: " ") %>%
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+  
+  <!-- Recent days -->
+  <section class="mb-8">
+    <div class="mb-3">
+      <h2 class="text-lg font-semibold text-gray-100">Recent days</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Latest daily flow aggregates.
+      </p>
+    </div>
+
+    <div class="overflow-x-auto border border-gray-800 rounded-xl">
+      <table class="min-w-full text-sm">
+        <thead class="bg-black/30 text-gray-400 text-xs">
+          <tr>
+            <th class="text-left px-4 py-3">Day</th>
+            <th class="text-left px-4 py-3">Inflow BTC</th>
+            <th class="text-left px-4 py-3">Outflow BTC</th>
+            <th class="text-left px-4 py-3">Netflow BTC</th>
+            <th class="text-left px-4 py-3">Inflow UTXO</th>
+            <th class="text-left px-4 py-3">Outflow UTXO</th>
+          </tr>
+        </thead>
+
+        <tbody class="text-gray-300">
+          <% @recent_days.each do |row| %>
+            <tr class="border-t border-gray-800 hover:bg-white/5">
+              <td class="px-4 py-3 font-mono text-xs">
+                <%= row.day %>
+                <% if row.day == Date.current %>
+                  <span class="ml-2 text-[11px] text-amber-300">en cours</span>
+                <% end %>
+              </td>
+
+              <td class="px-4 py-3 font-mono"><%= number_with_delimiter(row.inflow_btc.to_d.round, delimiter: " ") %></td>
+              <td class="px-4 py-3 font-mono"><%= number_with_delimiter(row.outflow_btc.to_d.round, delimiter: " ") %></td>
+              <td class="px-4 py-3 font-mono <%= row.netflow_btc.to_d >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+                <%= number_with_delimiter(row.netflow_btc.to_d.round, delimiter: " ") %>
+              </td>
+              <td class="px-4 py-3 font-mono"><%= number_with_delimiter(row.inflow_utxo_count, delimiter: " ") %></td>
+              <td class="px-4 py-3 font-mono"><%= number_with_delimiter(row.outflow_utxo_count, delimiter: " ") %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Engine status -->
+  <section>
+    <div class="mb-3">
+      <h2 class="text-lg font-semibold text-gray-100">Engine status</h2>
+      <p class="text-xs text-gray-500 mt-1">
+        Build status and latest computed day.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Days stored</p>
+        <p class="text-xl font-mono text-gray-100"><%= @days_total %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Last computed day</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= @engine_status[:last_computed_day]&.strftime("%Y-%m-%d") || "—" %>
+        </p>
+        <% if @latest_day_in_progress %>
+          <p class="mt-1 text-[11px] text-amber-300">journée en cours</p>
+        <% end %>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Last job status</p>
+        <p class="text-xl font-mono text-gray-100"><%= @engine_status[:last_job_status] || "—" %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Last job duration</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= @engine_status[:last_job_duration_ms] ? "#{@engine_status[:last_job_duration_ms]}ms" : "—" %>
+        </p>
+      </div>
+    </div>
+  </section>
+
+</div>

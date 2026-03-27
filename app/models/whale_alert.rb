@@ -1,5 +1,5 @@
 class WhaleAlert < ApplicationRecord
-  TYPES = %w[consolidation distribution batching other].freeze
+  TYPES = %w[consolidation distribution batching single_destination other].freeze
 
   validates :txid, presence: true, uniqueness: true
   validates :alert_type, inclusion: { in: TYPES }

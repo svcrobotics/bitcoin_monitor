@@ -1,0 +1,63 @@
+<details class="mt-4 bg-gray-900/40 border border-gray-800 rounded-2xl overflow-hidden">
+  <summary class="cursor-pointer select-none p-4 flex items-center justify-between gap-3 text-sm text-gray-200">
+    <span class="font-semibold">📘 Comment lire les Whale Alerts</span>
+    <span class="text-gray-500 text-xs">Afficher / masquer</span>
+  </summary>
+
+  <div class="px-4 pb-4 prose prose-invert max-w-none text-sm">
+    <%= raw MarkdownRenderer.to_html(<<~MD) %>
+### Ce que tu regardes ici (important)
+
+Les Whale Alerts sont un **radar d’activité on-chain** : elles montrent des **mouvements importants** détectés sur la blockchain.
+
+- ✅ Ça aide à comprendre le comportement (regroupement, dispersion, transfert direct…)
+- ❌ Ça **ne prédit pas** le prix
+- ❌ Ça **n’est pas** un signal d’achat/vente
+
+---
+
+### Lire une carte en 10 secondes
+
+- **Type** : le comportement détecté (*consolidation / distribution / batching / single_destination / other*)
+- **score** : note interne pour trier l’intérêt (ce n’est pas une prédiction)
+- **EX** : probabilité que la transaction ressemble à un **service / exchange** (activité opérationnelle)
+- **ratio** : `largest / total_out` → proche de **100%** = une sortie domine
+- **inputs / outputs / nonzero** : structure de la transaction (utile pour distinguer service vs transfert simple)
+
+---
+
+### Les comportements (types)
+
+**Consolidation**  
+Regroupement : plusieurs entrées → peu de sorties (souvent organisation, pas vente).
+
+**Distribution**  
+Dispersion : gros montant → nombreuses sorties (paiements, ventes fractionnées, redistribution).
+
+**Batching**  
+Beaucoup de sorties : typique des services (paiements groupés), souvent “opérationnel”.
+
+**Single destination**  
+Transfert très direct : **une sortie domine** (ratio élevé).  
+Souvent : déplacement vers une seule destination (cold storage, dépôt, move interne).  
+👉 Ce n’est **pas forcément** une vente, mais c’est un mouvement intentionnel clair.
+
+**Other**  
+Gros mouvement sans pattern net : bruit “normal” de la chaîne.
+
+---
+
+### Indicateur EX (exchange-like)
+
+EX indique si la transaction **ressemble** à un comportement de service (exchange / plateforme / paiement).
+
+- **85–100** : très probable service/exchange
+- **70–84** : probable
+- **45–69** : ambigu
+- **0–44** : peu probable
+
+Un EX élevé = souvent **opérationnel**, pas “sentiment de marché”.
+MD
+
+  </div>
+</details>

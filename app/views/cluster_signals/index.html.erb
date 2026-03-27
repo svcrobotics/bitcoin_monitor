@@ -1,0 +1,187 @@
+<%# app/views/cluster_signals/index.html.erb %>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <%
+    signal_title = lambda do |signal_type|
+      case signal_type.to_s
+      when "volume_spike"
+        "Volume élevé récent"
+      when "sudden_activity"
+        "Activité récente élevée"
+      when "large_transfers"
+        "Transferts massifs détectés"
+      when "cluster_activation"
+        "Activation récente du cluster"
+      else
+        signal_type.to_s.humanize
+      end
+    end
+
+    severity_badge = lambda do |severity|
+      case severity.to_s
+      when "high"
+        "text-amber-300 bg-amber-500/10 border-amber-500/20"
+      when "medium"
+        "text-violet-300 bg-violet-500/10 border-violet-500/20"
+      when "low"
+        "text-gray-300 bg-gray-500/10 border-gray-500/20"
+      else
+        "text-gray-300 bg-gray-500/10 border-gray-500/20"
+      end
+    end
+  %>
+
+  <div class="mb-8">
+    <div class="mb-2">
+      <%= link_to "← Retour au dashboard", root_path, class: "text-sm text-violet-400 hover:text-violet-300" %>
+    </div>
+
+    <h1 class="text-2xl sm:text-3xl font-bold text-gray-100">
+      Signaux cluster récents
+    </h1>
+
+    <p class="mt-2 text-sm text-gray-400">
+      Vue globale des clusters ayant déclenché des signaux récents, triés par score décroissant.
+    </p>
+
+    <% if @date.present? %>
+      <div class="mt-3 text-xs text-gray-500">
+        Snapshot analysée : <span class="text-gray-300 font-semibold"><%= @date %></span>
+      </div>
+    <% end %>
+  </div>
+
+  <div class="flex gap-2 mb-4">
+    <%= link_to "Tous", cluster_signals_path, class: "text-xs text-gray-400" %>
+    <%= link_to "High", cluster_signals_path(severity: "high"), class: "text-xs text-amber-300" %>
+    <%= link_to "Volume spike", cluster_signals_path(type: "volume_spike"), class: "text-xs text-violet-300" %>
+  </div>
+
+  <% if @signals.blank? %>
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-6 text-gray-300">
+      <div class="font-semibold text-gray-100">Aucun signal récent</div>
+      <div class="mt-2 text-sm text-gray-500">
+        Aucun cluster n’a généré de signal pour la dernière snapshot disponible.
+      </div>
+    </div>
+  <% else %>
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+        <div class="text-xs uppercase tracking-wide text-gray-500">Signals</div>
+        <div class="mt-2 text-2xl font-bold text-gray-100">
+          <%= number_with_delimiter(@signals.size) %>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+        <div class="text-xs uppercase tracking-wide text-gray-500">High severity</div>
+        <div class="mt-2 text-2xl font-bold text-amber-300">
+          <%= number_with_delimiter(@signals.count { |s| s.severity.to_s == "high" }) %>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+        <div class="text-xs uppercase tracking-wide text-gray-500">Top score</div>
+        <div class="mt-2 text-2xl font-bold text-gray-100">
+          <%= @signals.first&.score || "-" %>
+        </div>
+      </div>
+    </div>
+
+    <div class="space-y-4">
+      <% @signals.each do |signal| %>
+        <% cluster = signal.cluster %>
+        <% address = cluster&.addresses&.first %>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+          <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+            <div class="min-w-0 flex-1">
+              <div class="flex flex-wrap items-center gap-2 mb-2">
+                <div class="text-lg font-bold text-gray-100">
+                  <%= signal_title.call(signal.signal_type) %>
+                </div>
+
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold <%= severity_badge.call(signal.severity) %>">
+                  <%= signal.severity %> • score <%= signal.score %>
+                </span>
+              </div>
+
+              <div class="text-sm text-gray-300">
+                Cluster
+                <span class="font-semibold text-gray-100">#<%= cluster.id %></span>
+                <% if cluster.respond_to?(:address_count) %>
+                  <span class="text-gray-500">• <%= number_with_delimiter(cluster.address_count) %> adresses</span>
+                <% end %>
+              </div>
+
+              <div class="mt-1 text-xs text-gray-500">
+                Snapshot : <%= signal.snapshot_date %>
+              </div>
+
+              <% if address.present? %>
+                <div class="mt-3">
+                  <%= link_to address_lookup_path(address: address.address),
+                    class: "inline-flex items-center gap-2 text-sm text-violet-400 hover:text-violet-300 break-all" do %>
+                    <span class="font-mono"><%= address.address %></span>
+                    <span>›</span>
+                  <% end %>
+                </div>
+              <% end %>
+            </div>
+
+            <div class="w-full lg:w-[28rem]">
+              <div class="rounded-xl border border-gray-800 bg-black/20 px-4 py-3">
+                <div class="text-xs uppercase tracking-wide text-gray-500 mb-2">
+                  Détail du signal
+                </div>
+
+                <div class="text-sm text-gray-300 leading-relaxed">
+                  <% case signal.signal_type.to_s %>
+                  <% when "volume_spike" %>
+                    Volume sur 24h :
+                    <strong><%= number_with_delimiter((signal.metadata["btc_24h"] || 0).to_f.round(4)) %> BTC</strong>
+                    <span class="text-gray-500">
+                      · moyenne 7j :
+                      <%= number_with_delimiter((signal.metadata["avg_daily_7d_btc"] || 0).to_f.round(4)) %> BTC
+                      · ratio :
+                      x<%= signal.metadata["ratio_24h_vs_7d"] %>
+                    </span>
+
+                  <% when "sudden_activity" %>
+                    Activité sur 24h :
+                    <strong><%= number_with_delimiter(signal.metadata["tx_24h"] || 0) %> transactions</strong>
+                    <span class="text-gray-500">
+                      · moyenne 7j :
+                      <%= number_with_delimiter((signal.metadata["avg_daily_7d"] || 0).to_f.round(2)) %>
+                      · ratio :
+                      x<%= signal.metadata["ratio_24h_vs_7d"] %>
+                    </span>
+
+                  <% when "large_transfers" %>
+                    Volume important concentré sur peu de transactions :
+                    <strong><%= number_with_delimiter((signal.metadata["btc_24h"] || 0).to_f.round(4)) %> BTC</strong>
+                    <span class="text-gray-500">
+                      · transactions 24h :
+                      <%= number_with_delimiter(signal.metadata["tx_24h"] || 0) %>
+                    </span>
+
+                  <% when "cluster_activation" %>
+                    Activité récente sur un cluster peu actif auparavant :
+                    <strong><%= number_with_delimiter(signal.metadata["tx_24h"] || 0) %> transactions</strong>
+                    <span class="text-gray-500">
+                      · total 7j :
+                      <%= number_with_delimiter(signal.metadata["tx_7d"] || 0) %>
+                    </span>
+
+                  <% else %>
+                    Signal détecté à partir des métriques récentes.
+                  <% end %>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+</div>

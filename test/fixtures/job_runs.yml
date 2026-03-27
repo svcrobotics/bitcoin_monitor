@@ -1,0 +1,21 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  name: MyString
+  status: MyString
+  started_at: 2026-01-23 22:52:19
+  finished_at: 2026-01-23 22:52:19
+  duration_ms: 1
+  exit_code: 1
+  error: MyText
+  meta: MyText
+
+two:
+  name: MyString
+  status: MyString
+  started_at: 2026-01-23 22:52:19
+  finished_at: 2026-01-23 22:52:19
+  duration_ms: 1
+  exit_code: 1
+  error: MyText
+  meta: MyText

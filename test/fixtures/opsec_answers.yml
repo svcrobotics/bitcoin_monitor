@@ -1,0 +1,13 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  opsec_assessment: one
+  question_key: MyString
+  answer: MyString
+  risk_points: 1
+
+two:
+  opsec_assessment: two
+  question_key: MyString
+  answer: MyString
+  risk_points: 1

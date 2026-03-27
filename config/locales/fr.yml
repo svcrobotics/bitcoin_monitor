@@ -59,3 +59,486 @@ fr:
       x_minutes:
         one: "1 minute"
         other: "%{count} minutes"
+
+  dashboard:
+    title: "Bitcoin Monitor"
+    subtitle: "Moins de signaux • plus de discipline • meilleures décisions"
+    security:
+      label: "Sécurité"
+      title: "🛡️ Réduis ton exposition (OPSEC) — audit rapide"
+      description_html: "Les attaques “wrench” ciblent surtout l’<span class='font-semibold text-gray-200'>exposition</span> (identité ↔ crypto ↔ domicile) et la <span class='font-semibold text-gray-200'>capacité à forcer un transfert</span>. Fais un audit pédagogique (1 min) pour voir où tu es vulnérable et quoi améliorer."
+      disclaimer: "Aucun scan externe • Basé sur tes réponses • Pas de données perso stockées"
+      button: "Lancer l’audit OPSEC"
+      duration: "~ 1 minute"
+    errors:
+      rpc: "Erreur de connexion RPC Bitcoin"
+    shortcuts:
+      header: "Raccourcis"
+      subheader: "Accès rapide aux modules"
+      show: "Afficher"
+      hide: "Masquer"
+      groups:
+        market: "Marché"
+        onchain: "Activité on-chain"
+        research: "Analyse & recherche"
+        docs: "Documentation & méthodologie"
+        security: "Sécurité & protection"
+        system: "Système"
+      items:
+        market_price: "Bitcoin — évolution du prix"
+        trade_simulator: "Trade simulator"
+        whale_alerts: "Whale Alerts"
+        brc20: "Analyse BRC-20"
+        runes: "Analyse Runes"
+        blocks: "Explorer les blocs"
+        p2wsh_wallets: "P2WSH Wallets"
+        journal: "Journal"
+        guides: "Guides & aide"
+        feature_requests: "Idées & améliorations"
+        about: "À propos"
+        opsec: "OPSEC Score (audit exposition)"
+        system: "System"
+    market_summary:
+      title: "Marché — Synthèse"
+      subtitle: "Lecture rapide (snapshot • métriques • MA200 • verdict)"
+      view: "Voir"
+    price_zones:
+      title: "Zones de prix"
+      kicker: "support / résistance • 365j"
+      desc: "Plages issues de pivots + clustering (pas des lignes)."
+
+      help: "Méthodologie"
+      recompute: "Recalculer"
+
+      price_now: "Prix actuel"
+      daily_close: "clôture journalière"
+
+      strength:
+        strong: "Fort"
+        medium: "Moyen"
+        weak: "Faible"
+
+      support: "Support"
+      resistance: "Résistance"
+      level: "Niveau"
+      distance: "Distance"
+      touches: "Touches"
+
+      no_support: "Aucun support clair sous le prix actuel."
+      no_resistance: "Aucune résistance claire au-dessus du prix actuel."
+
+      support_hint: "Nearest support sous le prix actuel (distance mid-zone)."
+      resistance_hint: "Nearest resistance au-dessus du prix actuel (distance mid-zone)."
+
+      bonus_title: "Bonus (zones fortes)"
+      bonus_suffix: "(bonus)"
+
+      footer: "Calc: pivots (N=3) + clustering ±1.2% sur 365 jours • Strength = touches + récence."
+
+      methodology:
+        p1: "Calcul sur ~365 jours : pivots journaliers puis regroupement en plages. Zone = low → high."
+        li1_html: "Pivots locaux sur closes (<span class='font-mono'>N=3</span>)"
+        li2_html: "Clustering tolérance <span class='font-mono'>±1.2%</span>"
+        li3: "Strength (0–100) : touches + récence"
+        params: "Params : pivots N=3, cluster ±1.2%"
+
+      empty:
+        title: "Aucune zone disponible."
+        hint_html: "Clique sur <span class='font-semibold'>%{recompute}</span> pour générer les zones à partir des prix journaliers."
+
+
+    true_flow:
+      title_24h: "True exchange flow (24h)"
+      net_badge: "Net"
+      tiers: "Tiers"
+      tiers_hint: "Tiers dépôts whales (taille de l’événement): B=100–299 BTC • A=300–999 BTC • S=≥1000 BTC"
+
+      intro_html: "Flux sur le set “exchange” auto-détecté : inflow / outflow / net (24h). <span class='text-gray-500'>Set auto-détecté • min occurrences: <span class='font-mono'>%{min_occ}</span></span>"
+
+      window_7: "7j"
+      window_14: "14j"
+      window_30: "30j"
+      window_hint_html: "Fenêtre <span class='font-mono'>%{days}j</span> <span class='text-gray-700'>•</span> plus long = mieux pour voir le “régime”"
+      learn: "Comprendre"
+
+      learn_sections:
+        structure: "Structure de l’indicateur"
+
+      learn_html: >
+        <div class="text-gray-300 space-y-3">
+          <p class="text-gray-200">
+            Cet indicateur mesure les <strong>flux BTC sur un set d’adresses “exchange-like” auto-détecté</strong> (sur 24h) :
+            <strong>Inflow</strong> (dépôts vers exchange-like), <strong>Outflow</strong> (retraits externes), et <strong>Net</strong> (pression nette).
+          </p>
+
+          <div class="bg-black/20 border border-gray-800 rounded-xl p-3">
+            <p class="text-gray-200 font-semibold">1) “Exchange-like” — qu’est-ce que ça veut dire ?</p>
+            <p class="text-gray-400 mt-1">
+              <strong>Exchange-like</strong> = un ensemble d’adresses que notre système considère comme <strong>probablement contrôlées par des exchanges</strong>
+              (hot wallets, clusters opérationnels, dépôts/collecte).
+              <br/>
+              On ne prétend pas identifier “Binance/OKX/Coinbase” à 100% : on construit un <strong>set</strong> basé sur des signaux (patterns)
+              puis on l’utilise comme “zone exchange” pour mesurer la pression.
+            </p>
+
+            <ul class="mt-2 space-y-1 list-disc pl-5 text-gray-400">
+              <li>
+                Le set est <strong>auto-détecté</strong> et doit passer un seuil de stabilité
+                (<span class="text-gray-300 font-mono">min occurrences</span>) pour éviter les faux positifs.
+              </li>
+              <li>
+                Plus la fenêtre (7j/14j/30j) est longue, plus on voit si on est dans un <strong>régime</strong> stable ou une anomalie ponctuelle.
+              </li>
+            </ul>
+          </div>
+
+          <div class="bg-black/20 border border-gray-800 rounded-xl p-3">
+            <p class="text-gray-200 font-semibold">2) Comment on calcule <span class="text-gray-100">Inflow</span> (dépôts) ?</p>
+            <p class="text-gray-400 mt-1">
+              <strong>Inflow</strong> = somme des BTC envoyés <strong>vers</strong> des adresses du set exchange-like sur 24h.
+              <br/>
+              Concrètement, on observe des transactions où une sortie (output) paie une adresse appartenant au set exchange-like.
+              La valeur reçue (en BTC) est comptée comme <strong>dépôt</strong>.
+            </p>
+
+            <ul class="mt-2 space-y-1 list-disc pl-5 text-gray-400">
+              <li>
+                On calcule aussi une <strong>structure</strong> par taille de dépôts observés :
+                <code>&lt;10</code>, <code>10–99</code>, <code>100–499</code>, <code>≥500</code> BTC.
+              </li>
+              <li>
+                Important : Inflow mesure une <strong>arrivée vers exchange-like</strong>, pas une vente confirmée.
+                Un dépôt peut précéder une vente… ou rester en attente (ou servir à autre chose).
+              </li>
+            </ul>
+          </div>
+
+          <div class="bg-black/20 border border-gray-800 rounded-xl p-3">
+            <p class="text-gray-200 font-semibold">3) Comment on calcule <span class="text-gray-100">Outflow</span> (retraits externes) ?</p>
+
+            <p class="text-gray-400 mt-1">
+              Ici, on distingue <strong>deux choses</strong> :
+              <br/>
+              <strong>(A) Outflow “external”</strong> = retraits <strong>vers l’extérieur</strong> (non-exchange-like) → c’est le <strong>KPI trading</strong>.
+              <br/>
+              <strong>(B) Mouvements “internal/reshuffle”</strong> = réorganisation interne (hot/cold, consolidation, batching) → <strong>diagnostic</strong>, pas signal.
+            </p>
+
+            <p class="text-gray-400 mt-2">
+              <strong>Pourquoi c’est compliqué ?</strong>
+              Sur un nœud <em>pruned</em> (sans txindex), on ne peut pas reconstruire parfaitement tout l’historique de toutes les adresses.
+              Donc on utilise un modèle <strong>observé</strong> basé sur des UTXOs.
+            </p>
+
+            <div class="mt-2 text-gray-400">
+              <p class="text-gray-200 font-semibold">Méthode “observée” (UTXO tracking)</p>
+              <ol class="mt-1 space-y-1 list-decimal pl-5">
+                <li>
+                  <strong>On construit un stock d’UTXOs déposés</strong> :
+                  chaque fois qu’un dépôt arrive vers exchange-like, on enregistre l’UTXO reçu
+                  (<span class="text-gray-300 font-mono">txid:vout</span>, valeur BTC, <span class="text-gray-300 font-mono">seen_day</span>).
+                </li>
+                <li>
+                  <strong>Quand ces UTXOs sont dépensés</strong> (spend),
+                  on détecte la transaction de dépense et on regarde <strong>où vont les sorties</strong> (outputs).
+                </li>
+                <li>
+                  On classe la dépense :
+                  <ul class="mt-1 space-y-1 list-disc pl-5">
+                    <li>
+                      <strong>external</strong> si les outputs vont majoritairement vers des adresses <strong>hors</strong> set exchange-like
+                      → compté comme <strong>retrait externe</strong>.
+                    </li>
+                    <li>
+                      <strong>internal</strong> si les outputs restent majoritairement <strong>dans</strong> le set exchange-like
+                      → <strong>reshuffle</strong> (diagnostic).
+                    </li>
+                    <li>
+                      <strong>mixed</strong> si c’est partagé (une partie externe, une partie interne).
+                    </li>
+                  </ul>
+                </li>
+                <li>
+                  <strong>Outflow(external)</strong> = somme des montants classés <strong>external</strong> sur 24h.
+                  C’est la valeur affichée comme “Withdrawals (external)”.
+                </li>
+              </ol>
+            </div>
+
+            <p class="text-gray-500 mt-2 text-[11px]">
+              Note : on affiche parfois un <strong>contexte</strong> (kind/confidence/internal share/gross) pour expliquer
+              “est-ce un vrai retrait, ou juste un reshuffle ?”.
+            </p>
+          </div>
+
+          <div class="bg-black/20 border border-gray-800 rounded-xl p-3">
+            <p class="text-gray-200 font-semibold">4) Net flow & ratio30 — comment on obtient ces valeurs ?</p>
+
+            <ul class="mt-2 space-y-1 list-disc pl-5 text-gray-400">
+              <li>
+                <strong>Net</strong> = <strong>Inflow (deposits)</strong> − <strong>Outflow (external)</strong>.
+                <br/>
+                <span class="text-gray-500">Net &gt; 0 : dépôts nets (risque de pression vendeuse) • Net &lt; 0 : retraits nets (supportif).</span>
+              </li>
+              <li>
+                <strong>avg30</strong> = moyenne des inflows sur les <strong>30 jours précédents</strong> (baseline).
+              </li>
+              <li>
+                <strong>ratio30</strong> = Inflow / avg30.
+                <span class="text-gray-500">x1 ≈ normal • x1.6 = watch • x2.6+ = extrême • 0 = aucun dépôt • ∞ si avg30≈0.</span>
+              </li>
+            </ul>
+          </div>
+
+          <div class="bg-black/20 border border-gray-800 rounded-xl p-3">
+            <p class="text-gray-200 font-semibold">5) Reshuffle — définition simple</p>
+            <p class="text-gray-400 mt-1">
+              <strong>Reshuffle</strong> = l’exchange bouge ses propres fonds entre ses wallets (opérations internes).
+              Ça peut représenter de gros volumes, mais ce n’est <strong>pas</strong> une action utilisateur “je retire mes BTC”.
+              <br/>
+              Donc : <strong>reshuffle ≠ signal de marché</strong>. C’est pour ça qu’on garde ces infos en contexte/diagnostic,
+              séparées du KPI trading “Outflow(external)”.
+            </p>
+          </div>
+
+          <div class="bg-black/20 border border-gray-800 rounded-xl p-3">
+            <p class="text-gray-200 font-semibold">Lecture pro en 3 secondes</p>
+            <ol class="mt-2 space-y-1 list-decimal pl-5 text-gray-400">
+              <li><strong>ratio30</strong> : le régime de dépôts est-il anormal ?</li>
+              <li><strong>Outflow(external)</strong> : y a-t-il des retraits externes significatifs ?</li>
+              <li><strong>Net</strong> + P+1/P+2 : dépôts absorbés ou pression qui se confirme ?</li>
+            </ol>
+          </div>
+
+          <p class="text-[11px] text-gray-500">
+            Limites : “exchange-like” est une détection probabiliste, et l’outflow est calculé en mode observé (UTXO tracking).
+            La colonne “couverture” indique quand l’échantillon est insuffisant pour conclure.
+          </p>
+        </div>
+
+      status:
+        red: "Excès"
+        amber: "Tension"
+        green: "Normal"
+        na: "—"
+
+      coverage:
+        not_covered: "Non couvert"
+        ok: "OK"
+        zero_events: "0 events"
+        events: "%{count} events"
+        events_zero_deposit: "%{count} events • 0 dépôt"
+        events_touching: "%{count} events • %{touching} touching"
+
+      warn_zero_deposit_html: "Journée couverte, whales détectées, mais aucun dépôt vers ton set exchange. <span class='text-gray-300'>Outflow peut tout de même bouger (sorties du stock observé).</span>"
+
+      kpi:
+        inflow: "Inflow"
+        outflow: "Outflow"
+        net: "Net flow"
+        ratio30: "ratio30"
+        ratio_vs_30d: "Ratio vs 30j (inflow)"
+
+      net_formula: "inflow − outflow"
+
+      events_line: "%{count} events%{touching,select,0{}other{ • %{touching} touching}}"
+
+      ratio_hint:
+        no_data: "Non couvert"
+        baseline_missing: "Baseline insuff."
+        no_deposit: "Aucun dépôt"
+        infinite: "vs baseline 0"
+
+      ratio_comment: >
+        %{ratio,select,
+          nil{Comparaison indisponible}
+          other{%{ratio}}
+        }
+
+      outflow:
+        observed_pruned: "Observé via suivi d’UTXO (mode pruned)"
+        micro:
+          detail: "Détail"
+          observed: "Observé"
+        kind:
+          external: "Externe"
+          internal: "Interne"
+          mixed: "Mixte"
+          na: "—"
+        parts:
+          ext: "Ext"
+          int: "Int"
+          gross: "Brut"
+          conf: "Confiance"
+          kind: "Type"
+          tx: "tx"
+          int_short: "Int"
+          kind_short: "Type"
+          conf_short: "Conf"
+          tx_short: " tx"
+          gross_short: "Brut"
+          tx_short_label: "Tx"
+
+      inflow:
+        profile:
+          mid: "Mid"
+          whale: "Whale"
+          institution: "Institution"
+
+      price_cell:
+        future: "En attente"
+        pending: "En cours"
+        missing: "Prix manquant"
+
+      sales:
+        na: "—"
+        low: "Faible"
+        to_confirm: "À confirmer"
+        price_missing: "Prix manquant"
+        possible: "Possible"
+        probable: "Probable"
+        absorbed: "Absorbé"
+
+      qualif:
+        stock_out: "sorties stock observé"
+
+      footer_note: "Inflow/Outflow = dépôts et retraits observés sur le set exchange. Le prix J+1/J+2 sert de confirmation (vendu vs absorbé)."
+
+      history_title: "Derniers %{days} jours"
+      table:
+        day: "Jour"
+        inflow: "Inflow"
+        outflow: "Outflow"
+        net: "Net"
+        ratio30: "Ratio30"
+        p1: "Prix J+1"
+        p2: "Prix J+2"
+        sales: "Ventes ?"
+        qualif: "Qualif."
+        status: "Statut"
+
+      sales_heuristic_note: "“Ventes ?” = heuristique UI (ratio30 ≥ 2.5 + baisse du prix J+1/J+2). Ce n’est pas une preuve on-chain."
+
+      journal:
+        button: "Journaliser"
+        ctx_prefix: "TrueFlow 24h"
+        body_observation: "Observation:"
+        body_hypothesis: "Hypothèse:"
+        body_decision: "Décision:"
+        body_risk: "Risque / invalidation:"
+
+      no_data_html: "Pas de données. Lance <span class='font-mono'>EXCHANGE_ADDR_MIN_OCC=8 bin/rails exchange_true_flow:rebuild</span>."
+
+    ai_insight:
+      title: "Analyse IA (neutre)"
+      source_label: "Source"
+      source_name: "OpenAI"
+      date_label: "Date"
+      recompute: "Recalculer"
+      show: "Afficher"
+      hide: "Masquer"
+      headline_label: "Headline"
+      regime_label: "Régime"
+      week_tag: "7j"
+      month_tag: "30j"
+      fallback_headline: "Analyse IA disponible"
+
+      drivers:
+        title: "Drivers"
+      weekly:
+        title: "Semaine (7j)"
+      monthly:
+        title: "Mois (30j)"
+      risk:
+        title: "Risk"
+    ai_insight_help:
+      title: "Lecture de l’analyse IA"
+      show: "Afficher"
+      hide: "Masquer"
+
+      p1_html: "Analyse neutre du marché au jour J, construite à partir des données du dashboard (prix, MA200, drawdown, volatilité, supports/résistances, flux si disponibles). <span class='text-gray-400'>Pas de conseil financier.</span>"
+
+      items:
+        headline:
+          k: "Headline"
+          v: "état du marché à date."
+        regime:
+          k: "Regime"
+          v: "structure dominante (trend / range, risk-on / risk-off)."
+        wm:
+          k: "7j / 30j"
+          v: "dynamique court-terme vs contexte mensuel."
+        drivers:
+          k: "Drivers"
+          v: "facteurs clés expliquant la lecture."
+        levels:
+          k: "Levels"
+          v: "zones de support / résistance et zones secondaires."
+        scenarios:
+          k: "Scenarios"
+          v: "conditions et invalidations."
+        risk:
+          k: "Risk"
+          v: "points de fragilité du contexte."
+
+      footer: "Usage attendu : lecture de contexte, préparation de plan, suivi de l’évolution jour après jour."
+
+  footer:
+      brand: "Bitcoin Monitor"
+      tagline: "Moins de bruit. Plus de discipline. Des décisions mieux structurées."
+      built_for: "Données • transparence • contrôle utilisateur"
+
+      sections:
+        product: "Produit"
+        company: "Société"
+        legal: "Légal"
+
+      links:
+        dashboard: "Dashboard"
+        guides: "Guides & aide"
+        security: "Sécurité (OPSEC)"
+        about: "À propos"
+        status: "Statut système"
+        contact: "Contact"
+        terms: "Conditions d’utilisation"
+        privacy: "Politique de confidentialité"
+        risk: "Avertissement sur les risques"
+
+      disclaimer: "Les informations fournies sont à but éducatif et informatif uniquement et ne constituent pas un conseil financier. Les actifs numériques sont volatils ; vous pouvez perdre tout ou partie de votre capital."
+      rights: "Tous droits réservés."  
+
+  about:
+    title: "À propos"
+
+    hero:
+      headline: "À propos de Bitcoin Monitor"
+      subtitle: "Une plateforme internationale d’analyse neutre et structurée du marché Bitcoin."
+
+    mission:
+      title: "Notre mission"
+      p1: "Bitcoin Monitor fournit des outils d’analyse conçus pour offrir une lecture claire, méthodique et transparente du marché."
+      p2: "La plateforme est pensée pour les traders, analystes et participants long terme recherchant structure, discipline et compréhension du contexte."
+      p3: "Nous privilégions la cohérence méthodologique, la neutralité analytique et la maîtrise des données."
+
+    data:
+      title: "Transparence des données"
+      p1: "Bitcoin Monitor traite exclusivement des données publiques issues de la blockchain et des marchés."
+      bullets:
+        b1: "Aucune connexion à des wallets utilisateurs"
+        b2: "Aucune clé privée demandée"
+        b3: "Aucune donnée financière personnelle collectée"
+        b4: "Questionnaires et outils sans stockage nominatif"
+      p2: "Les méthodologies de calcul sont documentées et les limites techniques sont explicitement indiquées."
+
+    technology:
+      title: "Technologie & Intelligence Artificielle"
+      p1: "Bitcoin Monitor intègre des modèles d’intelligence artificielle comme outils analytiques avancés."
+      p2: "L’IA est utilisée pour structurer l’information, explorer des scénarios et accélérer l’analyse."
+      p3: "Les décisions, l’architecture et la validation restent sous contrôle humain."
+
+    vision:
+      title: "Vision"
+      p1: "Construire une infrastructure d’analyse indépendante, évolutive et internationale, adaptée à un marché en constante transformation."
+      p2: "Offrir un environnement où les données sont prioritaires, la méthodologie explicite, et l’utilisateur conserve le contrôle."
+
+    disclaimer: "Les informations fournies par Bitcoin Monitor sont à but éducatif et informatif uniquement et ne constituent pas un conseil financier. Les actifs numériques sont volatils et comportent des risques."

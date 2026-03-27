@@ -1,10 +1,57 @@
-<% content_for :title, "Editing trade simulation" %>
+<%# app/views/trade_simulations/edit.html.erb %>
+<% content_for :title, "Modifier la simulation" %>
 
-<div class="md:w-2/3 w-full">
-  <h1 class="font-bold text-4xl">Editing trade simulation</h1>
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
+    <div class="min-w-0">
+      <h1 class="text-2xl sm:text-3xl font-semibold text-gray-100">Modifier la simulation</h1>
+      <p class="text-sm text-gray-400 mt-1">
+        Simulation <span class="font-mono text-gray-200">#<%= @trade_simulation.id %></span>
+        · Achat <span class="font-mono text-gray-200"><%= @trade_simulation.buy_day %></span>
+        · BTC <span class="font-mono text-gray-200"><%= @trade_simulation.btc_amount %></span>
+      </p>
+    </div>
 
-  <%= render "form", trade_simulation: @trade_simulation %>
+    <div class="flex flex-wrap gap-2">
+      <%= link_to "← Retour", trade_simulation_path(@trade_simulation),
+        class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                bg-gray-900/60 border border-gray-700/60 text-gray-200
+                hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100 transition
+                text-sm font-semibold" %>
 
-  <%= link_to "Show this trade simulation", @trade_simulation, class: "w-full sm:w-auto text-center mt-2 sm:mt-0 sm:ml-2 rounded-md px-3.5 py-2.5 bg-gray-100 hover:bg-gray-50 inline-block font-medium" %>
-  <%= link_to "Back to trade simulations", trade_simulations_path, class: "w-full sm:w-auto text-center mt-2 sm:mt-0 sm:ml-2 rounded-md px-3.5 py-2.5 bg-gray-100 hover:bg-gray-50 inline-block font-medium" %>
+      <%= link_to "Liste", trade_simulations_path,
+        class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                bg-gray-900/60 border border-gray-700/60 text-gray-200
+                hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100 transition
+                text-sm font-semibold" %>
+
+      <% if @trade_simulation.respond_to?(:open?) && @trade_simulation.open? %>
+        <%= link_to "Clôturer", close_trade_simulation_path(@trade_simulation),
+          class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                  bg-amber-600/15 border border-amber-500/50 text-amber-200
+                  hover:bg-amber-600/25 hover:border-amber-400 hover:text-amber-100 transition
+                  text-sm font-semibold" %>
+      <% end %>
+    </div>
+  </div>
+
+  <% if @trade_simulation.respond_to?(:closed?) && @trade_simulation.closed? %>
+    <div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-5 text-amber-200">
+      <p class="font-semibold">Simulation clôturée</p>
+      <p class="text-sm mt-1 text-amber-200/90">
+        Pour garder un historique fiable, l’édition est désactivée.
+        Tu peux consulter le résultat final sur la page de la simulation.
+      </p>
+
+      <div class="mt-4">
+        <%= link_to "Voir la simulation", trade_simulation_path(@trade_simulation),
+          class: "inline-flex items-center justify-center rounded-xl px-4 py-2
+                  bg-gray-900/60 border border-gray-700/60 text-gray-200
+                  hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100 transition
+                  text-sm font-semibold" %>
+      </div>
+    </div>
+  <% else %>
+    <%= render "form", trade_simulation: @trade_simulation %>
+  <% end %>
 </div>

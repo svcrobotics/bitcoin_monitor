@@ -1,0 +1,60 @@
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="mb-8">
+    <h1 class="text-2xl sm:text-3xl font-bold text-gray-100">Clusters</h1>
+    <p class="mt-2 text-sm text-gray-400">
+      Vue V1 du moteur de clustering multi-input.
+    </p>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+      <div class="text-xs uppercase tracking-wide text-gray-500">Clusters</div>
+      <div class="mt-2 text-2xl font-bold text-gray-100"><%= number_with_delimiter(@clusters_count) %></div>
+    </div>
+
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+      <div class="text-xs uppercase tracking-wide text-gray-500">Addresses</div>
+      <div class="mt-2 text-2xl font-bold text-gray-100"><%= number_with_delimiter(@addresses_count) %></div>
+    </div>
+
+    <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+      <div class="text-xs uppercase tracking-wide text-gray-500">Links</div>
+      <div class="mt-2 text-2xl font-bold text-gray-100"><%= number_with_delimiter(@links_count) %></div>
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-gray-800 bg-gray-900/60 overflow-hidden">
+    <div class="px-5 py-4 border-b border-gray-800">
+      <h2 class="text-sm font-semibold text-gray-100">Top clusters</h2>
+    </div>
+
+    <div class="overflow-x-auto">
+      <table class="min-w-full text-sm">
+        <thead class="bg-gray-950/60 text-gray-400">
+          <tr>
+            <th class="px-4 py-3 text-left">ID</th>
+            <th class="px-4 py-3 text-left">Addresses</th>
+            <th class="px-4 py-3 text-left">First seen</th>
+            <th class="px-4 py-3 text-left">Last seen</th>
+            <th class="px-4 py-3 text-left">Sent sats</th>
+            <th class="px-4 py-3 text-left"></th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-gray-800">
+          <% @clusters.each do |cluster| %>
+            <tr class="text-gray-200">
+              <td class="px-4 py-3 font-mono"><%= cluster.id %></td>
+              <td class="px-4 py-3"><%= number_with_delimiter(cluster.address_count) %></td>
+              <td class="px-4 py-3"><%= cluster.first_seen_height || "-" %></td>
+              <td class="px-4 py-3"><%= cluster.last_seen_height || "-" %></td>
+              <td class="px-4 py-3"><%= number_with_delimiter(cluster.total_sent_sats || 0) %></td>
+              <td class="px-4 py-3 text-right">
+                <%= link_to "Voir", cluster_path(cluster), class: "text-violet-400 hover:text-violet-300 font-medium" %>
+              </td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

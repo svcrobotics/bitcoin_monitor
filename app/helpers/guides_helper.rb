@@ -1,20 +1,24 @@
 module GuidesHelper
-  def render_markdown(text)
-    @md_renderer ||= begin
-      renderer = Redcarpet::Render::HTML.new(
-        filter_html: true,
-        hard_wrap: true
-      )
-
-      Redcarpet::Markdown.new(renderer,
-        fenced_code_blocks: true,
-        tables: true,
-        autolink: true,
-        strikethrough: true
-      )
+  def health_pill_classes(status)
+    case status.to_sym
+    when :ok
+      "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+    when :warn, :missing, :unknown
+      "text-amber-300 bg-amber-500/10 border-amber-500/20"
+    when :fail
+      "text-rose-300 bg-rose-500/10 border-rose-500/20"
+    else
+      "text-gray-300 bg-gray-500/10 border-gray-500/20"
     end
+  end
 
-    html = @md_renderer.render(text.to_s)
-    html.html_safe
+  def health_label(status)
+    case status.to_sym
+    when :ok then "OK"
+    when :warn then "WARN"
+    when :fail then "FAIL"
+    when :missing then "MISSING"
+    else "UNKNOWN"
+    end
   end
 end

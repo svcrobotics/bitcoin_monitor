@@ -1,0 +1,392 @@
+zh-CN:
+  date:
+    formats:
+      default: "%Y/%m/%d"
+      short: "%m月%d日"
+      long: "%Y年%m月%d日"
+
+    day_names: [星期日, 星期一, 星期二, 星期三, 星期四, 星期五, 星期六]
+    abbr_day_names: [周日, 周一, 周二, 周三, 周四, 周五, 周六]
+
+    month_names: [~, 一月, 二月, 三月, 四月, 五月, 六月, 七月, 八月, 九月, 十月, 十一月, 十二月]
+    abbr_month_names: [~, 1月, 2月, 3月, 4月, 5月, 6月, 7月, 8月, 9月, 10月, 11月, 12月]
+
+  time:
+    formats:
+      default: "%Y年%m月%d日 %H:%M"
+      short: "%m月%d日 %H:%M"
+      long: "%Y年%m月%d日 %A %H:%M"
+
+  datetime:
+    distance_in_words:
+      half_a_minute: "半分钟"
+      less_than_x_seconds:
+        one: "不到1秒"
+        other: "不到 %{count} 秒"
+      x_seconds:
+        one: "1秒"
+        other: "%{count} 秒"
+      less_than_x_minutes:
+        one: "不到1分钟"
+        other: "不到 %{count} 分钟"
+      x_minutes:
+        one: "1分钟"
+        other: "%{count} 分钟"
+      about_x_hours:
+        one: "约1小时"
+        other: "约 %{count} 小时"
+      x_days:
+        one: "1天"
+        other: "%{count} 天"
+      about_x_months:
+        one: "约1个月"
+        other: "约 %{count} 个月"
+      x_months:
+        one: "1个月"
+        other: "%{count} 个月"
+      about_x_years:
+        one: "约1年"
+        other: "约 %{count} 年"
+      over_x_years:
+        one: "超过1年"
+        other: "超过 %{count} 年"
+      almost_x_years:
+        one: "接近1年"
+        other: "接近 %{count} 年"
+
+  helpers:
+    distance_of_time_in_words:
+      x_minutes:
+        one: "1分钟"
+        other: "%{count} 分钟"
+
+  dashboard:
+    title: "Bitcoin Monitor"
+    subtitle: "更少信号 • 更强纪律 • 更好决策"
+
+    security:
+      label: "安全"
+      title: "🛡️ 降低你的暴露风险（OPSEC）— 快速审计"
+      description_html: "“扳手攻击”通常针对你的<span class='font-semibold text-gray-200'>身份暴露</span>（身份 ↔ 加密资产 ↔ 住所）以及<span class='font-semibold text-gray-200'>强制转账的能力</span>。进行一次1分钟审计，了解你的风险点与改进方向。"
+      disclaimer: "无外部扫描 • 基于你的回答 • 不存储个人数据"
+      button: "开始 OPSEC 审计"
+      duration: "约 1 分钟"
+
+    errors:
+      rpc: "Bitcoin RPC 连接错误"
+
+    shortcuts:
+      header: "快捷入口"
+      subheader: "快速访问各模块"
+      show: "展开"
+      hide: "收起"
+
+      groups:
+        market: "市场"
+        onchain: "链上活动"
+        research: "分析与研究"
+        docs: "文档与方法"
+        security: "安全与防护"
+        system: "系统"
+
+      items:
+        market_price: "比特币 — 价格走势"
+        trade_simulator: "交易模拟器"
+        whale_alerts: "鲸鱼警报"
+        brc20: "BRC-20 分析"
+        runes: "Runes 分析"
+        blocks: "区块浏览"
+        p2wsh_wallets: "P2WSH 钱包"
+        journal: "日志"
+        guides: "指南与帮助"
+        feature_requests: "想法与改进"
+        about: "关于我们"
+        opsec: "OPSEC 评分（暴露审计）"
+        system: "系统"
+
+    market_summary:
+      title: "市场 — 概览"
+      subtitle: "快速阅读（快照 • 指标 • MA200 • 结论）"
+      view: "查看"
+
+    price_zones:
+      title: "价格区间"
+      kicker: "支撑 / 阻力 • 365天"
+      desc: "基于枢轴点与聚类算法生成的价格区间（非单条线）。"
+
+      help: "方法说明"
+      recompute: "重新计算"
+
+      price_now: "当前价格"
+      daily_close: "日收盘价"
+
+      strength:
+        strong: "强"
+        medium: "中"
+        weak: "弱"
+
+      support: "支撑"
+      resistance: "阻力"
+      level: "水平"
+      distance: "距离"
+      touches: "触及次数"
+
+      no_support: "当前价格下方暂无明显支撑。"
+      no_resistance: "当前价格上方暂无明显阻力。"
+
+      support_hint: "当前价格下方最近支撑（区间中值距离）。"
+      resistance_hint: "当前价格上方最近阻力（区间中值距离）。"
+
+      bonus_title: "额外强区间"
+      bonus_suffix: "（附加）"
+
+      footer: "计算方式：枢轴点 (N=3) + ±1.2% 聚类（365天）• 强度 = 触及次数 + 近期性"
+
+      methodology:
+        p1: "基于约365天数据：日枢轴点后进行区间聚类。区间 = low → high。"
+        li1_html: "局部收盘枢轴 (<span class='font-mono'>N=3</span>)"
+        li2_html: "聚类容差 <span class='font-mono'>±1.2%</span>"
+        li3: "强度 (0–100)：触及次数 + 近期性"
+        params: "参数：枢轴 N=3，聚类 ±1.2%"
+
+      empty:
+        title: "暂无可用区间。"
+        hint_html: "点击 <span class='font-semibold'>%{recompute}</span> 生成价格区间。"
+
+    true_flow:
+      title_24h: "交易所真实资金流（24小时）"
+      net_badge: "净值"
+      tiers: "分层"
+      tiers_hint: "大额转账分层（单笔规模）：B=100–299 BTC • A=300–999 BTC • S=≥1000 BTC"
+
+      intro_html: "基于自动识别的“交易所地址集合”的资金流：inflow / outflow / net（24小时）。<span class='text-gray-500'>自动识别集合 • 最小出现次数：<span class='font-mono'>%{min_occ}</span></span>"
+
+      window_7: "7天"
+      window_14: "14天"
+      window_30: "30天"
+      window_hint_html: "观察窗口 <span class='font-mono'>%{days}天</span> <span class='text-gray-700'>•</span> 周期越长越有助于识别“市场状态”"
+      learn: "说明"
+
+      learn_sections:
+        structure: "指标结构"
+
+      learn_html: >
+        <ul class="mt-2 space-y-1 list-disc pl-5 text-gray-300">
+          <li><strong>Inflow</strong> = 流入交易所地址集合的 BTC。<span class="text-gray-400">通常表示潜在卖出意图（充值）。</span></li>
+          <li><strong>Outflow</strong> = 从交易所地址集合中流出的 BTC（观测模式）。<span class="text-gray-400">在 pruned 模式（无 txindex）下，我们跟踪流入交易所的 UTXO 存量，并在其被花费时进行识别。</span></li>
+          <li><strong>Net flow</strong> = inflow − outflow。<span class="text-gray-400">为正表示净卖压 • 为负表示净提币。</span></li>
+          <li><strong>ratio30</strong> = inflow / 过去30天平均值。<span class="text-gray-400">x1 ≈ 正常 • x2 = 2倍常态 • ∞ = 基准≈0 • 0 = 无充值。</span></li>
+          <li><strong>分层</strong> = B=100–299，A=300–999，S=≥1000 BTC。</li>
+        </ul>
+
+      status:
+        red: "过热"
+        amber: "紧张"
+        green: "正常"
+        na: "—"
+
+      coverage:
+        not_covered: "未覆盖"
+        ok: "正常"
+        zero_events: "0 次事件"
+        events: "%{count} 次事件"
+        events_zero_deposit: "%{count} 次事件 • 0 次充值"
+        events_touching: "%{count} 次事件 • %{touching} 次触及交易所"
+
+      warn_zero_deposit_html: "该日已覆盖，检测到大额交易，但未发现流入交易所的充值。<span class='text-gray-300'>Outflow 仍可能变化（来自已观测库存的流出）。</span>"
+
+      kpi:
+        inflow: "流入"
+        outflow: "流出"
+        net: "净流量"
+        ratio30: "30日比率"
+        ratio_vs_30d: "相对30日平均（流入）"
+
+      net_formula: "流入 − 流出"
+
+      events_line: "%{count} 次事件%{touching,select,0{}other{ • %{touching} 次触及交易所}}"
+
+      ratio_hint:
+        no_data: "未覆盖"
+        baseline_missing: "基准不足"
+        no_deposit: "无充值"
+        infinite: "基准为0"
+
+      ratio_comment: >
+        %{ratio,select,
+          nil{无法比较}
+          other{%{ratio}}
+        }
+
+      outflow:
+        observed_pruned: "通过 UTXO 追踪观测（pruned 模式）"
+        micro:
+          detail: "详情"
+          observed: "已观测"
+        parts:
+          ext: "外部"
+          int: "内部"
+          gross: "总计"
+          conf: "置信度"
+          kind: "类型"
+          tx: "交易"
+
+      price_cell:
+        future: "等待中"
+        pending: "进行中"
+        missing: "缺少价格数据"
+
+      sales:
+        na: "—"
+        low: "较低"
+        to_confirm: "待确认"
+        price_missing: "价格缺失"
+        possible: "可能"
+        probable: "较可能"
+        absorbed: "已吸收"
+
+      qualif:
+        stock_out: "来自已观测库存的流出"
+
+      footer_note: "Inflow/Outflow 表示交易所地址集合中的充值与提币观测数据。价格 J+1 / J+2 用于确认（卖出或被市场吸收）。"
+
+      history_title: "最近 %{days} 天"
+      table:
+        day: "日期"
+        inflow: "流入"
+        outflow: "流出"
+        net: "净值"
+        ratio30: "30日比率"
+        p1: "价格 J+1"
+        p2: "价格 J+2"
+        sales: "卖出？"
+        qualif: "说明"
+        status: "状态"
+
+      sales_heuristic_note: "“卖出？”为界面启发式判断（ratio30 ≥ 2.5 且价格 J+1/J+2 下跌），并非链上直接证明。"
+
+      journal:
+        button: "记录"
+        ctx_prefix: "TrueFlow 24小时"
+        body_observation: "观察："
+        body_hypothesis: "假设："
+        body_decision: "决策："
+        body_risk: "风险 / 失效条件："
+
+      no_data_html: "暂无数据。请运行 <span class='font-mono'>EXCHANGE_ADDR_MIN_OCC=8 bin/rails exchange_true_flow:rebuild</span>。"
+
+    ai_insight:
+      title: "AI 市场分析（中性）"
+      source_label: "来源"
+      source_name: "OpenAI"
+      date_label: "日期"
+      recompute: "重新计算"
+      show: "展开"
+      hide: "收起"
+      headline_label: "摘要"
+      regime_label: "市场结构"
+      week_tag: "7天"
+      month_tag: "30天"
+      fallback_headline: "AI 分析可用"
+
+      drivers:
+        title: "关键驱动因素"
+      weekly:
+        title: "周度（7天）"
+      monthly:
+        title: "月度（30天）"
+      risk:
+        title: "风险"
+
+    ai_insight_help:
+    title: "如何解读 AI 分析"
+    show: "展开"
+    hide: "收起"
+
+    p1_html: "基于当前仪表盘数据（价格、MA200、回撤、波动率、支撑/阻力、资金流等）生成的中性市场分析。<span class='text-gray-400'>不构成任何投资建议。</span>"
+
+    items:
+      headline:
+        k: "摘要"
+        v: "当前市场状态的概括。"
+      regime:
+        k: "市场结构"
+        v: "主导结构（趋势 / 震荡，风险偏好 / 风险规避）。"
+      wm:
+        k: "7天 / 30天"
+        v: "短期动态与月度背景对比。"
+      drivers:
+        k: "关键驱动因素"
+        v: "解释当前判断的主要因素。"
+      levels:
+        k: "关键价位"
+        v: "主要支撑 / 阻力及次级区域。"
+      scenarios:
+        k: "情景分析"
+        v: "触发条件与失效条件。"
+      risk:
+        k: "风险"
+        v: "当前环境中的脆弱点。"
+
+    footer: "建议用途：用于理解市场背景、制定交易计划，并持续跟踪每日演变。"
+
+  footer:
+      brand: "Bitcoin Monitor"
+      tagline: "更少噪音。更强纪律。更结构化的决策。"
+      built_for: "数据 • 透明度 • 用户掌控"
+
+      sections:
+        product: "产品"
+        company: "公司"
+        legal: "法律"
+
+      links:
+        dashboard: "仪表盘"
+        guides: "指南与帮助"
+        security: "安全（OPSEC）"
+        about: "关于"
+        status: "系统状态"
+        contact: "联系"
+        terms: "服务条款"
+        privacy: "隐私政策"
+        risk: "风险披露"
+
+      disclaimer: "本信息仅用于教育与信息参考，不构成任何财务建议。数字资产波动较大，您可能损失部分或全部本金。"
+      rights: "保留所有权利。"
+  
+
+  about:
+    title: "关于 Bitcoin Monitor"
+
+    hero:
+      headline: "关于 Bitcoin Monitor"
+      subtitle: "一个面向全球的中立、结构化比特币市场分析平台。"
+
+    mission:
+      title: "我们的使命"
+      p1: "Bitcoin Monitor 提供结构化分析工具，旨在提供清晰、严谨且透明的市场解读。"
+      p2: "平台面向交易者、分析师以及长期参与者，帮助其建立纪律性与系统性理解。"
+      p3: "我们优先考虑方法论一致性、分析中立性以及数据完整性。"
+
+    data:
+      title: "数据透明"
+      p1: "Bitcoin Monitor 仅处理公开的区块链与市场数据。"
+      bullets:
+        b1: "不连接用户钱包"
+        b2: "不要求私钥"
+        b3: "不收集个人财务数据"
+        b4: "问卷与工具不存储身份信息"
+      p2: "所有计算方法均有文档说明，技术限制亦会明确披露。"
+
+    technology:
+      title: "技术与人工智能"
+      p1: "Bitcoin Monitor 将人工智能模型作为高级分析工具集成。"
+      p2: "人工智能用于结构化信息、探索情景并提升分析效率。"
+      p3: "架构设计、验证与最终决策仍由人工监督。"
+
+    vision:
+      title: "愿景"
+      p1: "构建一个独立、可扩展、面向全球的分析基础设施，以适应不断演变的比特币市场。"
+      p2: "提供一个以数据为核心、方法透明、用户掌控的环境。"
+
+    disclaimer: "Bitcoin Monitor 提供的信息仅用于教育与参考目的，不构成任何财务建议。数字资产具有波动性并存在风险。"

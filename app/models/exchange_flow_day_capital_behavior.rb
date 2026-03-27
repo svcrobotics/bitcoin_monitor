@@ -1,0 +1,2 @@
+class ExchangeFlowDayCapitalBehavior < ApplicationRecord
+end

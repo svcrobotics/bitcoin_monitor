@@ -1,0 +1,467 @@
+<!-- app/views/system/index.html.erb -->
+<% @checks          ||= {} %>
+<% @job_health      ||= [] %>
+<% @scanner_status  ||= {} %>
+<% @tables          ||= {} %>
+<% @jobs            ||= [] %>
+
+<%
+  pill = lambda do |kind|
+    case kind.to_s
+    when "ok"
+      "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+    when "fail", "stale"
+      "text-rose-300 bg-rose-500/10 border-rose-500/20"
+    else
+      "text-amber-300 bg-amber-500/10 border-amber-500/20"
+    end
+  end
+
+  card_class  = "bg-gray-900/40 border border-gray-800 rounded-2xl p-5"
+  inner_class = "mt-4 bg-black/20 border border-gray-800 rounded-xl p-4"
+  label_class = "text-xs uppercase tracking-wide text-gray-500"
+
+  disks = (@checks[:disks] || {})
+  disk_cards = [disks[:bitcoind], disks[:data], disks[:system]].compact
+%>
+
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
+    <div class="min-w-0">
+      <h1 class="text-2xl sm:text-3xl font-bold text-gray-100">System</h1>
+      <p class="text-sm text-gray-500 mt-1">
+        Supervision actuelle de l’infrastructure, des jobs, des scanners et des données.
+      </p>
+    </div>
+
+    <div class="text-xs text-gray-500 font-mono">
+      <%= Time.current.strftime("%Y-%m-%d %H:%M:%S") %>
+    </div>
+  </div>
+
+  <!-- Infrastructure -->
+  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+    <!-- Bitcoind RPC -->
+    <section class="<%= card_class %>">
+      <% bitcoind = @checks[:bitcoind] || {} %>
+
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <p class="<%= label_class %>">Service</p>
+          <h2 class="text-lg font-semibold text-gray-100 mt-0.5">Bitcoind RPC</h2>
+          <p class="text-xs text-gray-500 mt-1">Connectivité RPC et progression de sync.</p>
+        </div>
+
+        <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(bitcoind[:ok] ? "ok" : "fail") %>">
+          <%= bitcoind[:ok] ? "OK" : "FAIL" %>
+        </span>
+      </div>
+
+      <div class="<%= inner_class %>">
+        <% if bitcoind[:ok] %>
+          <div class="grid grid-cols-2 gap-4">
+            <div>
+              <p class="text-xs text-gray-500">Blocks</p>
+              <p class="text-xl font-mono text-gray-100"><%= bitcoind[:blocks] || "—" %></p>
+            </div>
+            <div>
+              <p class="text-xs text-gray-500">Progress</p>
+              <p class="text-xl font-mono text-gray-100"><%= bitcoind[:progress_pct] || "—" %>%</p>
+            </div>
+          </div>
+        <% else %>
+          <p class="text-xs text-gray-400 whitespace-pre-wrap"><%= bitcoind[:error] %></p>
+        <% end %>
+      </div>
+    </section>
+
+    <!-- Blockchain -->
+    <section class="<%= card_class %>">
+      <% bc = @checks[:bitcoind_activity] || {} %>
+
+      <div class="flex items-start justify-between gap-3">
+        <div class="min-w-0">
+          <p class="<%= label_class %>">Réseau</p>
+          <h2 class="text-lg font-semibold text-gray-100 mt-0.5">Blockchain</h2>
+          <p class="text-xs text-gray-500 mt-1">Headers, blocks, lag et progression.</p>
+        </div>
+
+        <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(bc[:ok] ? "ok" : "fail") %>">
+          <%= bc[:ok] ? "OK" : "FAIL" %>
+        </span>
+      </div>
+
+      <div class="<%= inner_class %>">
+        <% if bc[:ok] %>
+          <div class="space-y-2 text-xs">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">blocks</span>
+              <span class="font-mono text-gray-200"><%= bc[:blocks] || "—" %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">headers</span>
+              <span class="font-mono text-gray-200"><%= bc[:headers] || "—" %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">lag</span>
+              <span class="font-mono text-gray-200"><%= bc[:lag] || "—" %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">progress</span>
+              <span class="font-mono text-gray-200"><%= bc[:progress_pct] || "—" %>%</span>
+            </div>
+          </div>
+        <% else %>
+          <p class="text-xs text-gray-400 whitespace-pre-wrap"><%= bc[:error] %></p>
+        <% end %>
+      </div>
+    </section>
+
+    <!-- Disks -->
+    <% disk_cards.each do |disk| %>
+      <% st = (disk[:status] || :warn).to_s %>
+
+      <section class="<%= card_class %>">
+        <div class="flex items-start justify-between gap-3">
+          <div class="min-w-0">
+            <p class="<%= label_class %>">Ressource</p>
+            <h2 class="text-lg font-semibold text-gray-100 mt-0.5"><%= disk[:label] || "Disque" %></h2>
+            <p class="text-xs text-gray-500 mt-1">
+              Occupation de <span class="font-mono"><%= disk[:path] || "—" %></span>
+            </p>
+
+            <% if disk[:mount].present? && disk[:mount].to_s != disk[:path].to_s %>
+              <p class="text-[11px] text-gray-600 mt-1">
+                mount: <span class="font-mono"><%= disk[:mount] %></span>
+              </p>
+            <% end %>
+          </div>
+
+          <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(st) %>">
+            <%= st.upcase %>
+          </span>
+        </div>
+
+        <div class="<%= inner_class %>">
+          <div class="flex items-center justify-between">
+            <span class="text-xs text-gray-500">Utilisation</span>
+            <span class="text-sm font-mono text-gray-100"><%= disk[:used_pct] ? "#{disk[:used_pct]}%" : "—" %></span>
+          </div>
+
+          <div class="mt-3">
+            <pre class="text-xs text-gray-400 whitespace-pre-wrap leading-5"><%= disk[:raw] %></pre>
+          </div>
+        </div>
+      </section>
+    <% end %>
+  </div>
+
+  <!-- Jobs -->
+  <section class="mt-6 <%= card_class %>">
+    <div class="mb-4">
+      <p class="<%= label_class %>">Automatisation</p>
+      <h2 class="text-lg font-semibold text-gray-100 mt-0.5">Jobs critiques</h2>
+      <p class="text-xs text-gray-500 mt-1">État des jobs réellement utilisés aujourd’hui.</p>
+    </div>
+
+    <div class="space-y-3">
+      <% (@job_health || []).each do |j| %>
+        <% running = j[:status].to_s.downcase == "running" %>
+        <% stale   = j[:stale] %>
+
+        <% st =
+          if running && stale
+            "fail"
+          elsif running
+            "warn"
+          elsif stale
+            "stale"
+          else
+            j[:status].to_s.downcase.presence || "warn"
+          end
+        %>
+
+        <% runtime_ms =
+          if running && j[:last_run_at].present?
+            ((Time.current - j[:last_run_at]) * 1000).to_i
+          else
+            j[:duration_ms]
+          end
+        %>
+
+        <div class="bg-black/20 border border-gray-800 rounded-xl px-4 py-3">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="flex items-center gap-2 flex-wrap">
+                <span class="font-mono text-xs text-gray-200"><%= j[:name] %></span>
+
+                <% if running %>
+                  <span class="text-[11px] <%= stale ? "text-rose-300" : "text-amber-300" %>">
+                    <%= stale ? "running trop longtemps" : "running" %>
+                  </span>
+                <% elsif stale %>
+                  <span class="text-[11px] text-rose-300">retard</span>
+                <% end %>
+              </div>
+
+              <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-gray-500">
+                <div>
+                  last:
+                  <span class="font-mono text-gray-300"><%= j[:last_run_at]&.strftime("%Y-%m-%d %H:%M:%S") || "—" %></span>
+                </div>
+                <div>
+                  dur:
+                  <span class="font-mono text-gray-300"><%= runtime_ms ? "#{runtime_ms}ms" : "—" %></span>
+                </div>
+                <div>
+                  SLA:
+                  <span class="font-mono text-gray-300"><%= j[:max_age_h] || "—" %>h</span>
+                </div>
+              </div>
+
+              <% if j[:error].present? %>
+                <div class="mt-2 text-xs text-gray-400 whitespace-pre-wrap"><%= j[:error].to_s.first(220) %></div>
+              <% end %>
+            </div>
+
+            <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(st) %>">
+              <% if running && stale %>
+                STALE RUNNING
+              <% elsif running %>
+                RUNNING
+              <% else %>
+                <%= st.upcase %>
+              <% end %>
+            </span>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </section>
+
+  <!-- Scanners -->
+  <section class="mt-6 <%= card_class %>">
+    <div class="mb-4">
+      <p class="<%= label_class %>">Scanners</p>
+      <h2 class="text-lg font-semibold text-gray-100 mt-0.5">État des curseurs</h2>
+      <p class="text-xs text-gray-500 mt-1">Dernier bloc scanné, best block et retard.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <% (@scanner_status || {}).each do |key, s| %>
+        <% badge_class =
+          case s[:status]
+          when :ok   then "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+          when :warn then "text-amber-300 bg-amber-500/10 border-amber-500/20"
+          else            "text-rose-300 bg-rose-500/10 border-rose-500/20"
+          end
+        %>
+
+        <div class="bg-black/20 border border-gray-800 rounded-xl p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-gray-100 font-semibold"><%= s[:label] || key %></div>
+
+              <% if s[:error].present? %>
+                <div class="mt-2 text-xs text-gray-400 whitespace-pre-wrap"><%= s[:error] %></div>
+              <% else %>
+                <div class="mt-2 text-xs text-gray-500 space-y-1">
+                  <div>
+                    last scanned:
+                    <span class="font-mono text-gray-200"><%= s[:last_blockheight] || "—" %></span>
+                  </div>
+                  <div>
+                    best block:
+                    <span class="font-mono text-gray-200"><%= s[:best_height] || "—" %></span>
+                  </div>
+                  <div>
+                    lag:
+                    <span class="font-mono <%= s[:lag].to_i > 12 ? "text-rose-300" : "text-gray-300" %>"><%= s[:lag] || "—" %></span>
+                  </div>
+                  <div>
+                    updated:
+                    <span class="font-mono text-gray-300"><%= s[:updated_at]&.strftime("%Y-%m-%d %H:%M:%S") || "—" %></span>
+                  </div>
+                  <% if s[:last_blockhash].present? %>
+                    <div>
+                      hash:
+                      <span class="font-mono text-gray-400 break-all"><%= s[:last_blockhash] %></span>
+                    </div>
+                  <% end %>
+                </div>
+              <% end %>
+            </div>
+
+            <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= badge_class %>">
+              <%= s[:status].to_s.upcase %>
+            </span>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </section>
+
+  <!-- Tables -->
+  <section class="mt-6 <%= card_class %>">
+    <div class="mb-4">
+      <p class="<%= label_class %>">Données</p>
+      <h2 class="text-lg font-semibold text-gray-100 mt-0.5">État des tables</h2>
+      <p class="text-xs text-gray-500 mt-1">Volume, fraîcheur et détection des retards.</p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+      <% (@tables || {}).each do |k, v| %>
+        <% last = v[:last_at] || v[:last_day] %>
+
+        <% last_time =
+          case last
+          when Time, ActiveSupport::TimeWithZone, DateTime then last
+          when Date then last.in_time_zone
+          when String
+            begin
+              Time.zone.parse(last)
+            rescue
+              nil
+            end
+          else
+            nil
+          end
+        %>
+
+        <% status = (v[:status] || :warn).to_sym %>
+        <% daily  = v[:min_day].present? %>
+
+        <% age_h =
+          if v.key?(:age_h)
+            v[:age_h].to_f
+          elsif last_time
+            ((Time.current - last_time) / 3600.0)
+          else
+            nil
+          end
+        %>
+
+        <% badge_class =
+          case status
+          when :ok   then "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+          when :warn then "text-amber-300 bg-amber-500/10 border-amber-500/20"
+          else            "text-rose-300 bg-rose-500/10 border-rose-500/20"
+          end
+        %>
+
+        <div class="bg-black/20 border border-gray-800 rounded-xl p-4">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-gray-100 font-semibold"><%= k %></div>
+
+              <div class="mt-2 text-xs text-gray-500 space-y-1">
+                <div>
+                  count:
+                  <span class="font-mono text-gray-200"><%= v[:count] || "—" %></span>
+                </div>
+
+                <div>
+                  last:
+                  <span class="font-mono text-gray-200">
+                    <% if last_time %>
+                      <%= daily ? last_time.to_date.strftime("%Y-%m-%d") : last_time.strftime("%Y-%m-%d %H:%M:%S %z") %>
+                    <% else %>
+                      —
+                    <% end %>
+                  </span>
+                </div>
+
+                <% if daily %>
+                  <% last_day = last_time&.to_date %>
+                  <% expected = v[:min_day].to_date %>
+
+                  <div>
+                    attendu:
+                    <span class="font-mono text-gray-300">≥ <%= expected.strftime("%Y-%m-%d") %></span>
+                  </div>
+
+                  <div>
+                    dernier jour:
+                    <span class="font-mono text-gray-300"><%= last_day ? last_day.strftime("%Y-%m-%d") : "—" %></span>
+                  </div>
+
+                  <% if last_day && last_day < expected %>
+                    <div>
+                      retard:
+                      <span class="font-mono text-rose-300"><%= (expected - last_day).to_i %>j</span>
+                    </div>
+                  <% end %>
+                <% else %>
+                  <div>
+                    âge:
+                    <span class="font-mono text-gray-300"><%= age_h ? "#{age_h.round(1)}h" : "—" %></span>
+                    <% if v[:sla_h] %>
+                      <span class="mx-2 text-gray-700">•</span>
+                      SLA:
+                      <span class="font-mono text-gray-300"><%= v[:sla_h] %>h</span>
+                    <% end %>
+                  </div>
+                <% end %>
+              </div>
+            </div>
+
+            <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= badge_class %>">
+              <%= status.to_s.upcase %>
+            </span>
+          </div>
+
+          <% if v[:hint].present? %>
+            <div class="mt-2 text-xs text-gray-400"><%= v[:hint] %></div>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  </section>
+
+  <!-- QA / Tests -->
+  <section class="mt-6 <%= card_class %>">
+    <%= link_to "QA / Tests", system_tests_path,
+    class: "text-sm text-violet-400 hover:text-violet-300" %>
+  </section>
+
+  <!-- Recent runs -->
+  <section class="mt-6 <%= card_class %>">
+    <div class="mb-4">
+      <p class="<%= label_class %>">Logs</p>
+      <h2 class="text-lg font-semibold text-gray-100 mt-0.5">Dernières exécutions</h2>
+      <p class="text-xs text-gray-500 mt-1">Historique récent des JobRuns.</p>
+    </div>
+
+    <div class="overflow-x-auto rounded-xl border border-gray-800">
+      <table class="min-w-full text-sm">
+        <thead class="bg-black/20 text-xs text-gray-500">
+          <tr>
+            <th class="text-left py-3 px-4">Job</th>
+            <th class="text-left py-3 px-4">Statut</th>
+            <th class="text-left py-3 px-4">Début</th>
+            <th class="text-left py-3 px-4">Durée</th>
+            <th class="text-left py-3 px-4">Erreur</th>
+          </tr>
+        </thead>
+
+        <tbody class="text-gray-300">
+          <% (@jobs || []).each do |jr| %>
+            <% st = jr.status.to_s.downcase.presence || "warn" %>
+
+            <tr class="border-t border-gray-800 hover:bg-white/5 transition">
+              <td class="py-3 px-4 font-mono text-xs text-gray-200"><%= jr.name %></td>
+              <td class="py-3 px-4">
+                <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(st) %>">
+                  <%= st.upcase %>
+                </span>
+              </td>
+              <td class="py-3 px-4 text-xs font-mono text-gray-300"><%= jr.started_at&.strftime("%Y-%m-%d %H:%M:%S") || "—" %></td>
+              <td class="py-3 px-4 text-xs font-mono text-gray-300"><%= jr.duration_ms ? "#{jr.duration_ms}ms" : "—" %></td>
+              <td class="py-3 px-4 text-xs text-gray-400"><%= jr.error.to_s.first(180) %></td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+</div>

@@ -1,0 +1,17 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  cluster: one
+  snapshot_date: 2026-03-21
+  signal_type: MyString
+  severity: MyString
+  score: 1
+  metadata: 
+
+two:
+  cluster: two
+  snapshot_date: 2026-03-21
+  signal_type: MyString
+  severity: MyString
+  score: 1
+  metadata: 

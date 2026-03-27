@@ -3,21 +3,49 @@ require "digest"
 require "json"
 
 module Ai
+  # Daily neutral market analysis for the dashboard (desk-analyst tone).
+  #
+  # - No buy/sell advice. No scoring. No imperatives.
+  # - Output is neutral: regime, drivers, levels, scenarios, risk.
+  # - Daily cadence with short-term (7d) and broader (30d) context.
+  #
+  # Inputs:
+  # - as_of_day: Date (or YYYY-MM-DD)
+  # - market_snapshot:
+  # - price_now: numeric
+  # - price_zones: {support:, resistance:, bonus:[]}
+  # - series_7d / series_30d: [{day:, open:, high:, low:, close:}] (close is required)
   class ComputeDashboardInsight
-    KEY = "dashboard_market"
+    KEY = "dashboard_market_daily_neutral"
 
-    # buy_decision / sell_decision / sell_now sont optionnels (MVP friendly)
-    def call(market_snapshot:, price_now:, price_zones:, buy_decision: nil, sell_decision: nil, sell_now: nil)
-      input_digest = Digest::SHA256.hexdigest(
-        {
-          market_snapshot: snapshot_payload(market_snapshot),
-          price_now: price_now.to_f,
-          zones: zones_payload(price_zones),
-          buy_decision: decision_payload(buy_decision),
-          sell_decision: decision_payload(sell_decision),
-          sell_now: sell_now_payload(sell_now)
-        }.to_json
-      )
+    def call(
+      as_of_day:,
+      market_snapshot:,
+      price_now:,
+      price_zones:,
+      series_7d: nil,
+      series_30d: nil
+    )
+      as_of_day = as_of_day.to_s
+
+      s7  = series_payload(series_7d, limit: 7)
+      s30 = series_payload(series_30d, limit: 30)
+
+      stats7  = series_stats(s7)
+      stats30 = series_stats(s30)
+
+      payload_input = {
+        as_of_day: as_of_day,
+        price_now_usd: round_usd(price_now),
+        market_snapshot: snapshot_payload(market_snapshot),
+        zones: zones_payload(price_zones),
+        series_7d: s7,
+        series_30d: s30,
+        stats_7d: stats7,
+        stats_30d: stats30
+      }
+
+      input_digest = Digest::SHA256.hexdigest(payload_input.to_json)
 
       cached = AiInsight
         .where(key: KEY, input_digest: input_digest)
@@ -29,20 +57,13 @@ module Ai
           parsed = JSON.parse(cached.content)
           return parsed if parsed.is_a?(Hash)
         rescue JSON::ParserError
-          # Cache invalide → on ignore et on régénère
+          # ignore and regenerate
         end
       end
 
       payload = OpenaiClient.new.json_response!(
-        schema_name: "dashboard_market",
-        input: prompt(
-          market_snapshot: market_snapshot,
-          price_now: price_now,
-          price_zones: price_zones,
-          buy_decision: buy_decision,
-          sell_decision: sell_decision,
-          sell_now: sell_now
-        )
+        schema_name: "dashboard_market_daily_neutral",
+        input: prompt(payload_input)
       )
 
       AiInsight.create!(
@@ -53,6 +74,7 @@ module Ai
         content: payload.to_json,
         meta: {
           payload: payload,
+          as_of_day: as_of_day,
           price_now: price_now.to_f,
           generated_at: Time.current
         }
@@ -63,155 +85,243 @@ module Ai
 
     private
 
-    # ============================
-    # PAYLOAD BUILDERS
-    # ============================
+    # ----------------------------
+    # Formatting helpers
+    # ----------------------------
+
+    def round_usd(x)
+      x.to_f.round(0)
+    end
+
+    def round_pct(x)
+      x.to_f.round(2)
+    end
+
+    # ----------------------------
+    # Snapshot / Zones
+    # ----------------------------
 
     def snapshot_payload(s)
       return {} unless s
 
       {
-        market_bias: s.market_bias,
-        cycle_zone: s.cycle_zone,
-        risk_level: s.risk_level,
-        ma200_usd: s.ma200_usd,
-        price_vs_ma200_pct: s.price_vs_ma200_pct,
-        drawdown_pct: s.drawdown_pct,
-        amplitude_30d_pct: s.amplitude_30d_pct,
-        reasons: Array(s.reasons)
+        market_bias: s.market_bias.to_s,
+        cycle_zone: s.cycle_zone.to_s,
+        risk_level: s.risk_level.to_s,
+        ma200_usd: round_usd(s.ma200_usd),
+        price_vs_ma200_pct: round_pct(s.price_vs_ma200_pct),
+        drawdown_pct: round_pct(s.drawdown_pct),
+        amplitude_30d_pct: round_pct(s.amplitude_30d_pct),
+        reasons: Array(s.reasons).map(&:to_s)
       }
     end
 
     def zones_payload(z)
       return {} unless z
 
-      sup = z[:support]
-      res = z[:resistance]
+      sup = z[:support] || z["support"]
+      res = z[:resistance] || z["resistance"]
+      bonus = z[:bonus] || z["bonus"]
 
       {
-        support: sup && {
-          low: sup.low_usd.to_f,
-          high: sup.high_usd.to_f,
-          strength: sup.strength,
-          touches: sup.touches_count
-        },
-        resistance: res && {
-          low: res.low_usd.to_f,
-          high: res.high_usd.to_f,
-          strength: res.strength,
-          touches: res.touches_count
-        },
-        bonus: Array(z[:bonus]).map do |b|
-          {
-            kind: b.kind,
-            low: b.low_usd.to_f,
-            high: b.high_usd.to_f,
-            strength: b.strength
-          }
+        support: zone_payload(sup),
+        resistance: zone_payload(res),
+        bonus: Array(bonus).map { |b| bonus_zone_payload(b) }
+      }
+    end
+
+    def zone_payload(zone)
+      return nil unless zone
+
+      low =
+        if zone.respond_to?(:low_usd) then zone.low_usd
+        else zone[:low_usd] || zone["low_usd"] || zone[:low] || zone["low"]
         end
-      }
-    end
 
-    # décision “engine-friendly”
-    # attendu: { action:, score:, confidence:, reasons:[{label/why/impact}], warnings:[] }
-    def decision_payload(d)
-      return nil if d.blank?
+      high =
+        if zone.respond_to?(:high_usd) then zone.high_usd
+        else zone[:high_usd] || zone["high_usd"] || zone[:high] || zone["high"]
+        end
 
-      {
-        action: d[:action] || d["action"],
-        score: d[:score] || d["score"],
-        confidence: d[:confidence] || d["confidence"],
-        reasons: Array(d[:reasons] || d["reasons"]).map do |r|
-          if r.is_a?(Hash)
-            {
-              key: r[:key] || r["key"],
-              label: r[:label] || r["label"] || r[:why] || r["why"],
-              impact: r[:impact] || r["impact"]
-            }
-          else
-            { label: r.to_s }
-          end
-        end,
-        warnings: Array(d[:warnings] || d["warnings"]).map(&:to_s)
-      }
-    end
+      strength =
+        if zone.respond_to?(:strength) then zone.strength
+        else zone[:strength] || zone["strength"]
+        end
 
-    # sell_now: ton objet résultat "si je vends aujourd’hui" (net/pnl/as_of_day etc.)
-    def sell_now_payload(s)
-      return nil if s.blank?
+      touches =
+        if zone.respond_to?(:touches_count) then zone.touches_count
+        else zone[:touches] || zone["touches"] || zone[:touches_count] || zone["touches_count"]
+        end
 
       {
-        as_of_day: (s.respond_to?(:as_of_day) ? s.as_of_day : (s[:as_of_day] || s["as_of_day"])).to_s,
-        net_usd:   (s.respond_to?(:net) ? s.net : (s[:net] || s["net"] || s[:sell_net] || s["sell_net"])).to_f,
-        pnl_usd:   (s.respond_to?(:pnl) ? s.pnl : (s[:pnl] || s["pnl"])).to_f,
-        pnl_pct:   (s.respond_to?(:pnl_pct) ? s.pnl_pct : (s[:pnl_pct] || s["pnl_pct"])).to_f
+        low: round_usd(low),
+        high: round_usd(high),
+        strength: strength.to_s,
+        touches: touches.to_i
       }
     end
 
-    # ============================
-    # PROMPT
-    # ============================
+    def bonus_zone_payload(b)
+      return {} unless b
 
-    def prompt(market_snapshot:, price_now:, price_zones:, buy_decision:, sell_decision:, sell_now:)
+      if b.respond_to?(:kind)
+        {
+          kind: b.kind.to_s,
+          low: round_usd(b.respond_to?(:low_usd) ? b.low_usd : nil),
+          high: round_usd(b.respond_to?(:high_usd) ? b.high_usd : nil),
+          strength: (b.respond_to?(:strength) ? b.strength : "").to_s
+        }
+      else
+        bb = b.is_a?(Hash) ? b : {}
+        {
+          kind: (bb[:kind] || bb["kind"]).to_s,
+          low: round_usd(bb[:low_usd] || bb["low_usd"] || bb[:low] || bb["low"]),
+          high: round_usd(bb[:high_usd] || bb["high_usd"] || bb[:high] || bb["high"]),
+          strength: (bb[:strength] || bb["strength"]).to_s
+        }
+      end
+    end
+
+    # ----------------------------
+    # Series (compact) + stats
+    # ----------------------------
+
+    # Keep compact to avoid token bloat.
+    # Candle payload keys: day,o,h,l,c (USD)
+    def series_payload(series, limit:)
+      arr = Array(series).compact
+      return [] if arr.empty?
+
+      arr.first(limit).map { |c| candle_payload(c) }.compact
+    end
+
+    def candle_payload(c)
+      day =
+        if c.respond_to?(:day) then c.day
+        else c[:day] || c["day"] || c[:date] || c["date"]
+        end
+
+      close =
+        if c.respond_to?(:close) then c.close
+        else c[:close] || c["close"]
+        end
+
+      return nil if day.blank? || close.blank?
+
+      open_ =
+        if c.respond_to?(:open) then c.open
+        else c[:open] || c["open"]
+        end
+
+      high =
+        if c.respond_to?(:high) then c.high
+        else c[:high] || c["high"]
+        end
+
+      low =
+        if c.respond_to?(:low) then c.low
+        else c[:low] || c["low"]
+        end
+
+      {
+        day: day.to_s,
+        o: open_.present? ? round_usd(open_) : nil,
+        h: high.present? ? round_usd(high) : nil,
+        l: low.present? ? round_usd(low) : nil,
+        c: round_usd(close)
+      }
+    end
+
+    # Provide computable facts to reduce model improvisation.
+    def series_stats(series)
+      series = Array(series)
+      return {} if series.size < 2
+
+      closes = series.map { |x| x[:c].to_f }.reject(&:zero?)
+      return {} if closes.size < 2
+
+      first = closes.first
+      last  = closes.last
+      high  = closes.max
+      low   = closes.min
+
+      perf_pct = first.zero? ? nil : ((last - first) / first * 100.0)
+
+      # simple daily return volatility (std dev in %)
+      rets = []
+      closes.each_cons(2) do |a, b|
+        next if a.to_f.zero?
+        rets << ((b - a) / a * 100.0)
+      end
+
+      vol = nil
+      if rets.any?
+        mean = rets.sum / rets.size
+        var = rets.map { |r| (r - mean) ** 2 }.sum / rets.size
+        vol = Math.sqrt(var)
+      end
+
+      {
+        points: series.size,
+        first_close: round_usd(first),
+        last_close: round_usd(last),
+        high_close: round_usd(high),
+        low_close: round_usd(low),
+        perf_pct: perf_pct.nil? ? nil : round_pct(perf_pct),
+        vol_pct: vol.nil? ? nil : round_pct(vol)
+      }
+    end
+
+    # ----------------------------
+    # Prompt
+    # ----------------------------
+
+    def prompt(input_hash)
       <<~PROMPT
-      Tu es un analyste Bitcoin.
-      Tu dois produire une analyse STRICTEMENT en JSON (aucun texte hors JSON).
+      Tu es un analyste Bitcoin (desk).
+      Tu dois produire une analyse NEUTRE, JOURNALIÈRE, STRICTEMENT en JSON (aucun texte hors JSON).
 
-      Deux audiences :
-      - "simple" (grand public)
-      - "trader" (avancé)
+      Interdits :
+      - Aucun conseil (pas de BUY/SELL/HOLD).
+      - Pas de scoring d’action.
+      - Pas d’explications macro génériques (ex: "facteurs économiques externes", "incertitude globale crypto") sauf si ces facteurs apparaissent dans les données d’entrée (ce n’est pas le cas ici).
 
-      Données marché :
-      - price_now_usd: #{price_now.to_f}
-      - market_snapshot: #{snapshot_payload(market_snapshot).to_json}
-      - price_zones: #{zones_payload(price_zones).to_json}
-
-      Données décision (optionnelles, si présentes) :
-      - buy_decision: #{decision_payload(buy_decision).to_json}
-      - sell_decision: #{decision_payload(sell_decision).to_json}
-      - sell_now: #{sell_now_payload(sell_now).to_json}
+      Données (entrée) :
+      #{input_hash.to_json}
 
       Règles :
-      - "simple": vocabulaire clair, mais utiliser les termes financiers standards.
+      - Vocabulaire pro, phrases courtes (desk note). Zéro pédagogie.
       - Utiliser STRICTEMENT "support" et "résistance" (jamais "soutien").
-      - Expliquer ATH = "plus haut sur ~12 mois" si utilisé.
-      - "trader" : MA200, drawdown, vol30, support/résistance acceptés.
-      - Toujours rappeler "pas un conseil financier" (1 fois par audience).
-      - Si buy_decision/sell_decision/sell_now sont présents, tu DOIS les résumer en 2-3 points maximum
-        et mentionner score + action (ex: BUY/HOLD/AVOID).
-      - Ne jamais inventer des chiffres absents des données.
+      - Ne jamais inventer de chiffres : n’utiliser que les valeurs fournies (market_snapshot, stats_7d/30d, series, levels).
+      - "drivers" = constats observables (3–5 items), basés sur les données d’entrée.
+      - "weekly"/"monthly" : résumer la dynamique à partir de stats_7d/stats_30d + market_snapshot (1 phrase max par summary).
+      - "scenarios" : 2–3, toujours avec invalidation explicite (niveau/condition).
+      - MA200 : si mentionnée, afficher à l’unité (pas de décimales).
+      - Disclaimer : 1 seule fois, formulation courte.
 
       Sortie JSON attendue (structure OBLIGATOIRE) :
       {
-        "simple": {
-          "headline": "...",
-          "bullets": ["..."],
-          "what_to_watch": ["..."],
-          "disclaimer": "...",
-          "decision": {
-            "buy": { "action": "...", "score": 0, "reasons": ["..."] },
-            "sell": { "action": "...", "score": 0, "reasons": ["..."] },
-            "sell_now": { "as_of_day": "...", "net_usd": 0, "pnl_usd": 0, "pnl_pct": 0 }
-          }
+        "as_of_day": "YYYY-MM-DD",
+        "headline": "...",
+        "regime": "...",
+        "weekly": { "summary": "...", "drivers": ["..."] },
+        "monthly": { "summary": "...", "drivers": ["..."] },
+        "levels": {
+          "support": { "low": 0, "high": 0, "strength": "...", "touches": 0 },
+          "resistance": { "low": 0, "high": 0, "strength": "...", "touches": 0 },
+          "bonus": [{ "kind": "...", "low": 0, "high": 0, "strength": "..." }]
         },
-        "trader": {
-          "regime": "...",
-          "key_levels": {
-            "support": {...},
-            "resistance": {...}
-          },
-          "notes": ["..."],
-          "scenarios": [
-            { "if": "...", "then": "..." }
-          ],
-          "disclaimer": "...",
-          "decision": {
-            "buy": { "action": "...", "score": 0, "reasons": ["..."] },
-            "sell": { "action": "...", "score": 0, "reasons": ["..."] },
-            "sell_now": { "as_of_day": "...", "net_usd": 0, "pnl_usd": 0, "pnl_pct": 0 }
-          }
-        }
+        "drivers": ["..."],
+        "scenarios": [{ "if": "...", "then": "...", "invalidation": "..." }],
+        "risk": ["..."],
+        "disclaimer": "..."
       }
+
+      Contraintes :
+      - headline : 1 phrase max.
+      - weekly.drivers / monthly.drivers : 2–4 items max.
+      - drivers : 3–5 items max.
+      - risk : 2–4 items max.
       PROMPT
     end
   end

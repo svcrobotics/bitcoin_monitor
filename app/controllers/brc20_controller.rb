@@ -1,4 +1,6 @@
 class Brc20Controller < ApplicationController
+  before_action :ensure_brc20_enabled
+
   def index
     rpc = BitcoinRpc.new
 
@@ -307,5 +309,14 @@ class Brc20Controller < ApplicationController
     Brc20Event
       .where(brc20_token_id: token_id, op: "transfer", is_valid: true)
       .maximum(:block_time)
+  end
+
+  private
+
+  def ensure_brc20_enabled
+    enabled = ENV.fetch("BRC20_ENABLED", "0") == "1"
+    return if enabled
+
+    render plain: "BRC20 désactivé", status: :service_unavailable
   end
 end

@@ -1,0 +1,19 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  cluster: one
+  snapshot_date: 2026-03-21
+  tx_count_24h: 1
+  tx_count_7d: 1
+  sent_sats_24h: 
+  sent_sats_7d: 
+  activity_score: 1
+
+two:
+  cluster: two
+  snapshot_date: 2026-03-21
+  tx_count_24h: 1
+  tx_count_7d: 1
+  sent_sats_24h: 
+  sent_sats_7d: 
+  activity_score: 1

@@ -1,0 +1,119 @@
+<%# app/views/opsec_assessments/new.html.erb %>
+<% content_for :title, "OPSEC Score" %>
+
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+  <div class="flex items-start justify-between gap-4">
+    <div class="min-w-0">
+      <h1 class="text-2xl sm:text-3xl font-semibold text-gray-100">
+        🔐 OPSEC Score
+      </h1>
+      <p class="mt-2 text-sm text-gray-400 max-w-2xl">
+        Évaluation <span class="font-semibold text-gray-200">pédagogique</span> de ton exposition (identité, domicile, habitudes).
+        <span class="text-gray-500">Aucun scan d’internet : le score dépend uniquement de tes réponses.</span>
+      </p>
+    </div>
+
+    <div class="hidden sm:block text-right">
+      <div class="text-xs text-gray-500">Durée</div>
+      <div class="text-sm text-gray-200 font-semibold">~ 1 minute</div>
+    </div>
+  </div>
+
+  <div class="mt-6 bg-gray-900/40 border border-gray-800 rounded-2xl p-5 sm:p-6">
+    <div class="flex items-start justify-between gap-3">
+      <div class="min-w-0">
+        <h2 class="text-lg font-semibold text-gray-100">Questionnaire</h2>
+        <p class="mt-1 text-xs text-gray-400">
+          Réponds honnêtement. “Je ne sais pas” compte comme un risque partiel.
+        </p>
+      </div>
+
+      <span class="text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-black/20 text-indigo-200">
+        V1 • 15 questions
+      </span>
+    </div>
+
+    <%= form_with url: opsec_assessments_path, method: :post, scope: :opsec, class: "mt-5 space-y-4" do |f| %>
+
+      <%# --- Définition des textes (simple et lisible). On garde la logique/scoring dans le service. --- %>
+      <%
+        question_text = {
+          "published_crypto"    => "As-tu déjà publié (même indirectement) que tu possèdes des crypto ?",
+          "same_pseudo_public"  => "Utilises-tu le même pseudo crypto sur des réseaux sociaux publics ?",
+          "linkedin_location"   => "Ton profil LinkedIn / pro mentionne-t-il ton activité crypto + ta localisation ?",
+          "showed_setup"        => "As-tu déjà montré ton matériel crypto (Ledger, seed, setup) en photo/vidéo ?",
+
+          "same_email_exchange" => "Utilises-tu le même email pour exchange et réseaux sociaux ?",
+          "phone_findable"      => "Ton numéro de téléphone est-il facilement trouvable en ligne ?",
+          "identity_linkable"   => "Ton nom + ville peuvent-ils être reliés à ton pseudo crypto ?",
+
+          "funds_on_exchange"   => "Une partie significative de tes fonds est-elle sur un exchange ?",
+          "transferable_alone"  => "Ton stockage principal peut-il être transféré par toi seul (une seule signature) ?",
+          "decoy_wallet"        => "As-tu un wallet “leurre” distinct (petit montant) ?",
+
+          "close_ones_know"     => "Des proches connaissent-ils le montant approximatif que tu détiens ?",
+          "setup_visible_home"  => "Du matériel crypto est-il visible chez toi lors de visites ?",
+          "home_security"       => "As-tu un minimum de protection domicile (alarme/caméra/porte renforcée) ?",
+
+          "threat_plan"         => "As-tu réfléchi à une stratégie simple en cas de menace (plan, procédures, contact) ?",
+          "separate_devices"    => "As-tu séparé ton device crypto de ton téléphone principal (ou usages publics) ?"
+        }
+      %>
+
+      <%# --- Sections (UX) --- %>
+      <div class="grid grid-cols-1 gap-4">
+
+        <% sections = [
+          ["Exposition publique", %w[published_crypto same_pseudo_public linkedin_location showed_setup]],
+          ["Identité & données", %w[same_email_exchange phone_findable identity_linkable]],
+          ["Architecture des fonds", %w[funds_on_exchange transferable_alone decoy_wallet]],
+          ["Sécurité domicile", %w[close_ones_know setup_visible_home home_security]],
+          ["Résilience en cas de contrainte", %w[threat_plan separate_devices]]
+        ] %>
+
+        <% sections.each do |title, keys| %>
+          <section class="bg-gray-950/30 border border-gray-800 rounded-2xl p-4 sm:p-5">
+            <h3 class="text-sm font-semibold text-gray-100"><%= title %></h3>
+            <div class="mt-3 space-y-3">
+              <% keys.each do |k| %>
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 border border-gray-800/80 rounded-xl p-3 bg-black/10">
+                  <div class="min-w-0">
+                    <div class="text-sm text-gray-100">
+                      <%= question_text.fetch(k) %>
+                    </div>
+                    <div class="text-[11px] text-gray-500 mt-1">
+                      Réponse : oui / non / je ne sais pas
+                    </div>
+                  </div>
+
+                  <div class="flex items-center gap-2 sm:gap-3">
+                    <%# Radio yes/no/unknown %>
+                    <% [["yes","Oui"], ["no","Non"], ["unknown","Je ne sais pas"]].each do |val, label| %>
+                      <label class="inline-flex items-center gap-2 text-xs text-gray-200 cursor-pointer select-none">
+                        <%= f.radio_button k, val, class: "h-4 w-4 rounded-full border-gray-600 bg-gray-900 text-indigo-500 focus:ring-indigo-500/30" %>
+                        <span class="whitespace-nowrap"><%= label %></span>
+                      </label>
+                    <% end %>
+                  </div>
+                </div>
+              <% end %>
+            </div>
+          </section>
+        <% end %>
+      </div>
+
+      <div class="pt-2 flex flex-col sm:flex-row gap-3 sm:items-center sm:justify-between">
+        <p class="text-[11px] text-gray-500 max-w-2xl">
+          ⚠️ Cet outil ne remplace pas un audit de sécurité professionnel.
+          Il aide à réduire l’exposition (OPSEC) et à comprendre les risques liés aux agressions “wrench attacks”.
+        </p>
+
+        <div class="flex items-center gap-2">
+          <%= link_to "Annuler", root_path, class: "text-sm px-4 py-2 rounded-xl border border-gray-700 text-gray-200 hover:bg-white/5" rescue "" %>
+          <%= f.submit "Calculer mon score", class: "text-sm px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold shadow" %>
+        </div>
+      </div>
+
+    <% end %>
+  </div>
+</div>

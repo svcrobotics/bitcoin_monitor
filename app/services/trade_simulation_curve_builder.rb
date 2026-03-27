@@ -11,30 +11,51 @@ class TradeSimulationCurveBuilder
 
   def call
     from = @sim.buy_day
-    to   = BtcPriceDay.maximum(:day)
-    return if from.blank? || to.blank? || from > to
+    return if from.blank?
 
-    days = BtcPriceDay.where(day: from..to).order(:day).pluck(:day, :close_usd)
+    last_price_day = BtcPriceDay.maximum(:day)
+    return if last_price_day.blank?
 
-    days.each do |day, close_usd|
+    logical_to =
+      if @sim.respond_to?(:closed?) && @sim.closed?
+        @sim.sell_day
+      else
+        Date.current
+      end
+    return if logical_to.blank?
+
+    to = [logical_to, last_price_day].min
+    return if from > to
+
+    # ✅ EUR (au lieu de close_usd)
+    days = BtcPriceDay.where(day: from..to).order(:day).pluck(:day, :close_eur)
+
+    days.each do |day, close_eur|
+      next if close_eur.nil? # si pas encore backfill
+
       temp = @sim.dup
       temp.sell_day = day
 
-      r = TradeSimulator.call(temp)
+      r = TradeSimulator.call(temp) # ton TradeSimulator doit utiliser close_eur_for!
 
       TradeSimulationPoint.upsert(
         {
           trade_simulation_id: @sim.id,
           day: day,
-          price_usd: close_usd,
+
+          # ⚠️ colonnes nommées *_usd, mais contiennent des EUR
+          price_usd: close_eur,
           net_usd: r.sell_net,
           pnl_usd: r.pnl,
           pnl_pct: r.pnl_pct,
+
           created_at: Time.current,
           updated_at: Time.current
         },
-        unique_by: [:trade_simulation_id, :day]
+        unique_by: %i[trade_simulation_id day]
       )
+    rescue TradeSimulator::PriceMissing
+      next
     end
   end
 end

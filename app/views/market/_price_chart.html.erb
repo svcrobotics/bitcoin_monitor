@@ -1,6 +1,44 @@
-<%# locals: price_series: (Hash "YYYY-MM-DD" => Float) %>
+<%# ---- Robust chart points builder (fix "1 an" issues) ---- %>
+<%
+  raw_series = (price_series || {})
 
-<% points = (price_series || {}).map { |d, v| [d, v.to_f] } %>
+  # Normalize keys -> Date, keep values numeric
+  series_by_day = {}
+  raw_series.each do |k, v|
+    day =
+      case k
+      when Date then k
+      when Time, DateTime then k.to_date
+      when String
+        begin
+          Date.iso8601(k) # safest: "YYYY-MM-DD"
+        rescue ArgumentError
+          begin
+            Date.parse(k)  # fallback (handles many formats)
+          rescue ArgumentError
+            nil
+          end
+        end
+      else
+        nil
+      end
+
+    next unless day
+    series_by_day[day] = v
+  end
+
+  days = series_by_day.keys.sort
+
+  points =
+    if days.any?
+      (days.first..days.last).map do |day|
+        # Always output ISO labels so JS is stable
+        [day.iso8601, series_by_day.key?(day) ? series_by_day[day].to_f : nil]
+      end
+    else
+      []
+    end
+%>
 
 <div class="mt-4 rounded-2xl border border-gray-800 bg-black/20 p-3">
   <div class="relative" style="height: 320px;">
@@ -11,17 +49,15 @@
 <script>
   (function () {
     const raw = <%= raw(points.to_json) %>;
-
     if (!raw || raw.length === 0) return;
     if (!window.Chart) { console.error("Chart.js not loaded"); return; }
 
     const labels = raw.map(r => r[0]);
-    const data   = raw.map(r => Number(r[1]));
+    const data   = raw.map(r => (r[1] === null || r[1] === undefined) ? null : Math.round(Number(r[1])));
 
     const el = document.getElementById("btcPriceChart");
     if (!el) return;
 
-    // Si turbo revisite la page, on détruit l'ancien chart
     if (el._chart) { el._chart.destroy(); el._chart = null; }
 
     el._chart = new Chart(el.getContext("2d"), {
@@ -30,7 +66,8 @@
         labels,
         datasets: [{
           label: "BTC (USD)",
-          data
+          data,
+          spanGaps: false
         }]
       },
       options: {
@@ -39,10 +76,13 @@
         interaction: { mode: "index", intersect: false },
         plugins: { legend: { display: true } },
         scales: {
-          x: { ticks: { maxRotation: 0 } },
+          x: { ticks: { maxRotation: 0, autoSkip: true } },
           y: { title: { display: true, text: "USD" } }
         }
       }
     });
+
+    // Debug utile
+    // console.log("points:", raw.length, "first:", labels[0], "last:", labels[labels.length-1]);
   })();
 </script>

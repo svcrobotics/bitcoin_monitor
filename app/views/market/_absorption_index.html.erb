@@ -1,0 +1,71 @@
+<%# app/views/market/_absorption_index.html.erb %>
+<%# locals: absorption: %>
+<% return unless absorption.present? %>
+
+<%
+  f = absorption.facts || {}
+  net = f[:netflow_btc]
+  perf = f[:perf_pct]
+%>
+
+<section class="mt-4 bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-5">
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div class="min-w-0">
+      <h3 class="text-sm sm:text-base font-semibold text-gray-100">
+        Absorption / Distribution (<%= absorption.window_days %>j)
+      </h3>
+      <p class="mt-1 text-xs sm:text-sm text-gray-400">
+        Lecture de la <span class="font-semibold text-gray-200">réaction du prix</span>
+        face aux <span class="font-semibold text-gray-200">flux vers exchanges</span>.
+        <span class="text-gray-500">Aucune prédiction.</span>
+      </p>
+    </div>
+
+    <span class="text-xs px-3 py-1 rounded-full border <%= absorption.badge_cls %>">
+      <%= absorption.label %>
+    </span>
+  </div>
+
+  <p class="mt-3 text-sm text-gray-200 leading-relaxed">
+    <%= absorption.summary %>
+  </p>
+
+  <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+      <div class="text-gray-500">Net flow (30j)</div>
+      <div class="mt-1 font-mono text-gray-100">
+        <%= net.present? ? "#{net.round(0).to_i} BTC" : "N/A" %>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+      <div class="text-gray-500">Perf prix (30j)</div>
+      <div class="mt-1 font-mono text-gray-100">
+        <%= perf.present? ? "#{perf.round(2)}%" : "N/A" %>
+      </div>
+    </div>
+  </div>
+
+  <details class="group mt-4">
+    <summary class="cursor-pointer select-none inline-flex items-center gap-2 text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-black/20 text-indigo-200 hover:bg-white/5">
+      ℹ️ Comprendre (absorption)
+      <span class="text-gray-500 group-open:hidden">▸</span>
+      <span class="text-gray-500 hidden group-open:inline">▾</span>
+    </summary>
+
+    <div class="mt-3 max-w-3xl bg-gray-900/60 border border-gray-700 rounded-2xl p-4 text-[12px] leading-relaxed text-gray-200 space-y-2">
+      <p>
+        Quand des BTC sont déposés vers les exchanges, une
+        <span class="font-semibold">pression vendeuse potentielle</span> existe.
+      </p>
+      <p>
+        <span class="font-semibold">Absorption</span> : le prix tient ou monte malgré ces flux.  
+        <span class="font-semibold">Distribution</span> : le prix baisse en réaction aux flux.
+      </p>
+      <p>
+        Cet indicateur décrit uniquement la <span class="font-semibold">réaction observée</span>,
+        sans anticiper la suite.
+      </p>
+    </div>
+  </details>
+</section>

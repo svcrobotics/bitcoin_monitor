@@ -1,0 +1,21 @@
+# Read about fixtures at https://api.rubyonrails.org/classes/ActiveRecord/FixtureSet.html
+
+one:
+  cluster: one
+  cluster_size: 1
+  tx_count: 1
+  total_sent_sats: 
+  first_seen_height: 1
+  last_seen_height: 1
+  classification: MyString
+  score: 1
+
+two:
+  cluster: two
+  cluster_size: 1
+  tx_count: 1
+  total_sent_sats: 
+  first_seen_height: 1
+  last_seen_height: 1
+  classification: MyString
+  score: 1

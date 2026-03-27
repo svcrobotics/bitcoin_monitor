@@ -1,13 +1,16 @@
 #!/usr/bin/env bash
 set -e
 
-# Dossier de l'app
+# Kill switch (par défaut ON)
+if [[ "${BRC20_ENABLED:-1}" != "1" ]]; then
+  echo "[cron_brc20] disabled (BRC20_ENABLED=${BRC20_ENABLED})"
+  exit 0
+fi
+
 cd /home/victor/bitcoin_monitor
 
-# Initialiser rbenv (important pour avoir le bon ruby + les bons gems)
 export RBENV_ROOT="$HOME/.rbenv"
 export PATH="$RBENV_ROOT/bin:$PATH"
 eval "$(rbenv init - bash)"
 
-# Lancer la tâche rake / rails
 bundle exec rails brc20:scan_new_blocks

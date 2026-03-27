@@ -1,0 +1,155 @@
+<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <%
+    badge = lambda do |status|
+      case status.to_sym
+      when :green
+        "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+      when :orange
+        "text-amber-300 bg-amber-500/10 border-amber-500/20"
+      when :red
+        "text-rose-300 bg-rose-500/10 border-rose-500/20"
+      else
+        "text-gray-300 bg-gray-500/10 border-gray-500/20"
+      end
+    end
+
+    label = lambda do |status|
+      case status.to_sym
+      when :green then "Vert"
+      when :orange then "Orange"
+      when :red then "Rouge"
+      else "Gris"
+      end
+    end
+
+    qa_global_status =
+      if @qa_stats.present? && @qa_stats[:failures].to_i > 0
+        :red
+      elsif @qa_summary[:green].to_i > 0
+        :green
+      elsif @qa_summary[:orange].to_i > 0
+        :orange
+      else
+        :gray
+      end
+
+    qa_global_label =
+      case qa_global_status
+      when :green then "QA global : GREEN"
+      when :orange then "QA global : AMBER"
+      when :red then "QA global : RED"
+      else "QA global : GRAY"
+      end
+  %>
+
+  <div class="mb-8 flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div>
+      <h1 class="text-2xl sm:text-3xl font-bold text-gray-100">
+        QA Status — Cluster V3
+      </h1>
+      <p class="mt-2 text-sm text-gray-400">
+        État de validation des modules, tests et couverture produit.
+      </p>
+
+      <div class="mt-4">
+        <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold border <%= badge.call(qa_global_status) %>">
+          <%= qa_global_label %>
+        </span>
+      </div>
+    </div>
+
+    <div class="flex flex-wrap items-center gap-3">
+      <%= button_to "Run tests",
+        run_system_tests_path,
+        method: :post,
+        class: "inline-flex items-center rounded-full px-4 py-2 text-sm font-semibold bg-violet-600 text-white hover:bg-violet-500 transition" %>
+
+      <%= link_to "← Retour système",
+        system_path,
+        class: "text-sm text-violet-400 hover:text-violet-300" %>
+    </div>
+  </div>
+
+  <% if @qa_stats.present? %>
+    <div class="mb-6 rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
+      <div class="text-sm font-semibold text-gray-100">Dernière exécution RSpec</div>
+      <div class="mt-2 text-sm text-gray-400">
+        <span class="font-semibold text-gray-200"><%= @qa_stats[:examples] %></span> tests
+        <span class="mx-2 text-gray-600">•</span>
+        <span class="font-semibold <%= @qa_stats[:failures].to_i.zero? ? 'text-emerald-300' : 'text-rose-300' %>">
+          <%= @qa_stats[:failures] %> échec<%= "s" if @qa_stats[:failures].to_i > 1 %>
+        </span>
+        <span class="mx-2 text-gray-600">•</span>
+        <span class="font-semibold text-gray-200"><%= @qa_stats[:duration].to_f.round(2) %>s</span>
+      </div>
+    </div>
+  <% end %>
+
+  <% if @last_test_output.present? %>
+    <div class="mb-6 rounded-2xl border border-gray-800 bg-gray-900/60 p-4">
+      <div class="text-sm font-semibold text-gray-100">Dernière sortie des tests</div>
+      <pre class="mt-2 text-xs text-gray-400 whitespace-pre-wrap break-words"><%= @last_test_output %></pre>
+    </div>
+  <% end %>
+
+  <% if @qa_summary[:generated_at].present? %>
+    <div class="mb-4 text-xs text-gray-500">
+      Dernier rapport RSpec :
+      <span class="text-gray-300 font-semibold">
+        <%= l(@qa_summary[:generated_at], format: :short) %>
+      </span>
+    </div>
+  <% end %>
+
+  <div class="mb-8 flex flex-wrap gap-3 text-sm">
+    <span class="px-3 py-1 rounded-full border <%= badge.call(:green) %>">
+      <%= @qa_summary[:green] %> modules validés
+    </span>
+
+    <span class="px-3 py-1 rounded-full border <%= badge.call(:orange) %>">
+      <%= @qa_summary[:orange] %> modules à renforcer
+    </span>
+
+    <span class="px-3 py-1 rounded-full border <%= badge.call(:gray) %>">
+      <%= @qa_summary[:gray] %> modules non couverts
+    </span>
+  </div>
+
+  <div class="space-y-8">
+    <% @qa_groups.each do |group| %>
+      <div>
+        <h2 class="mb-3 text-sm font-semibold uppercase tracking-wide text-gray-500">
+          <%= group[:title] %>
+        </h2>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <% group[:items].each do |item| %>
+            <div class="rounded-xl border border-gray-800 bg-gray-900/60 p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="font-semibold text-gray-100">
+                    <%= item[:label] %>
+                  </div>
+
+                  <div class="mt-1 text-sm text-gray-400">
+                    <%= item[:coverage] %>
+                  </div>
+                </div>
+
+                <span class="px-2 py-1 rounded-full border text-xs font-semibold whitespace-nowrap <%= badge.call(item[:status]) %>">
+                  <%= label.call(item[:status]) %>
+                </span>
+              </div>
+
+              <% if item[:command].present? %>
+                <div class="mt-3 text-xs text-gray-500 font-mono break-all">
+                  <%= item[:command] %>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+  </div>
+</div>

@@ -1,0 +1,132 @@
+<%# app/views/market/_pressure_index.html.erb %>
+<%# locals: pressure: %>
+<% return unless pressure.present? %>
+
+<%
+  f = pressure.facts || {}
+
+  ratio30  = f[:ratio30]
+  vol_pct  = f[:vol_pct]
+  whales   = f[:whale_events].to_i
+
+  inflow   = f[:inflow_btc]
+  outflow  = f[:outflow_btc]
+  netflow  = f[:netflow_btc]
+
+  net_lbl =
+    if netflow.nil?
+      "N/A"
+    elsif netflow.to_f > 0
+      "▲ +#{netflow.round(0).to_i} BTC"
+    elsif netflow.to_f < 0
+      "▼ #{netflow.round(0).to_i} BTC"
+    else
+      "0 BTC"
+    end
+%>
+
+<section class="mt-4 bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-5">
+  <!-- Header -->
+  <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+    <div class="min-w-0">
+      <h3 class="text-sm sm:text-base font-semibold text-gray-100">
+        État du marché — Pression spéculative (<%= pressure.window_days %>j)
+      </h3>
+      <p class="mt-1 text-xs sm:text-sm text-gray-400">
+        Lecture factuelle des <span class="font-semibold text-gray-200">flux vers exchanges</span>, de la <span class="font-semibold text-gray-200">volatilité</span>
+        et des <span class="font-semibold text-gray-200">événements majeurs</span>.
+        <span class="text-gray-500">Aucune prédiction.</span>
+      </p>
+    </div>
+
+    <span class="text-xs px-3 py-1 rounded-full border <%= pressure.badge_cls %>">
+      <%= pressure.label %>
+    </span>
+  </div>
+
+  <!-- Summary -->
+  <p class="mt-3 text-sm text-gray-200 leading-relaxed">
+    <%= pressure.summary %>
+  </p>
+
+  <!-- Facts -->
+  <div class="mt-4 grid grid-cols-1 sm:grid-cols-4 gap-3 text-xs">
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+      <div class="text-gray-500">Ratio (30j)</div>
+      <div class="mt-1 font-mono text-gray-100">
+        <%= ratio30.present? ? ratio30.to_f.round(2) : "N/A" %>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+      <div class="text-gray-500">Volatilité moy.</div>
+      <div class="mt-1 font-mono text-gray-100">
+        <%= vol_pct.present? ? "#{vol_pct.to_f.round(2)}%/j" : "N/A" %>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+      <div class="text-gray-500">Événements majeurs</div>
+      <div class="mt-1 font-mono text-gray-100">
+        <%= whales %>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+      <div class="text-gray-500">Net flow (30j)</div>
+      <div class="mt-1 font-mono text-gray-100">
+        <%= net_lbl %>
+      </div>
+    </div>
+  </div>
+
+  <!-- Optional details (compact + clear) -->
+  <details class="group mt-4">
+    <summary class="cursor-pointer select-none inline-flex items-center gap-2 text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-black/20 text-indigo-200 hover:bg-white/5">
+      ℹ️ Comprendre (données réelles)
+      <span class="text-gray-500 group-open:hidden">▸</span>
+      <span class="text-gray-500 hidden group-open:inline">▾</span>
+    </summary>
+
+    <div class="mt-3 max-w-3xl bg-gray-900/60 border border-gray-700 rounded-2xl p-4 text-[12px] leading-relaxed text-gray-200 space-y-3">
+      <p class="font-semibold text-gray-100">Ce que c’est</p>
+      <p>
+        Un indicateur <span class="font-semibold">descriptif</span> qui observe l’activité on-chain sur <span class="font-semibold"><%= pressure.window_days %> jours</span>.
+        Il se base sur des <span class="font-semibold">données mesurées</span> :
+      </p>
+
+      <ul class="list-disc pl-5 space-y-1 text-gray-300">
+        <li><span class="font-semibold text-gray-100">Inflow</span> : BTC envoyés vers des exchanges (intention possible de vendre).</li>
+        <li><span class="font-semibold text-gray-100">Outflow</span> : BTC retirés des exchanges (réduction possible de pression vendeuse).</li>
+        <li><span class="font-semibold text-gray-100">Volatilité</span> : moyenne des variations journalières observées sur la période.</li>
+        <li><span class="font-semibold text-gray-100">Événements majeurs</span> : nombre de gros mouvements détectés (whales).</li>
+      </ul>
+
+      <p class="font-semibold text-gray-100">Ce que ce n’est pas</p>
+      <p>
+        Ce bloc <span class="font-semibold">ne prédit pas</span> le prix et ne donne pas de signal d’achat/vente.
+        Il sert à qualifier le contexte : <span class="font-semibold">tension</span>, <span class="font-semibold">digestion</span> ou <span class="font-semibold">marché apaisé</span>.
+      </p>
+
+      <% if inflow.present? || outflow.present? %>
+        <div class="pt-2 border-t border-gray-800">
+          <p class="font-semibold text-gray-100">Données (30j) — rappel</p>
+          <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-[12px]">
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+              <div class="text-gray-500">Inflow</div>
+              <div class="mt-1 font-mono text-gray-100"><%= inflow.present? ? "#{inflow.round(0).to_i} BTC" : "N/A" %></div>
+            </div>
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+              <div class="text-gray-500">Outflow</div>
+              <div class="mt-1 font-mono text-gray-100"><%= outflow.present? ? "#{outflow.round(0).to_i} BTC" : "N/A" %></div>
+            </div>
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
+              <div class="text-gray-500">Net flow</div>
+              <div class="mt-1 font-mono text-gray-100"><%= net_lbl %></div>
+            </div>
+          </div>
+        </div>
+      <% end %>
+    </div>
+  </details>
+</section>

@@ -1,47 +1,100 @@
-<%# locals: perf_pct:, high:, low:, pos_pct:, max_drawdown_pct:, vol_label:, vol_pct: %>
+<%# locals: perf_pct:, high:, low:, pos_pct:, max_drawdown_pct:, vol_label: (optionnel), vol_pct: %>
 <% return unless perf_pct.present? %>
 
+<%
+  perf_v = perf_pct.to_f
+  dd_v   = max_drawdown_pct.to_f.abs
+
+  high_v = high.presence
+  low_v  = low.presence
+
+  pos_v  = pos_pct.presence
+  vol_v  = vol_pct.presence
+
+  vlabel = vol_label.to_s.strip
+%>
+
 <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+  <!-- Perf -->
   <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
     <div class="text-xs text-gray-400">Perf</div>
-    <div class="text-lg font-semibold <%= perf_pct.to_f >= 0 ? "text-emerald-300" : "text-rose-300" %>">
-      <%= perf_pct.to_f > 0 ? "+" : "" %><%= perf_pct %>%
+    <div class="text-lg font-semibold <%= perf_v >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+      <span class="font-mono"><%= perf_v.positive? ? "+" : "" %><%= perf_v.round(1) %>%</span>
     </div>
   </div>
 
+  <!-- High -->
   <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
     <div class="text-xs text-gray-400">High</div>
     <div class="text-lg font-semibold text-gray-100">
-      <%= number_with_precision(high, precision: 0, delimiter: " ") %> $
+      <% if high_v.present? %>
+        <%= number_with_precision(high_v, precision: 0, delimiter: " ") %> $
+      <% else %>
+        —
+      <% end %>
     </div>
   </div>
 
+  <!-- Low -->
   <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
     <div class="text-xs text-gray-400">Low</div>
     <div class="text-lg font-semibold text-gray-100">
-      <%= number_with_precision(low, precision: 0, delimiter: " ") %> $
+      <% if low_v.present? %>
+        <%= number_with_precision(low_v, precision: 0, delimiter: " ") %> $
+      <% else %>
+        —
+      <% end %>
     </div>
   </div>
 
+  <!-- Dans le range -->
   <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
-    <div class="text-xs text-gray-400">Position</div>
-    <div class="text-lg font-semibold text-gray-100"><%= pos_pct %>%</div>
-    <div class="text-[11px] text-gray-500">dans le range</div>
-  </div>
-
-  <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
-    <div class="text-xs text-gray-400">Max drawdown</div>
-    <div class="text-lg font-semibold text-rose-300">
-      <%= number_with_precision(max_drawdown_pct.to_f.abs, precision: 2) %>%
-    </div>
-    <div class="text-[11px] text-gray-500">pire chute depuis un sommet</div>
-  </div>
-
-  <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
-    <div class="text-xs text-gray-400">Volatilité</div>
+    <div class="text-xs text-gray-400">Dans le range</div>
     <div class="text-lg font-semibold text-gray-100">
-      <%= vol_label %> <span class="text-gray-500 text-sm font-mono">(~<%= vol_pct %>%/j)</span>
+      <% if pos_v.present? %>
+        <% p = pos_v.to_f %>
+        <span class="font-mono"><%= p.round(0) %>%</span>
+      <% else %>
+        —
+      <% end %>
     </div>
-    <div class="text-[11px] text-gray-500">moyenne des variations journalières</div>
+
+    <% if pos_v.present? %>
+      <% p = pos_v.to_f %>
+      <div class="text-[11px] text-gray-500 mt-1">
+        <% if p <= 10 %>
+          proche du bas
+        <% elsif p >= 90 %>
+          proche du haut
+        <% else %>
+          milieu de range
+        <% end %>
+      </div>
+    <% end %>
+  </div>
+
+  <!-- Max drawdown -->
+  <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
+    <div class="text-xs text-gray-400">Max DD</div>
+    <div class="text-lg font-semibold text-rose-300">
+      <span class="font-mono"><%= dd_v.round(1) %>%</span>
+    </div>
+  </div>
+
+  <!-- Volatilité -->
+  <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-3">
+    <div class="text-xs text-gray-400">Vol</div>
+    <div class="text-lg font-semibold text-gray-100">
+      <% if vlabel.present? %>
+        <span class="text-gray-200"><%= vlabel %></span>
+        <span class="text-gray-500 text-sm font-mono ml-1">
+          <%= vol_v.present? ? "#{vol_v.to_f.round(1)}%/j" : "—" %>
+        </span>
+      <% else %>
+        <span class="text-gray-500 text-sm font-mono">
+          <%= vol_v.present? ? "#{vol_v.to_f.round(1)}%/j" : "—" %>
+        </span>
+      <% end %>
+    </div>
   </div>
 </div>

@@ -73,7 +73,7 @@ module ApplicationHelper
       amount.to_d.to_s("F")
     end
 
-    def format_btc(amount, precision: 2)
+    def format_btc(amount, precision: 4)
 	  return "0.00" if amount.blank?
 
 	  number_with_precision(
@@ -102,5 +102,31 @@ module ApplicationHelper
 
 	def pct_color_class(value)
 	  value.to_f >= 0 ? "text-emerald-300" : "text-rose-300"
+	end
+
+	def sats_to_btc(sats, precision: 4)
+	  return 0 if sats.nil?
+
+	  (sats.to_f / 100_000_000).round(precision)
+	end
+
+	def format_btc(sats, precision: 4)
+	  return "0 BTC" if sats.nil?
+
+	  btc = (sats.to_f / 100_000_000).round(precision)
+
+	  "#{number_with_delimiter(btc)} BTC"
+	end
+
+	def markdown(text)
+	  renderer = Redcarpet::Render::HTML.new(filter_html: true, hard_wrap: true)
+	  md = Redcarpet::Markdown.new(
+	    renderer,
+	    fenced_code_blocks: true,
+	    autolink: true,
+	    tables: true,
+	    no_intra_emphasis: true
+	  )
+	  md.render(text.to_s).html_safe
 	end
 end

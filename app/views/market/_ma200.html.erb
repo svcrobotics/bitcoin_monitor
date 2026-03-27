@@ -2,7 +2,11 @@
 <%# locals: ma200:, ma_badge:, px_vs_ma200_pct:, px_now: %>
 <% return unless ma200.present? %>
 
-<% ratio = px_vs_ma200_pct.to_f %>
+<%# ---- Normalisation défensive : accepte ratio (-0.31) ou pourcentage (-31) ---- %>
+<%
+  ratio = px_vs_ma200_pct.to_f
+  ratio = ratio / 100.0 if ratio.abs > 1.0
+%>
 
 <div class="mt-4 bg-gray-900/60 border border-gray-700 rounded-2xl p-4">
   <div class="flex items-start justify-between gap-3">

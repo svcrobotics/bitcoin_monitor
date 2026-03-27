@@ -1,0 +1,626 @@
+<%# app/views/address_lookup/show.html.erb %>
+
+<div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <%
+    score_badge = lambda do |score|
+      case score.to_i
+      when 80..100
+        "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+      when 50..79
+        "text-amber-300 bg-amber-500/10 border-amber-500/20"
+      else
+        "text-gray-300 bg-gray-500/10 border-gray-500/20"
+      end
+    end
+
+    classification_label = lambda do |value|
+      case value.to_s
+      when "exchange_like", "service"
+        "Plateforme"
+      when "whale"
+        "Gros détenteur"
+      when "retail"
+        "Utilisateur"
+      else
+        "Inconnu"
+      end
+    end
+
+    trait_label = lambda do |trait|
+      case trait.to_s
+      when "large_cluster"
+        "Cluster de grande taille"
+      when "high_activity"
+        "Activité élevée"
+      when "high_volume"
+        "Volume élevé"
+      when "whale_like"
+        "Volume comparable à un gros acteur"
+      else
+        trait.to_s.humanize
+      end
+    end
+
+    trait_badge = lambda do |_trait|
+      "text-gray-300 bg-gray-500/10 border-gray-500/20"
+    end
+
+    decision_badge = lambda do |tone|
+      case tone
+      when :warning
+        {
+          label: "Vérification recommandée",
+          icon: "▲",
+          classes: "text-amber-300 bg-amber-500/10 border-amber-500/20"
+        }
+      when :info
+        {
+          label: "Contexte actif",
+          icon: "●",
+          classes: "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+        }
+      when :danger
+        {
+          label: "Risque élevé",
+          icon: "■",
+          classes: "text-rose-300 bg-rose-500/10 border-rose-500/20"
+        }
+      when :neutral
+        {
+          label: "Contexte normal",
+          icon: "●",
+          classes: "text-gray-300 bg-gray-500/10 border-gray-500/20"
+        }
+      else
+        {
+          label: "Contexte normal",
+          icon: "●",
+          classes: "text-gray-300 bg-gray-500/10 border-gray-500/20"
+        }
+      end
+    end
+
+    signal_badge = lambda do |severity|
+      case severity.to_s
+      when "high"
+        "text-amber-300 bg-amber-500/10 border-amber-500/20"
+      when "medium"
+        "text-violet-300 bg-violet-500/10 border-violet-500/20"
+      when "low"
+        "text-gray-300 bg-gray-500/10 border-gray-500/20"
+      else
+        "text-gray-300 bg-gray-500/10 border-gray-500/20"
+      end
+    end
+
+    signal_title = lambda do |signal_type|
+      case signal_type.to_s
+      when "volume_spike"
+        "Volume élevé récent"
+      when "sudden_activity"
+        "Activité récente élevée"
+      when "large_transfers"
+        "Transferts massifs détectés"
+      when "cluster_activation"
+        "Activation récente du cluster"
+      else
+        signal_type.to_s.humanize
+      end
+    end
+
+    synthesis_class = case @user_message&.dig(:tone)
+    when :warning
+      "border-amber-500/20 bg-amber-500/10 text-amber-100"
+    when :info
+      "border-emerald-500/20 bg-emerald-500/10 text-emerald-100"
+    when :danger
+      "border-rose-500/20 bg-rose-500/10 text-rose-100"
+    else
+      "border-gray-700 bg-gray-900/60 text-gray-200"
+    end
+
+    decision = decision_badge.call(@user_message&.dig(:tone))
+
+    cluster_size = @cluster.present? ? @cluster.address_count.to_i : 1
+
+    cluster_label =
+      if cluster_size <= 1
+        "Adresse isolée"
+      elsif cluster_size <= 20
+        "Petit cluster"
+      elsif cluster_size <= 1000
+        "Cluster moyen"
+      else
+        "Cluster large"
+      end
+
+    metric_value = lambda do |value|
+      value.present? ? number_with_delimiter(value) : "—"
+    end
+
+    sats_to_btc_text = lambda do |value|
+      return "—" if value.blank?
+
+      "#{number_with_delimiter(sats_to_btc(value))} BTC"
+    end
+
+    activity_score_badge = lambda do |score|
+      case score.to_i
+      when 70..100
+        "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+      when 40..69
+        "text-amber-300 bg-amber-500/10 border-amber-500/20"
+      else
+        "text-gray-300 bg-gray-500/10 border-gray-500/20"
+      end
+    end
+
+    avg_per_day = lambda do |total|
+      return nil if total.blank?
+
+      (total.to_d / 7).round(2)
+    end
+
+    ratio = lambda do |current, avg|
+      return nil if current.blank? || avg.blank? || avg.to_d == 0
+
+      (current.to_d / avg.to_d).round(2)
+    end
+
+    ratio_badge = lambda do |r|
+      return "text-gray-300 bg-gray-500/10 border-gray-500/20" if r.blank?
+
+      case r
+      when 2.0..Float::INFINITY
+        "text-rose-300 bg-rose-500/10 border-rose-500/20"
+      when 1.3..1.99
+        "text-amber-300 bg-amber-500/10 border-amber-500/20"
+      else
+        "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
+      end
+    end
+
+    avg_tx = @cluster_metric.present? ? avg_per_day.call(@cluster_metric.tx_count_7d) : nil
+    avg_vol = @cluster_metric.present? ? avg_per_day.call(@cluster_metric.sent_sats_7d) : nil
+
+    tx_ratio = @cluster_metric.present? ? ratio.call(@cluster_metric.tx_count_24h, avg_tx) : nil
+    vol_ratio = @cluster_metric.present? ? ratio.call(@cluster_metric.sent_sats_24h, avg_vol) : nil
+  %>
+
+  <div class="mb-6">
+    <%= render "address_lookup/search", prefill: @query_address %>
+  </div>
+
+  <div class="mb-8">
+    <div class="mb-2">
+      <%= link_to "← Retour au dashboard", root_path, class: "text-sm text-violet-400 hover:text-violet-300" %>
+    </div>
+
+    <h1 class="text-2xl sm:text-3xl font-bold text-gray-100 break-all">
+      <%= @query_address %>
+    </h1>
+
+    <p class="mt-2 text-sm text-gray-400">
+      Analyse d’adresse Bitcoin à partir des données cluster et des signaux récents.
+    </p>
+  </div>
+
+  <% unless @address_valid %>
+    <div class="rounded-2xl border border-rose-800/60 bg-rose-950/30 p-5 text-rose-200">
+      <div class="font-semibold">Adresse invalide</div>
+      <div class="mt-2 text-sm text-rose-300">
+        <%= @validation_error.presence || "Le format de l’adresse n’est pas valide." %>
+      </div>
+    </div>
+  <% else %>
+    <% unless @observed %>
+      <div class="rounded-2xl border border-amber-800/60 bg-amber-950/20 p-5 text-amber-100">
+        <div class="font-semibold">Adresse valide, mais non observée dans les données scannées</div>
+        <div class="mt-2 text-sm text-amber-200 leading-relaxed">
+          Cette adresse est valide, mais elle n’a pas été trouvée dans la fenêtre actuellement indexée par le module cluster.
+          Cela ne signifie ni “sûre” ni “dangereuse”.
+        </div>
+      </div>
+    <% else %>
+      <div class="rounded-2xl border <%= synthesis_class %> p-5 mb-8">
+        <div class="flex flex-col gap-4">
+          <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+            <div>
+              <div class="text-xs uppercase tracking-wide opacity-80">
+                Synthèse
+              </div>
+
+              <div class="mt-1 text-xl font-bold">
+                <%= @user_message.present? ? @user_message[:title] : (@cluster_profile.present? ? classification_label.call(@cluster_profile.classification) : cluster_label) %>
+              </div>
+            </div>
+
+            <div>
+              <span class="inline-flex items-center gap-2 px-3 py-1 rounded-full border text-xs font-semibold <%= decision[:classes] %>">
+                <span aria-hidden="true"><%= decision[:icon] %></span>
+                <span><%= decision[:label] %></span>
+              </span>
+            </div>
+          </div>
+
+          <div class="text-sm leading-relaxed opacity-90">
+            <% if @user_message.present? %>
+              <%= @user_message[:body] %>
+            <% elsif @cluster_profile.present? %>
+              Cluster de
+              <strong><%= number_with_delimiter(@cluster_profile.cluster_size) %></strong>
+              adresses, classé
+              <strong><%= classification_label.call(@cluster_profile.classification) %></strong>.
+              Activité observée entre les blocs
+              <strong><%= @address_record.first_seen_height || "-" %></strong>
+              et
+              <strong><%= @address_record.last_seen_height || "-" %></strong>.
+            <% elsif @cluster.present? %>
+              Adresse observée dans un cluster de
+              <strong><%= number_with_delimiter(@cluster.address_count) %></strong>
+              adresses via heuristique multi-input.
+            <% else %>
+              Adresse observée sans cluster associé.
+            <% end %>
+          </div>
+
+          <% if @cluster_profile.present? %>
+            <div class="text-xs opacity-90">
+              Classification :
+              <span class="font-semibold"><%= classification_label.call(@cluster_profile.classification) %></span>
+
+              <% if @cluster_profile.score.present? %>
+                <span class="mx-2 opacity-50">•</span>
+                Score :
+                <span class="font-semibold"><%= @cluster_profile.score %>/100</span>
+              <% end %>
+            </div>
+          <% end %>
+
+          <div class="text-xs opacity-75">
+            Analyse probabiliste, pas une certitude sur l’identité réelle du propriétaire.
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-8">
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Observed</div>
+          <div class="mt-2 text-2xl font-bold text-emerald-300">Oui</div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Cluster</div>
+          <div class="mt-2 text-2xl font-bold text-gray-100">
+            <%= @cluster.present? ? "##{@cluster.id}" : "-" %>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Cluster size</div>
+          <div class="mt-2 text-2xl font-bold text-gray-100">
+            <%= @cluster.present? ? number_with_delimiter(@cluster.address_count) : 1 %>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Tx count</div>
+          <div class="mt-2 text-2xl font-bold text-gray-100">
+            <%= number_with_delimiter(@address_record.tx_count || 0) %>
+          </div>
+        </div>
+      </div>
+
+      <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-8">
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+          <div class="text-xs uppercase tracking-wide text-gray-500">First seen</div>
+          <div class="mt-2 text-xl font-bold text-gray-100">
+            <%= @address_record.first_seen_height || "-" %>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Last seen</div>
+          <div class="mt-2 text-xl font-bold text-gray-100">
+            <%= @address_record.last_seen_height || "-" %>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Cluster total sent</div>
+          <div class="mt-2 text-xl font-bold text-gray-100">
+            <%= number_with_delimiter(sats_to_btc(@cluster_total_sent_sats)) %> BTC
+          </div>
+          <div class="text-xs text-gray-500 mt-1">
+            <%= number_with_delimiter(@cluster_total_sent_sats) %> sats
+          </div>
+        </div>
+      </div>
+
+      <% if @cluster_profile.present? %>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
+          <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+            <div class="text-xs uppercase tracking-wide text-gray-500">Classification</div>
+            <div class="mt-2 text-xl font-bold text-gray-100">
+              <%= classification_label.call(@cluster_profile.classification) %>
+            </div>
+          </div>
+
+          <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5">
+            <div class="text-xs uppercase tracking-wide text-gray-500">Score</div>
+            <div class="mt-2">
+              <span class="inline-flex items-center px-3 py-1 rounded-full border text-sm font-semibold <%= score_badge.call(@cluster_profile.score) %>">
+                <%= @cluster_profile.score || "—" %> / 100
+              </span>
+            </div>
+          </div>
+        </div>
+      <% end %>
+
+      <% if @cluster_profile.present? && @cluster_profile.traits_list.any? %>
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5 mb-8">
+          <div class="text-xs uppercase tracking-wide text-gray-500 mb-3">
+            Traits détectés
+          </div>
+
+          <div class="flex flex-wrap gap-2">
+            <% @cluster_profile.traits_list.each do |trait| %>
+              <span class="inline-flex items-center px-3 py-1 rounded-full border text-xs font-semibold <%= trait_badge.call(trait) %>">
+                <%= trait_label.call(trait) %>
+              </span>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+
+      <% if @cluster_metric.present? %>
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5 mb-8">
+          <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between mb-4">
+            <div>
+              <div class="text-xs uppercase tracking-wide text-gray-500">
+                Métriques V3
+              </div>
+              <div class="mt-1 text-sm text-gray-400">
+                Dernière snapshot :
+                <span class="text-gray-300 font-semibold"><%= @cluster_metric.snapshot_date %></span>
+              </div>
+            </div>
+
+            <div class="flex flex-wrap gap-2">
+              <span class="inline-flex items-center px-3 py-1 rounded-full border text-sm font-semibold <%= activity_score_badge.call(@cluster_metric.activity_score) %>">
+                Activity score : <%= @cluster_metric.activity_score || "—" %>
+              </span>
+
+              <span class="inline-flex items-center px-3 py-1 rounded-full border text-sm font-semibold <%= ratio_badge.call(tx_ratio) %>">
+                Tx ratio : x<%= tx_ratio || "—" %>
+              </span>
+
+              <span class="inline-flex items-center px-3 py-1 rounded-full border text-sm font-semibold <%= ratio_badge.call(vol_ratio) %>">
+                Volume ratio : x<%= vol_ratio || "—" %>
+              </span>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <div class="text-xs uppercase tracking-wide text-gray-500">Tx 24h</div>
+              <div class="mt-2 text-xl font-bold text-gray-100">
+                <%= metric_value.call(@cluster_metric.tx_count_24h) %>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <div class="text-xs uppercase tracking-wide text-gray-500">Tx 7j</div>
+              <div class="mt-2 text-xl font-bold text-gray-100">
+                <%= metric_value.call(@cluster_metric.tx_count_7d) %>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <div class="text-xs uppercase tracking-wide text-gray-500">Avg tx / jour (7j)</div>
+              <div class="mt-2 text-xl font-bold text-gray-100">
+                <%= avg_tx.present? ? number_with_delimiter(avg_tx) : "—" %>
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <div class="text-xs uppercase tracking-wide text-gray-500">Sent 24h</div>
+              <div class="mt-2 text-xl font-bold text-gray-100">
+                <%= sats_to_btc_text.call(@cluster_metric.sent_sats_24h) %>
+              </div>
+              <div class="text-xs text-gray-500 mt-1">
+                <%= metric_value.call(@cluster_metric.sent_sats_24h) %> sats
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <div class="text-xs uppercase tracking-wide text-gray-500">Sent 7j</div>
+              <div class="mt-2 text-xl font-bold text-gray-100">
+                <%= sats_to_btc_text.call(@cluster_metric.sent_sats_7d) %>
+              </div>
+              <div class="text-xs text-gray-500 mt-1">
+                <%= metric_value.call(@cluster_metric.sent_sats_7d) %> sats
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <div class="text-xs uppercase tracking-wide text-gray-500">Avg volume / jour (7j)</div>
+              <div class="mt-2 text-xl font-bold text-gray-100">
+                <%= avg_vol.present? ? sats_to_btc_text.call(avg_vol) : "—" %>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 text-xs text-gray-500 leading-relaxed">
+            Ces métriques V3 sont des estimations agrégées du comportement récent du cluster.
+            Les ratios comparent la valeur 24h à la moyenne journalière estimée sur 7 jours.
+            Elles servent à expliquer les signaux affichés plus bas, sans prétendre reconstituer
+            une chronologie exacte en temps réel.
+          </div>
+        </div>
+      <% end %>
+
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5 mb-8">
+        <div class="flex items-center justify-between gap-3 mb-3">
+          <div class="text-xs uppercase tracking-wide text-gray-500">
+            Signaux récents
+          </div>
+
+          <% if @cluster_signals.present? %>
+            <div class="text-xs text-gray-500">
+              <%= @cluster_signals.size %> affiché<%= "s" if @cluster_signals.size > 1 %>
+            </div>
+          <% end %>
+        </div>
+
+        <% if @cluster_signals.present? %>
+          <div class="space-y-3">
+            <% @cluster_signals.each do |signal| %>
+              <div class="rounded-xl border border-gray-800 bg-black/20 px-4 py-3">
+                <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                  <div class="font-semibold text-gray-100">
+                    <%= signal_title.call(signal.signal_type) %>
+                  </div>
+
+                  <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-xs font-semibold <%= signal_badge.call(signal.severity) %>">
+                    <%= signal.severity %> • score <%= signal.score %>
+                  </span>
+                </div>
+
+                <div class="mt-2 text-sm text-gray-300 leading-relaxed">
+                  <% case signal.signal_type.to_s %>
+                  <% when "volume_spike" %>
+                    Volume sur 24h :
+                    <strong><%= number_with_delimiter((signal.metadata["btc_24h"] || 0).to_f.round(4)) %> BTC</strong>
+                    <span class="text-gray-500">
+                      · moyenne 7j :
+                      <%= number_with_delimiter((signal.metadata["avg_daily_7d_btc"] || 0).to_f.round(4)) %> BTC
+                      · ratio :
+                      x<%= signal.metadata["ratio_24h_vs_7d"] %>
+                    </span>
+
+                  <% when "sudden_activity" %>
+                    Activité sur 24h :
+                    <strong><%= number_with_delimiter(signal.metadata["tx_24h"] || 0) %> transactions</strong>
+                    <span class="text-gray-500">
+                      · moyenne 7j :
+                      <%= number_with_delimiter((signal.metadata["avg_daily_7d"] || 0).to_f.round(2)) %>
+                      · ratio :
+                      x<%= signal.metadata["ratio_24h_vs_7d"] %>
+                    </span>
+
+                  <% when "large_transfers" %>
+                    Volume important concentré sur peu de transactions :
+                    <strong><%= number_with_delimiter((signal.metadata["btc_24h"] || 0).to_f.round(4)) %> BTC</strong>
+                    <span class="text-gray-500">
+                      · transactions 24h :
+                      <%= number_with_delimiter(signal.metadata["tx_24h"] || 0) %>
+                    </span>
+
+                  <% when "cluster_activation" %>
+                    Activité récente sur un cluster peu actif auparavant :
+                    <strong><%= number_with_delimiter(signal.metadata["tx_24h"] || 0) %> transactions</strong>
+                    <span class="text-gray-500">
+                      · total 7j :
+                      <%= number_with_delimiter(signal.metadata["tx_7d"] || 0) %>
+                    </span>
+
+                  <% else %>
+                    Signal détecté à partir des métriques récentes.
+                  <% end %>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        <% else %>
+          <div class="text-sm text-gray-500">
+            Aucun signal récent détecté pour ce cluster.
+          </div>
+        <% end %>
+      </div>
+
+      <div class="grid grid-cols-1 xl:grid-cols-2 gap-6">
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between gap-3">
+            <h2 class="text-sm font-semibold text-gray-100">Adresses liées</h2>
+            <span class="text-xs text-gray-500">
+              <%= @linked_addresses.size %> affichées
+            </span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+              <thead class="bg-gray-950/60 text-gray-400">
+                <tr>
+                  <th class="px-4 py-3 text-left">Address</th>
+                  <th class="px-4 py-3 text-left">Tx count</th>
+                  <th class="px-4 py-3 text-left">Sent</th>
+                </tr>
+              </thead>
+
+              <tbody class="divide-y divide-gray-800">
+                <% if @linked_addresses.present? %>
+                  <% @linked_addresses.each do |addr| %>
+                    <tr class="text-gray-200">
+                      <td class="px-4 py-3 font-mono text-xs break-all">
+                        <%= link_to addr.address, address_lookup_path(address: addr.address), class: "hover:text-violet-300" %>
+                      </td>
+                      <td class="px-4 py-3"><%= number_with_delimiter(addr.tx_count || 0) %></td>
+                      <td class="px-4 py-3">
+                        <div><%= number_with_delimiter(sats_to_btc(addr.total_sent_sats)) %> BTC</div>
+                        <div class="text-xs text-gray-500"><%= number_with_delimiter(addr.total_sent_sats || 0) %> sats</div>
+                      </td>
+                    </tr>
+                  <% end %>
+                <% else %>
+                  <tr>
+                    <td colspan="3" class="px-4 py-4 text-gray-500">
+                      Aucune adresse liée affichable.
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-900/60 overflow-hidden">
+          <div class="px-5 py-4 border-b border-gray-800 flex items-center justify-between gap-3">
+            <h2 class="text-sm font-semibold text-gray-100">Preuves multi-input</h2>
+            <span class="text-xs text-gray-500">
+              <%= @links.size %> affichées
+            </span>
+          </div>
+
+          <div class="overflow-x-auto">
+            <table class="min-w-full text-sm">
+              <thead class="bg-gray-950/60 text-gray-400">
+                <tr>
+                  <th class="px-4 py-3 text-left">Txid</th>
+                  <th class="px-4 py-3 text-left">Height</th>
+                </tr>
+              </thead>
+
+              <tbody class="divide-y divide-gray-800">
+                <% if @links.present? %>
+                  <% @links.each do |link| %>
+                    <tr class="text-gray-200">
+                      <td class="px-4 py-3 font-mono text-xs break-all"><%= link.txid %></td>
+                      <td class="px-4 py-3"><%= number_with_delimiter(link.block_height) %></td>
+                    </tr>
+                  <% end %>
+                <% else %>
+                  <tr>
+                    <td colspan="2" class="px-4 py-4 text-gray-500">
+                      Aucune preuve affichable.
+                    </td>
+                  </tr>
+                <% end %>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    <% end %>
+  <% end %>
+</div>

@@ -1,5 +1,7 @@
-<!-- app/views/whale_alerts/index.html.erb -->
+<%# app/views/whale_alerts/index.html.erb %>
+
 <div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
+  <!-- HEADER -->
   <div class="flex items-center justify-between gap-4 mb-6">
     <h1 class="text-2xl font-bold text-gray-100">Whale Alerts</h1>
 
@@ -14,8 +16,34 @@
     </div>
   </div>
 
+  <%# -------------------- Range (7/14/30) -------------------- %>
+  <% keep_params = request.query_parameters.symbolize_keys.except(:range, :page) %>
+
+  <div class="mb-4 flex flex-wrap items-center gap-2">
+    <div class="text-xs text-gray-500 mr-2">Période :</div>
+
+    <% [
+      ["7 jours",  "7d",  @range == "7d"],
+      ["14 jours", "14d", @range == "14d"],
+      ["30 jours", "30d", @range == "30d"]
+    ].each do |label, r, active| %>
+      <%= link_to label,
+                  whale_alerts_path(keep_params.merge(range: r)),
+                  class: "text-xs px-3 py-1.5 rounded-full border transition " \
+                         + (active ? "bg-indigo-500/15 border-indigo-400/40 text-indigo-200"
+                                   : "bg-gray-950 border-gray-800 text-gray-300 hover:bg-gray-900") %>
+    <% end %>
+
+    <div class="text-xs text-gray-500 ml-2">
+      du <span class="font-mono text-gray-300"><%= (@start_time.to_date rescue nil) %></span>
+      au <span class="font-mono text-gray-300"><%= (@end_time.to_date rescue nil) %></span>
+    </div>
+  </div>
+
   <%# -------------------- Filters -------------------- %>
   <form method="get" class="bg-gray-900/40 border border-gray-800 rounded-2xl p-4 mb-6">
+    <input type="hidden" name="range" value="<%= @range %>">
+
     <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-8 gap-3">
       <select name="mode" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100">
         <option value="interesting" <%= "selected" if @mode == "interesting" %>>Interesting</option>
@@ -24,19 +52,24 @@
 
       <select name="type" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100">
         <option value="">Tous les types</option>
+
         <% types =
-          if @mode == "interesting"
-            WhaleAlert::TYPES - ["other"]
-          else
-            WhaleAlert::TYPES
-          end
+             if @mode == "interesting"
+               # On retire seulement "other" (et on garde single_destination)
+               WhaleAlert::TYPES - ["other"]
+             else
+               WhaleAlert::TYPES
+             end
         %>
+
         <% types.each do |t| %>
           <option value="<%= t %>" <%= "selected" if @type == t %>><%= t %></option>
         <% end %>
       </select>
 
-      <input name="min_btc" value="<%= @min_btc %>" placeholder="min BTC (ex: 200)"
+      <input name="min_btc"
+             value="<%= @min_btc %>"
+             placeholder="min BTC (ex: 100)"
              class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100" />
 
       <select name="sort" class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100">
@@ -44,10 +77,14 @@
         <option value="score" <%= "selected" if @sort == "score" %>>Score (desc)</option>
       </select>
 
-      <input name="min_score" value="<%= @min_score %>" placeholder="score min (ex: 70)"
+      <input name="min_score"
+             value="<%= @min_score %>"
+             placeholder="score min (ex: 70)"
              class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100" />
 
-      <input name="min_exchange" value="<%= @min_exchange %>" placeholder="exchange min (ex: 70)"
+      <input name="min_exchange"
+             value="<%= @min_exchange %>"
+             placeholder="exchange min (ex: 70)"
              class="w-full bg-gray-950 border border-gray-800 rounded-xl px-3 py-2 text-gray-100" />
 
       <button type="submit"
@@ -55,7 +92,7 @@
         Filtrer
       </button>
 
-      <a href="<%= whale_alerts_path %>"
+      <a href="<%= whale_alerts_path(range: @range) %>"
          class="w-full text-center bg-gray-950 hover:bg-gray-900 border border-gray-800 rounded-xl px-4 py-2 text-gray-300">
         Reset
       </a>
@@ -64,13 +101,17 @@
     <% if @counts.present? %>
       <div class="mt-3 flex flex-wrap gap-x-4 gap-y-2 text-sm text-gray-400">
         <% @counts.each do |k, v| %>
-          <span><span class="font-mono text-gray-200"><%= v %></span> <%= k %></span>
+          <span>
+            <span class="font-mono text-gray-200"><%= v %></span> <%= k %>
+          </span>
         <% end %>
       </div>
     <% end %>
   </form>
 
-  <%# -------------------- Chart 1: Volume BTC (14 jours) -------------------- %>
+  <%= render "help" %>
+
+  <%# -------------------- Chart 1: Volume BTC (X jours) -------------------- %>
   <% points = @volume_points || [] %>
   <% w = 900.0; h = 220.0; pad_x = 24.0; pad_y = 18.0 %>
 
@@ -83,19 +124,21 @@
   <% step = n > 1 ? ((w - 2 * pad_x) / (n - 1)) : 0 %>
 
   <% coords = points.each_with_index.map do |p, i|
-    x = pad_x + step * i
-    y = pad_y + (h - 2 * pad_y) * (1.0 - ((p[:btc].to_d - min_btc) / span).to_f)
-    { x: x, y: y, p: p }
-  end %>
+       x = pad_x + step * i
+       y = pad_y + (h - 2 * pad_y) * (1.0 - ((p[:btc].to_d - min_btc) / span).to_f)
+       { x: x, y: y, p: p }
+     end
+  %>
 
   <% path_d = coords.map.with_index do |c, i|
-    cmd = (i == 0 ? "M" : "L")
-    "#{cmd} #{c[:x].round(2)} #{c[:y].round(2)}"
-  end.join(" ") %>
+       cmd = (i == 0 ? "M" : "L")
+       "#{cmd} #{c[:x].round(2)} #{c[:y].round(2)}"
+     end.join(" ")
+  %>
 
   <section class="mt-6 bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-6">
     <div class="flex items-center justify-between gap-3 mb-3">
-      <h2 class="text-base font-semibold text-gray-100">Volume BTC (14 jours)</h2>
+      <h2 class="text-base font-semibold text-gray-100">Volume BTC (<%= @days %> jours)</h2>
       <div class="text-xs text-gray-500 font-mono">
         min <%= format("%.2f", min_btc.to_f) %> · max <%= format("%.2f", max_btc.to_f) %>
       </div>
@@ -115,7 +158,9 @@
           <% dlt = c[:p][:delta_pct] %>
 
           <circle
-            cx="<%= c[:x].round(2) %>" cy="<%= c[:y].round(2) %>" r="4"
+            cx="<%= c[:x].round(2) %>"
+            cy="<%= c[:y].round(2) %>"
+            r="4"
             class="fill-gray-200 hover:fill-white cursor-pointer"
             data-tooltip="1"
             data-day="<%= day.strftime("%Y-%m-%d") %>"
@@ -127,9 +172,7 @@
       </svg>
 
       <div id="whale-volume-tooltip"
-           class="pointer-events-none absolute hidden z-10
-                  bg-gray-950/95 border border-gray-800 rounded-xl px-3 py-2
-                  text-xs text-gray-100 shadow-xl">
+           class="pointer-events-none absolute hidden z-10 bg-gray-950/95 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-100 shadow-xl">
         <div class="font-mono text-gray-300" data-t="day"></div>
         <div class="mt-1">
           <span class="text-gray-400">Volume:</span>
@@ -150,17 +193,19 @@
 
   <%# -------------------- Chart 2: Activité par type (stacked counts) -------------------- %>
   <% type_color = {
-    "consolidation" => "bg-violet-400/90",
-    "distribution"  => "bg-emerald-400/90",
-    "batching"      => "bg-sky-400/90",
-    "other"         => "bg-gray-400/70"
-  } %>
+       "consolidation"      => "bg-violet-400/90",
+       "distribution"       => "bg-emerald-400/90",
+       "batching"           => "bg-sky-400/90",
+       "single_destination" => "bg-amber-400/90",
+       "other"              => "bg-gray-400/70"
+     }
+  %>
 
   <section class="mt-6 bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-6">
     <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 mb-3">
       <div>
         <h2 class="text-base font-semibold text-gray-100">Activité par type (counts / jour)</h2>
-        <div class="text-xs text-gray-500">14 jours · barres empilées · survol pour détails</div>
+        <div class="text-xs text-gray-500"><%= @days %> jours · barres empilées · survol pour détails</div>
       </div>
 
       <div class="flex flex-wrap gap-3 text-xs text-gray-400">
@@ -177,7 +222,7 @@
       <div class="space-y-2">
         <% (@chart_counts || []).each do |row| %>
           <% total = row[:total].to_i %>
-          <% day   = row[:day] %>
+          <% day = row[:day] %>
 
           <div class="grid grid-cols-12 gap-3 items-center">
             <div class="col-span-3 sm:col-span-2 text-xs text-gray-500 font-mono">
@@ -194,6 +239,7 @@
                 data-consolidation="<%= row[:by_type]["consolidation"].to_i %>"
                 data-distribution="<%= row[:by_type]["distribution"].to_i %>"
                 data-batching="<%= row[:by_type]["batching"].to_i %>"
+                data-single_destination="<%= row[:by_type]["single_destination"].to_i %>"
                 data-other="<%= row[:by_type]["other"].to_i %>"
               >
                 <% WhaleAlert::TYPES.each do |t| %>
@@ -212,9 +258,7 @@
       </div>
 
       <div id="whale-stacked-tooltip"
-           class="pointer-events-none absolute hidden z-10
-                  bg-gray-950/95 border border-gray-800 rounded-xl px-3 py-2
-                  text-xs text-gray-100 shadow-xl">
+           class="pointer-events-none absolute hidden z-10 bg-gray-950/95 border border-gray-800 rounded-xl px-3 py-2 text-xs text-gray-100 shadow-xl">
         <div class="font-mono text-gray-300" data-s="day"></div>
 
         <div class="mt-1">
@@ -244,7 +288,7 @@
 
   <%# -------------------- JS (tooltips) -------------------- %>
   <script>
-    (function() {
+    (function () {
       const tip = document.getElementById("whale-volume-tooltip");
       if (!tip) return;
 
@@ -286,7 +330,7 @@
           const mouseX = e.clientX - r.left;
           const mouseY = e.clientY - r.top;
 
-          const tipWidth  = tip.offsetWidth;
+          const tipWidth = tip.offsetWidth;
           const tipHeight = tip.offsetHeight;
           const padding = 12;
 
@@ -296,11 +340,11 @@
           if (x + tipWidth > r.width) x = mouseX - tipWidth - padding;
           if (y + tipHeight > r.height) y = mouseY - tipHeight - padding;
 
-          x = Math.max(padding, Math.min(x, r.width  - tipWidth  - padding));
+          x = Math.max(padding, Math.min(x, r.width - tipWidth - padding));
           y = Math.max(padding, Math.min(y, r.height - tipHeight - padding));
 
           tip.style.left = x + "px";
-          tip.style.top  = y + "px";
+          tip.style.top = y + "px";
         });
 
         pt.addEventListener("mouseleave", () => tip.classList.add("hidden"));
@@ -309,9 +353,9 @@
   </script>
 
   <script>
-    (function() {
+    (function () {
       const chart = document.getElementById("whale-stacked-chart");
-      const tip   = document.getElementById("whale-stacked-tooltip");
+      const tip = document.getElementById("whale-stacked-tooltip");
       if (!chart || !tip) return;
 
       const setText = (sel, txt) => {
@@ -341,7 +385,10 @@
               (bar.dataset.delta && parseFloat(bar.dataset.delta) >= 0 ? "text-emerald-300" : "text-rose-300");
           }
 
-          ["consolidation","distribution","batching","other"].forEach((t) => setText(t, bar.dataset[t] || "0"));
+          ["consolidation", "distribution", "batching", "single_destination", "other"].forEach((t) => {
+            setText(t, bar.dataset[t] || "0");
+          });
+
           tip.classList.remove("hidden");
         });
 
@@ -350,7 +397,7 @@
           const mouseX = e.clientX - r.left;
           const mouseY = e.clientY - r.top;
 
-          const tipWidth  = tip.offsetWidth;
+          const tipWidth = tip.offsetWidth;
           const tipHeight = tip.offsetHeight;
           const padding = 12;
 
@@ -360,121 +407,17 @@
           if (x + tipWidth > r.width) x = mouseX - tipWidth - padding;
           if (y + tipHeight > r.height) y = mouseY - tipHeight - padding;
 
-          x = Math.max(padding, Math.min(x, r.width  - tipWidth  - padding));
+          x = Math.max(padding, Math.min(x, r.width - tipWidth - padding));
           y = Math.max(padding, Math.min(y, r.height - tipHeight - padding));
 
           tip.style.left = x + "px";
-          tip.style.top  = y + "px";
+          tip.style.top = y + "px";
         });
 
         bar.addEventListener("mouseleave", () => tip.classList.add("hidden"));
       });
     })();
   </script>
-
-  <%# -------------------- Explain block (collapsible) -------------------- %>
-  <details class="mt-4 bg-gray-900/40 border border-gray-800 rounded-2xl">
-    <summary class="cursor-pointer select-none p-4 flex items-center justify-between gap-3 text-sm text-gray-200">
-      <span class="font-semibold">📘 Comment lire les Whale Alerts</span>
-      <span class="text-gray-500 text-xs">Afficher / masquer</span>
-    </summary>
-
-    <div class="px-4 pb-4 prose prose-invert max-w-none text-sm">
-      <%= raw MarkdownRenderer.to_html(<<~MD) %>
-### À quoi servent les Whale Alerts
-
-Les Whale Alerts permettent d’observer **le comportement des gros portefeuilles**  
-Elles ne prédisent pas le prix  
-Elles montrent **ce que font les acteurs importants sur la blockchain**
-
----
-
-### Les différents comportements observés
-
-**Consolidation**  
-Des fonds dispersés sont regroupés en une ou deux sorties  
-Indique souvent une phase de préparation ou de réorganisation  
-Ce n’est pas une vente
-
-**Distribution**  
-Un montant important est réparti vers de nombreuses sorties  
-Correspond à une phase d’exécution ou de dispersion  
-Peut inclure paiements ou ventes fractionnées
-
-**Batching**  
-Un grand nombre de sorties dans une seule transaction  
-Comportement typique de services ou plateformes  
-Signal d’activité opérationnelle, pas de sentiment de marché
-
-**Other**  
-Transaction importante sans comportement identifiable  
-Représente le bruit normal de la blockchain  
-La majorité des transactions entrent dans cette catégorie
-
----
-
-### Indicateur *Exchange-like*
-
-L’indicateur **Exchange-like** indique si une transaction  
-**ressemble au comportement d’un service** (exchange, plateforme, paiement)
-
-Il ne dit **pas** qui est derrière la transaction  
-Il ne signifie **pas** achat ou vente
-
-Il se base sur des signaux simples :
-- beaucoup de sorties
-- répartition en plusieurs paiements
-- absence de sortie dominante
-- patterns fréquents chez les services
-
-**Lecture du score :**
-- **85 – 100** : quasi certain (services / exchanges)
-- **70 – 84** : comportement très compatible
-- **45 – 69** : ambigu 
-- **0 – 44** : peu probable
-
-Un score élevé indique une **activité opérationnelle**, pas une intention de marché.
-
----
-
-### Modes d’affichage
-
-**Interesting**  
-Affiche uniquement les comportements intentionnels  
-Consolidation Distribution Batching  
-Permet de se concentrer sur ce qui mérite une attention particulière
-
-**Tout**  
-Affiche toutes les transactions importantes  
-Inclut aussi **Other** pour une vision complète
-
----
-
-### Lexique des métriques
-
-**inputs**  
-Nombre d’entrées de la transaction
-
-**outputs**  
-Nombre de sorties de la transaction
-
-**nonzero**  
-Nombre de sorties dont la valeur est strictement supérieure à 0 BTC
-
-**largest**  
-La plus grosse sortie en BTC
-
-**ratio**  
-largest ÷ total_out  
-Proche de 100% → une sortie domine la transaction
-
-**score**  
-Note simple de 0 à 100 pour trier les alertes  
-Le score ne prédit pas le prix
-
-      MD
-    </div>
-  </details>
 
   <%# -------------------- List -------------------- %>
   <div class="mt-4 space-y-3">
@@ -498,26 +441,27 @@ Le score ne prédit pas le prix
             <% if ex.present? %>
               <% ex_i = ex.to_i %>
               <% css =
-                  case hint.to_s
-                  when "very-likely"
-                    "text-red-300 bg-red-500/10"
-                  when "exchange-like"
-                    "text-rose-300 bg-rose-500/10"
-                  when "possible"
-                    "text-amber-300 bg-amber-500/10"
-                  when "unlikely"
-                    "text-gray-300 bg-white/5"
-                  else
-                    # fallback si hint manquant
-                    ex_i >= 85 ? "text-red-300 bg-red-500/10" :
-                      (ex_i >= 70 ? "text-rose-300 bg-rose-500/10" :
-                        (ex_i >= 45 ? "text-amber-300 bg-amber-500/10" : "text-gray-300 bg-white/5"))
-                  end
+                   case hint.to_s
+                   when "very-likely"
+                     "text-red-300 bg-red-500/10"
+                   when "exchange-like"
+                     "text-rose-300 bg-rose-500/10"
+                   when "possible"
+                     "text-amber-300 bg-amber-500/10"
+                   when "unlikely"
+                     "text-gray-300 bg-white/5"
+                   else
+                     ex_i >= 85 ? "text-red-300 bg-red-500/10" :
+                       (ex_i >= 70 ? "text-rose-300 bg-rose-500/10" :
+                         (ex_i >= 45 ? "text-amber-300 bg-amber-500/10" : "text-gray-300 bg-white/5"))
+                   end
               %>
 
               <span class="text-xs px-2 py-1 rounded-full border border-gray-700 <%= css %>">
                 EX <span class="font-mono"><%= ex_i %></span>
-                <% if hint.present? %><span class="text-gray-400 ml-1"><%= hint %></span><% end %>
+                <% if hint.present? %>
+                  <span class="text-gray-400 ml-1"><%= hint %></span>
+                <% end %>
               </span>
             <% else %>
               <span class="text-xs px-2 py-1 rounded-full border border-gray-800 text-gray-500 bg-white/5">
@@ -543,7 +487,6 @@ Le score ne prédit pas le prix
 
         <% if reasons.present? %>
           <div class="mt-2 text-xs text-gray-500">
-            
             <span class="font-mono"><%= Array(reasons).join(" · ") %></span>
           </div>
         <% end %>

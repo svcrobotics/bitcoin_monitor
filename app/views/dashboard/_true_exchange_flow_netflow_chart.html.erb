@@ -1,0 +1,153 @@
+<%# app/views/dashboard/_true_exchange_flow_netflow_chart.html.erb %>
+
+<% tf_days   = params[:tf_days].presence_in(%w[7 14 30]) || "7" %>
+<% tf_days_i = tf_days.to_i %>
+
+<% rows = ExchangeFlowDay.order(day: :desc).limit(tf_days_i).to_a.reverse %>
+<% return if rows.empty? %>
+
+<%
+  points = rows.map do |d|
+    inflow  = d.inflow_btc.presence&.to_d
+    outflow = d.outflow_btc.presence&.to_d
+    net     = d.netflow_btc.presence&.to_d
+
+    if net.nil? && inflow.present? && outflow.present?
+      net = inflow - outflow
+    end
+
+    [d.day.strftime("%Y-%m-%d"), net&.to_f]
+  end
+
+  measured = points.count { |(_day, v)| !v.nil? }
+%>
+
+<div class="mt-4 rounded-2xl border border-gray-800 bg-gray-950/40 p-4">
+  <div class="flex items-start justify-between gap-3 mb-3">
+    <div class="min-w-0">
+      <div class="flex items-center gap-2">
+        <h3 class="text-sm font-semibold text-gray-100">Netflow</h3>
+        <span class="text-[11px] text-gray-500"><%= measured %>/<%= tf_days_i %> mesurés</span>
+        <span class="hidden sm:inline text-gray-700">•</span>
+        <span class="hidden sm:inline text-[11px] text-gray-500">+ dépôts nets • − retraits nets</span>
+      </div>
+    </div>
+  </div>
+
+  <div class="relative" style="height: 180px;">
+    <canvas id="trueFlowNetflowChart"></canvas>
+  </div>
+</div>
+
+<script>
+  (function () {
+    const raw = <%= raw(points.to_json) %>;
+    if (!raw || raw.length === 0) return;
+    if (!window.Chart) { console.error("Chart.js not loaded"); return; }
+
+    const labels     = raw.map(r => r[0].slice(5));
+    const fullLabels = raw.map(r => r[0]);
+    const data       = raw.map(r => (r[1] === null ? null : Number(r[1])));
+
+    const alphaByMagnitude = (v) => {
+      const n = Math.min(1, Math.abs(v) / 8000);
+      return 0.10 + (0.18 * n);
+    };
+
+    const bg = data.map(v => {
+      if (v === null) return "rgba(148, 163, 184, 0.03)";
+      const a = alphaByMagnitude(v);
+      return `rgba(148, 163, 184, ${a.toFixed(3)})`;
+    });
+
+    const bd = data.map(v => {
+      if (v === null) return "rgba(148, 163, 184, 0.06)";
+      return "rgba(148, 163, 184, 0.28)";
+    });
+
+    const el = document.getElementById("trueFlowNetflowChart");
+    if (!el) return;
+
+    if (el._chart) {
+      el._chart.destroy();
+      el._chart = null;
+    }
+
+    el._chart = new Chart(el.getContext("2d"), {
+      type: "bar",
+      data: {
+        labels,
+        datasets: [{
+          data,
+          backgroundColor: bg,
+          borderColor: bd,
+          borderWidth: 1,
+          borderRadius: 8,
+          barPercentage: 0.9,
+          categoryPercentage: 0.9
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: "index", intersect: false },
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => {
+                const idx = items?.[0]?.dataIndex ?? 0;
+                return fullLabels[idx] || "";
+              },
+              label: (ctx) => {
+                const v = ctx.raw;
+                if (v === null) return " Netflow: N/A";
+                const n = Number(v);
+                const sign = n > 0 ? "+" : (n < 0 ? "−" : "");
+                return ` Netflow: ${sign}${Math.abs(n).toFixed(2)} BTC`;
+              },
+              afterLabel: (ctx) => {
+                const v = ctx.raw;
+                if (v === null) return "";
+                if (v > 0) return " Dépôts nets";
+                if (v < 0) return " Retraits nets";
+                return " Équilibre";
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: {
+              maxRotation: 0,
+              autoSkip: true,
+              maxTicksLimit: <%= tf_days_i == 30 ? 10 : (tf_days_i == 14 ? 10 : 8) %>,
+              color: "rgba(148, 163, 184, 0.70)"
+            },
+            grid: { display: false }
+          },
+          y: {
+            ticks: {
+              color: "rgba(148, 163, 184, 0.70)",
+              callback: (val) => {
+                const n = Number(val);
+                if (!isFinite(n)) return val;
+                const abs = Math.abs(n);
+                if (abs >= 1000) return (n / 1000).toFixed(1) + "k";
+                return n.toString();
+              }
+            },
+            grid: {
+              color: (ctx) => (
+                ctx.tick.value === 0
+                  ? "rgba(148, 163, 184, 0.22)"
+                  : "rgba(148, 163, 184, 0.06)"
+              ),
+              lineWidth: (ctx) => (ctx.tick.value === 0 ? 2 : 1)
+            }
+          }
+        }
+      }
+    });
+  })();
+</script>

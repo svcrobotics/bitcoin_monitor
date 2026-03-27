@@ -1,64 +1,138 @@
-<%# locals: trader_alerts:, range:, alerts_mode:, perf_pct:, pos_pct:, vol_pct:, max_drawdown_pct:, alignment: %>
+<%# app/views/market/_trader_alerts.html.erb %>
+<%# locals: trader_alerts:, range:, alignment: %>
 
 <section class="mt-4 bg-gray-800/80 border border-gray-700 rounded-2xl p-4 sm:p-5 shadow-xl">
+  <!-- Header -->
   <div class="flex items-start justify-between gap-3">
-    <div>
-      <h2 class="text-lg font-semibold text-gray-100">Alertes trader</h2>
-      <p class="text-sm text-gray-400">Synthèse automatique basée sur prix + flux.</p>
+    <div class="min-w-0">
+      <h2 class="text-lg font-semibold text-gray-100">Alertes risque</h2>
+      <p class="text-sm text-gray-400">
+        Règles heuristiques (prix + flux exchanges) — sans IA.
+      </p>
     </div>
+
+    <span class="text-xs px-3 py-1 rounded-full border bg-gray-900/60 border-gray-700 text-gray-200">
+      Niveau :
+      <span class="font-semibold">🔴 Vérifié</span>
+    </span>
   </div>
 
-  <div class="mt-3 flex flex-wrap gap-2">
-    <% { "normal" => "Normal", "strict" => "Strict" }.each do |m, label| %>
-      <% active = (alerts_mode == m) %>
-      <%= link_to label,
-                  market_price_path(range: range, alerts_mode: m),
-                  class: "px-3 py-1.5 rounded-xl border text-sm transition " +
-                         (active ? "bg-cyan-500/15 border-cyan-500/50 text-cyan-200"
-                                 : "bg-gray-900/60 border-gray-700 text-gray-300 hover:bg-gray-800") %>
-    <% end %>
-  </div>
+  <!-- Origin / explanation -->
+  <details class="group mt-2">
+    <summary class="cursor-pointer select-none text-xs text-gray-400 hover:text-gray-200 inline-flex items-center gap-1">
+      ℹ️ Origine des alertes
+      <span class="text-gray-500 group-open:hidden">▸</span>
+      <span class="text-gray-500 hidden group-open:inline">▾</span>
+    </summary>
+
+    <div class="mt-2 bg-gray-900/60 border border-gray-700 rounded-xl p-3 text-xs text-gray-300 leading-relaxed space-y-2">
+      <p>
+        Les alertes sont calculées localement par <span class="font-semibold">Bitcoin Monitor</span> à partir :
+      </p>
+      <ul class="list-disc list-inside text-gray-400 space-y-1">
+        <li><span class="font-semibold">Prix BTC journaliers</span> (closes) sur la période sélectionnée</li>
+        <li><span class="font-semibold">Flux True Exchange Flow</span> (inflow / outflow / netflow) sur la même fenêtre</li>
+        <li>Métriques dérivées : <span class="font-semibold">perf</span>, <span class="font-semibold">position</span>, <span class="font-semibold">max drawdown</span>, <span class="font-semibold">volatilité</span></li>
+        <li>+ <span class="font-semibold">alignement prix/flows</span> (status “supported/divergence”)</li>
+      </ul>
+      <p class="text-gray-400">
+        Chaque alerte correspond à une <span class="font-semibold">règle déterministe</span> (“trigger”),
+        et affiche les <span class="font-semibold">valeurs mesurées</span> qui l’ont déclenchée.
+      </p>
+    </div>
+  </details>
 
   <% if trader_alerts.present? %>
-    <div class="mt-3 space-y-3">
+    <div class="mt-4 space-y-3">
       <% trader_alerts.each do |a| %>
+        <%
+          hint   = a.hint.presence || "—"
+          netf   = alignment&.flow_net_btc
+          values = a.values.is_a?(Hash) ? a.values : {}
+        %>
+
         <div class="bg-gray-900/60 border border-gray-700 rounded-xl p-4">
-          <div class="flex items-center justify-between gap-2">
-            <h3 class="text-sm font-semibold text-gray-100"><%= a.title %></h3>
+          <div class="flex items-start justify-between gap-2">
+            <div class="min-w-0">
+              <h3 class="text-sm font-semibold text-gray-100"><%= a.title %></h3>
+              <p class="text-[11px] text-gray-500 mt-0.5">
+                Origine : heuristiques internes (🔴 vérifié)
+              </p>
+            </div>
+
             <span class="text-[11px] px-2 py-0.5 rounded-full border <%= level_badge_classes(a.level) %>">
               <%= a.level.to_s.upcase %>
             </span>
           </div>
 
-          <p class="text-sm text-gray-200 mt-1"><%= a.message %></p>
+          <p class="text-sm text-gray-200 mt-2">
+            <%= a.message %>
+          </p>
 
-          <% if a.hint.present? %>
-            <p class="text-xs text-gray-400 mt-2">
-              <span class="font-semibold">Suggestion :</span> <%= a.hint %>
-            </p>
+          <% if values.any? %>
+            <div class="mt-3 bg-black/20 border border-gray-800 rounded-xl p-3">
+              <p class="text-xs text-gray-400 mb-2">Valeurs mesurées</p>
+
+              <div class="grid grid-cols-2 sm:grid-cols-3 gap-2">
+                <% values.each do |k, v| %>
+                  <div class="rounded-lg bg-gray-900/50 border border-gray-800 px-2.5 py-2">
+                    <div class="text-[11px] text-gray-500"><%= k %></div>
+                    <div class="text-sm font-mono text-gray-100 truncate" title="<%= v %>"><%= v %></div>
+                  </div>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+
+          <p class="text-xs text-gray-400 mt-3">
+            <span class="font-semibold">Action :</span> <%= hint %>
+          </p>
+
+          <% if a.trigger.present? %>
+            <details class="group mt-2">
+              <summary class="cursor-pointer select-none text-xs text-gray-400 hover:text-gray-200 inline-flex items-center gap-1">
+                🔎 Voir la règle (trigger)
+                <span class="text-gray-500 group-open:hidden">▸</span>
+                <span class="text-gray-500 hidden group-open:inline">▾</span>
+              </summary>
+              <div class="mt-2 bg-gray-950/40 border border-gray-800 rounded-xl p-3 text-xs text-gray-300">
+                <span class="font-mono"><%= a.trigger %></span>
+              </div>
+            </details>
           <% end %>
 
           <div class="mt-3">
             <%= link_to journal_entry_prefill_path(
                   mood: mood_from_level(a.level),
-                  tags: "price,flow,alert,#{range},#{alerts_mode}",
-                  context: "Alerte trader #{range} (#{alerts_mode}) — #{a.title}",
+                  tags: "price,flow,alert,#{range}",
+                  context: "Alerte #{range} — 🔴 Vérifié — #{a.title}",
                   body: <<~TXT
+                    Alerte:
+                    #{a.title} (#{a.level.to_s.upcase})
+
                     Message:
                     #{a.message}
 
-                    Suggestion:
-                    #{a.hint}
+                    Action:
+                    #{hint}
+
+                    Valeurs:
+                    #{values.map { |k,v| "- #{k}: #{v}" }.join("\n")}
+
+                    Trigger:
+                    #{a.trigger}
 
                     Contexte:
-                    Perf=#{perf_pct}% • Pos=#{pos_pct}% • Vol≈#{vol_pct}%/j • DD=#{max_drawdown_pct}% • NetFlow=#{alignment&.flow_net_btc}
+                    Range=#{range} • NetFlow=#{netf}
 
                     Décision:
 
                     Risque / invalidation:
                   TXT
                 ),
-                class: "inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs bg-gray-950/40 border border-gray-700 text-gray-200 hover:bg-gray-800 hover:border-gray-600 transition" do %>
+                class: "inline-flex items-center gap-2 rounded-xl px-3 py-1.5 text-xs
+                        bg-gray-950/40 border border-gray-700 text-gray-200
+                        hover:bg-gray-800 hover:border-gray-600 transition" do %>
               📝 Journaliser
             <% end %>
           </div>
@@ -66,12 +140,12 @@
       <% end %>
     </div>
   <% else %>
-    <div class="mt-3 bg-gray-900/60 border border-gray-700 rounded-xl p-4">
+    <div class="mt-4 bg-gray-900/60 border border-gray-700 rounded-xl p-4">
       <p class="text-sm text-gray-300">
-        Aucune alerte (mode <span class="font-mono"><%= alerts_mode %></span>).
+        Aucune alerte sur la période <span class="font-mono"><%= range %></span>.
       </p>
       <p class="text-xs text-gray-500 mt-1">
-        Rien de “vraiment” remarquable selon tes seuils actuels.
+        Rien de “vraiment” remarquable selon les règles actuelles.
       </p>
     </div>
   <% end %>

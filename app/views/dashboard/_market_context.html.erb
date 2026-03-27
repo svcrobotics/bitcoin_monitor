@@ -95,11 +95,8 @@
     <% cycle = snapshot.cycle_zone.to_s %>
     <% risk  = snapshot.risk_level.to_s %>
 
-    <% price_now = snapshot.price_now_usd.to_f %>
-    <% ma200     = snapshot.ma200_usd.to_f %>
-
     <div class="mt-5 grid grid-cols-1 sm:grid-cols-3 gap-3">
-      <%# --- Bias --- %>
+      <%# --- Bias / Market --- %>
       <% bias_label_simple =
            case bias
            when "bull" then "Plutôt haussier"
@@ -121,18 +118,9 @@
         <p class="text-lg font-semibold">
           <%= simple_mode? ? bias_label_simple : content_tag(:span, bias, class: "font-mono") %>
         </p>
-
-        <% if ma200.positive? %>
-          <% delta_pct = ((price_now - ma200) / ma200 * 100).round(1) %>
-          <p class="text-xs text-gray-300 mt-1">
-            Prix vs MA200 : <span class="font-mono"><%= delta_pct.positive? ? "+" : "" %><%= delta_pct %>%</span>
-          </p>
-          <p class="text-xs text-gray-400 mt-1">
-            MA200 : <span class="font-mono"><%= number_to_currency(ma200, unit: "$", precision: 0, delimiter: " ") %></span>
-          </p>
-        <% else %>
-          <p class="text-xs text-gray-400 mt-1"><%= simple_mode? ? "Tendance long terme via MA200." : "Biais long terme via MA200." %></p>
-        <% end %>
+        <p class="text-xs text-gray-400 mt-1">
+          <%= simple_mode? ? "Lecture de tendance (MA200 + structure)." : "Biais macro (trend filter + structure)." %>
+        </p>
       </div>
 
       <%# --- Cycle --- %>

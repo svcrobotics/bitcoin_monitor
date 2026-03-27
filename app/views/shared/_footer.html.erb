@@ -1,3 +1,62 @@
-<footer class="mt-10 text-center text-gray-500 text-xs sm:text-sm">
-  Projet auto-hébergé • Royan 🇫🇷 • Version 0.9 — UI épurée • svcrobotics@gmail.com
+<%# app/views/shared/_footer.html.erb %>
+
+<footer class="mt-10 border-t border-gray-800 pt-8 pb-10">
+  <div class="mx-auto w-full max-w-5xl lg:max-w-7xl xl:max-w-screen-xl px-4 sm:px-6 lg:px-8">
+    <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
+
+      <!-- Brand -->
+      <div class="min-w-0">
+        <div class="text-sm font-semibold text-gray-100">
+          <%= t("footer.brand") %>
+        </div>
+        <p class="mt-2 text-sm text-gray-400 leading-relaxed">
+          <%= t("footer.tagline") %>
+        </p>
+        <p class="mt-3 text-xs text-gray-500">
+          <%= t("footer.built_for") %>
+        </p>
+      </div>
+
+      <!-- Product -->
+      <div>
+        <p class="text-xs uppercase tracking-wide text-gray-500"><%= t("footer.sections.product") %></p>
+        <ul class="mt-3 space-y-2 text-sm">
+          <li><%= link_to t("footer.links.dashboard"), root_path, class: "text-gray-300 hover:text-gray-100" %></li>
+          <li><%= link_to t("footer.links.guides"), guides_path, class: "text-gray-300 hover:text-gray-100" %></li>
+          <li><%= link_to t("footer.links.security"), opsec_path, class: "text-gray-300 hover:text-gray-100" %></li>
+        </ul>
+      </div>
+
+      <!-- Company -->
+      <div>
+        <p class="text-xs uppercase tracking-wide text-gray-500"><%= t("footer.sections.company") %></p>
+        <ul class="mt-3 space-y-2 text-sm">
+          <li><%= link_to t("footer.links.about"), about_path, class: "text-gray-300 hover:text-gray-100" %></li>
+          <li><%= link_to t("footer.links.status"), system_path, class: "text-gray-300 hover:text-gray-100" %></li>
+          <li><%= link_to t("footer.links.contact"), contact_path, class: "text-gray-300 hover:text-gray-100" %></li>
+        </ul>
+      </div>
+
+      <!-- Legal -->
+      <div>
+        <p class="text-xs uppercase tracking-wide text-gray-500"><%= t("footer.sections.legal") %></p>
+        <ul class="mt-3 space-y-2 text-sm">
+          <li><%= link_to t("footer.links.terms"), terms_path, class: "text-gray-300 hover:text-gray-100" %></li>
+          <li><%= link_to t("footer.links.privacy"), privacy_path, class: "text-gray-300 hover:text-gray-100" %></li>
+          <li><%= link_to t("footer.links.risk"), risk_disclosure_path, class: "text-gray-300 hover:text-gray-100" %></li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- Bottom bar -->
+    <div class="mt-8 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+      <p class="text-xs text-gray-500 leading-relaxed max-w-3xl">
+        <%= t("footer.disclaimer") %>
+      </p>
+
+      <p class="text-xs text-gray-500">
+        © <%= Time.current.year %> <%= t("footer.brand") %>. <%= t("footer.rights") %>
+      </p>
+    </div>
+  </div>
 </footer>

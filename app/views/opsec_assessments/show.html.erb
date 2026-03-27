@@ -1,0 +1,198 @@
+<%# app/views/opsec_assessments/show.html.erb %>
+<% content_for :title, "OPSEC Score — Résultat" %>
+
+<%
+  level = @assessment.risk_level.to_s
+  badge =
+    case level
+    when "green"
+      ["🟢 Discret", "border-emerald-500/30 bg-emerald-500/10 text-emerald-200"]
+    when "red"
+      ["🔴 Risque élevé", "border-rose-500/30 bg-rose-500/10 text-rose-200"]
+    else
+      ["🟡 Exposition modérée", "border-amber-500/30 bg-amber-500/10 text-amber-200"]
+    end
+
+  score = @assessment.score.to_i
+  risk_points = @assessment.total_risk_points.to_i
+  max_points  = @assessment.max_risk_points.to_i
+
+  # Définition des textes (doit matcher new)
+  question_text = {
+    "published_crypto"    => "Publication sur crypto",
+    "same_pseudo_public"  => "Pseudo réutilisé publiquement",
+    "linkedin_location"   => "Profil pro + localisation",
+    "showed_setup"        => "Matériel / setup montré",
+
+    "same_email_exchange" => "Même email exchange + réseaux",
+    "phone_findable"      => "Téléphone trouvable",
+    "identity_linkable"   => "Identité reliée au pseudo",
+
+    "funds_on_exchange"   => "Fonds sur exchange",
+    "transferable_alone"  => "Transférable seul",
+    "decoy_wallet"        => "Pas de wallet leurre",
+
+    "close_ones_know"     => "Proches au courant du montant",
+    "setup_visible_home"  => "Indices visibles à domicile",
+    "home_security"       => "Pas de protection domicile",
+
+    "threat_plan"         => "Pas de plan en cas de menace",
+    "separate_devices"    => "Devices non séparés"
+  }
+
+  # Top risques : trier par risk_points desc, garder les > 0
+  top = @assessment.opsec_answers
+    .select { |a| a.risk_points.to_i > 0 }
+    .sort_by { |a| -a.risk_points.to_i }
+    .first(5)
+
+  # Actions prioritaires simples (V1)
+  actions = []
+  keys = @answers
+
+  # Exposition / identité
+  actions << "Séparer identité crypto et identité réelle (pseudo, email, réseaux)." if keys["same_pseudo_public"]&.answer == "yes" || keys["identity_linkable"]&.answer == "yes"
+  actions << "Créer un email dédié crypto (différent de tout usage public)." if keys["same_email_exchange"]&.answer == "yes"
+  actions << "Réduire l’exposition publique (posts, photos, géolocalisation)." if keys["published_crypto"]&.answer == "yes" || keys["showed_setup"]&.answer == "yes" || keys["linkedin_location"]&.answer == "yes"
+  actions << "Limiter les fonds sur exchange (retirer vers stockage froid)." if keys["funds_on_exchange"]&.answer == "yes"
+
+  # Coercition
+  actions << "Rendre le stockage principal non transférable par une seule personne (multisig / séparation des clés / délais)." if keys["transferable_alone"]&.answer == "yes"
+  actions << "Mettre en place un wallet “leurre” (petit montant) séparé du stockage principal." if keys["decoy_wallet"]&.answer == "no"
+  actions << "Séparer devices (téléphone public vs device crypto) et réduire les traces (captures, notes, photos)." if keys["separate_devices"]&.answer == "no"
+
+  # Domicile
+  actions << "Supprimer les indices visibles à domicile (matériel, cartons, affichage) et renforcer la sécurité de base." if keys["setup_visible_home"]&.answer == "yes" || keys["home_security"]&.answer == "no"
+
+  # Plan
+  actions << "Définir un plan simple en cas de menace (réflexes, contacts, procédures)." if keys["threat_plan"]&.answer == "no"
+
+  actions = actions.uniq.first(6)
+%>
+
+<div class="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+  <div class="flex items-start justify-between gap-4">
+    <div class="min-w-0">
+      <h1 class="text-2xl sm:text-3xl font-semibold text-gray-100">
+        Résultat — OPSEC Score
+      </h1>
+      <p class="mt-2 text-sm text-gray-400 max-w-2xl">
+        Score basé uniquement sur tes réponses.
+        <span class="text-gray-500">Aucun scan externe, aucun email/identité stockés.</span>
+      </p>
+    </div>
+
+    <span class="text-xs px-3 py-1 rounded-full border <%= badge[1] %>">
+      <%= badge[0] %>
+    </span>
+  </div>
+
+  <div class="mt-6 grid grid-cols-1 sm:grid-cols-3 gap-4">
+    <div class="sm:col-span-2 bg-gray-900/40 border border-gray-800 rounded-2xl p-5 sm:p-6">
+      <div class="flex items-end justify-between">
+        <div>
+          <div class="text-xs text-gray-500">Score</div>
+          <div class="text-4xl font-semibold text-gray-100"><%= score %><span class="text-gray-500 text-xl">/100</span></div>
+        </div>
+        <div class="text-right">
+          <div class="text-xs text-gray-500">Points risque</div>
+          <div class="text-sm text-gray-200 font-semibold"><%= risk_points %> / <%= max_points %></div>
+        </div>
+      </div>
+
+      <%# Jauge simple %>
+      <div class="mt-4">
+        <div class="h-2 w-full bg-gray-800 rounded-full overflow-hidden">
+          <div class="h-2 bg-indigo-500" style="width: <%= score %>%;"></div>
+        </div>
+        <div class="mt-2 flex justify-between text-[11px] text-gray-500">
+          <span>0</span><span>50</span><span>100</span>
+        </div>
+      </div>
+
+      <details class="group mt-5">
+        <summary class="cursor-pointer select-none inline-flex items-center gap-2 text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-black/20 text-indigo-200 hover:bg-white/5">
+          ℹ️ Comprendre ce score
+          <span class="text-gray-500 group-open:hidden">▸</span>
+          <span class="text-gray-500 hidden group-open:inline">▾</span>
+        </summary>
+        <div class="mt-2 bg-gray-950/30 border border-gray-800 rounded-2xl p-4 text-[12px] leading-relaxed text-gray-200">
+          <p>
+            Ce score estime ton <span class="font-semibold">exposition</span> (probabilité qu’on puisse relier ton identité/ton domicile à tes avoirs crypto),
+            et ta <span class="font-semibold">résistance à la coercition</span> (capacité à empêcher un transfert immédiat sous contrainte).
+          </p>
+          <p class="mt-2 text-gray-400">
+            Améliorer OPSEC = réduire les informations accessibles publiquement + rendre le transfert difficile sans plusieurs facteurs (clés séparées, multisig, délais).
+          </p>
+        </div>
+      </details>
+    </div>
+
+    <div class="bg-gray-900/40 border border-gray-800 rounded-2xl p-5 sm:p-6">
+      <div class="text-sm font-semibold text-gray-100">Actions prioritaires</div>
+      <p class="mt-1 text-xs text-gray-400">Ce qui a le plus d’impact en premier.</p>
+
+      <div class="mt-4 space-y-2">
+        <% if actions.any? %>
+          <% actions.each_with_index do |a, idx| %>
+            <div class="flex items-start gap-2 bg-black/10 border border-gray-800 rounded-xl p-3">
+              <div class="text-xs text-gray-500 pt-0.5"><%= idx + 1 %>.</div>
+              <div class="text-xs text-gray-200 leading-relaxed"><%= a %></div>
+            </div>
+          <% end %>
+        <% else %>
+          <div class="text-xs text-gray-300">
+            Rien d’évident à corriger à partir de tes réponses. Continue à rester discret et à maintenir une architecture robuste.
+          </div>
+        <% end %>
+      </div>
+
+      <div class="mt-5 flex flex-col gap-2">
+        <%= link_to "Refaire le questionnaire", opsec_path, class: "text-sm px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white font-semibold text-center" %>
+        <%= link_to "Voir les détails", "#details", class: "text-sm px-4 py-2 rounded-xl border border-gray-700 text-gray-200 hover:bg-white/5 text-center" %>
+      </div>
+    </div>
+  </div>
+
+  <div id="details" class="mt-6 bg-gray-900/40 border border-gray-800 rounded-2xl p-5 sm:p-6">
+    <div class="flex items-start justify-between gap-3">
+      <div>
+        <h2 class="text-lg font-semibold text-gray-100">Détails des risques</h2>
+        <p class="mt-1 text-xs text-gray-400">
+          Top points de risque détectés (plus le point est élevé, plus c’est prioritaire).
+        </p>
+      </div>
+      <span class="text-[11px] px-2.5 py-1 rounded-full border border-gray-700 bg-black/20 text-gray-200">
+        Audit #<%= @assessment.id %>
+      </span>
+    </div>
+
+    <div class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-3">
+      <% if top.any? %>
+        <% top.each do |a| %>
+          <div class="bg-black/10 border border-gray-800 rounded-xl p-4">
+            <div class="flex items-center justify-between gap-3">
+              <div class="text-sm text-gray-100 font-semibold">
+                <%= question_text[a.question_key] || a.question_key.humanize %>
+              </div>
+              <span class="text-[11px] px-2 py-0.5 rounded-full border border-gray-700 bg-gray-950/40 text-gray-200">
+                +<%= a.risk_points %> pts
+              </span>
+            </div>
+            <div class="mt-2 text-xs text-gray-400">
+              Réponse : <span class="font-semibold text-gray-200"><%= a.answer %></span>
+            </div>
+          </div>
+        <% end %>
+      <% else %>
+        <div class="text-sm text-gray-300">
+          Aucun risque notable détecté (ou réponses très protectrices).
+        </div>
+      <% end %>
+    </div>
+
+    <div class="mt-5 text-[11px] text-gray-500 leading-relaxed">
+      ⚠️ Cet outil est pédagogique. En cas de menace immédiate, priorité à la sécurité des personnes et à contacter les autorités.
+    </div>
+  </div>
+</div>

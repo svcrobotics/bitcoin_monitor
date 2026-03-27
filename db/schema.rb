@@ -10,9 +10,40 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
+ActiveRecord::Schema[8.0].define(version: 2026_03_21_174129) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "address_links", force: :cascade do |t|
+    t.bigint "address_a_id", null: false
+    t.bigint "address_b_id", null: false
+    t.string "link_type", null: false
+    t.string "txid", null: false
+    t.integer "block_height"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["address_a_id", "address_b_id", "link_type", "txid"], name: "idx_address_links_uniqueness", unique: true
+    t.index ["address_a_id"], name: "index_address_links_on_address_a_id"
+    t.index ["address_b_id"], name: "index_address_links_on_address_b_id"
+    t.index ["block_height"], name: "index_address_links_on_block_height"
+    t.index ["txid"], name: "index_address_links_on_txid"
+  end
+
+  create_table "addresses", force: :cascade do |t|
+    t.string "address", null: false
+    t.integer "first_seen_height"
+    t.integer "last_seen_height"
+    t.bigint "total_received_sats", default: 0, null: false
+    t.bigint "total_sent_sats", default: 0, null: false
+    t.integer "tx_count", default: 0, null: false
+    t.bigint "cluster_id"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_addresses_on_address", unique: true
+    t.index ["cluster_id"], name: "index_addresses_on_cluster_id"
+    t.index ["first_seen_height"], name: "index_addresses_on_first_seen_height"
+    t.index ["last_seen_height"], name: "index_addresses_on_last_seen_height"
+  end
 
   create_table "ai_insights", force: :cascade do |t|
     t.string "key"
@@ -142,8 +173,64 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
     t.decimal "volume_btc", precision: 20, scale: 8
     t.jsonb "sources_json", default: {}, null: false
     t.datetime "computed_at"
+    t.decimal "close_eur", precision: 20, scale: 8
+    t.decimal "open_eur", precision: 20, scale: 8
+    t.decimal "high_eur", precision: 20, scale: 8
+    t.decimal "low_eur", precision: 20, scale: 8
     t.index ["computed_at"], name: "index_btc_price_days_on_computed_at"
     t.index ["day"], name: "index_btc_price_days_on_day", unique: true
+  end
+
+  create_table "cluster_metrics", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.date "snapshot_date"
+    t.integer "tx_count_24h"
+    t.integer "tx_count_7d"
+    t.bigint "sent_sats_24h"
+    t.bigint "sent_sats_7d"
+    t.integer "activity_score"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_id"], name: "index_cluster_metrics_on_cluster_id"
+  end
+
+  create_table "cluster_profiles", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.integer "cluster_size"
+    t.integer "tx_count"
+    t.bigint "total_sent_sats"
+    t.integer "first_seen_height"
+    t.integer "last_seen_height"
+    t.string "classification"
+    t.integer "score"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.text "traits"
+    t.index ["cluster_id"], name: "index_cluster_profiles_on_cluster_id"
+  end
+
+  create_table "cluster_signals", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.date "snapshot_date"
+    t.string "signal_type"
+    t.string "severity"
+    t.integer "score"
+    t.jsonb "metadata"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_id"], name: "index_cluster_signals_on_cluster_id"
+  end
+
+  create_table "clusters", force: :cascade do |t|
+    t.integer "address_count", default: 0, null: false
+    t.bigint "total_received_sats", default: 0, null: false
+    t.bigint "total_sent_sats", default: 0, null: false
+    t.integer "first_seen_height"
+    t.integer "last_seen_height"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["first_seen_height"], name: "index_clusters_on_first_seen_height"
+    t.index ["last_seen_height"], name: "index_clusters_on_last_seen_height"
   end
 
   create_table "exchange_addresses", force: :cascade do |t|
@@ -155,6 +242,98 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
     t.string "source"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_exchange_addresses_on_address", unique: true
+  end
+
+  create_table "exchange_flow_day_behaviors", force: :cascade do |t|
+    t.date "day", null: false
+    t.decimal "retail_deposit_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "retail_deposit_volume_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "whale_deposit_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "whale_deposit_volume_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "institutional_deposit_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "institutional_deposit_volume_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "retail_withdrawal_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "retail_withdrawal_volume_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "whale_withdrawal_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "whale_withdrawal_volume_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "institutional_withdrawal_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "institutional_withdrawal_volume_ratio", precision: 10, scale: 6, default: "0.0"
+    t.decimal "deposit_concentration_score", precision: 10, scale: 6, default: "0.0"
+    t.decimal "withdrawal_concentration_score", precision: 10, scale: 6, default: "0.0"
+    t.decimal "distribution_score", precision: 10, scale: 6, default: "0.0"
+    t.decimal "accumulation_score", precision: 10, scale: 6, default: "0.0"
+    t.decimal "behavior_score", precision: 10, scale: 6, default: "0.0"
+    t.datetime "computed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["day"], name: "index_exchange_flow_day_behaviors_on_day", unique: true
+  end
+
+  create_table "exchange_flow_day_capital_behaviors", force: :cascade do |t|
+    t.date "day", null: false
+    t.decimal "retail_deposit_capital_ratio", precision: 10, scale: 6
+    t.decimal "whale_deposit_capital_ratio", precision: 10, scale: 6
+    t.decimal "institutional_deposit_capital_ratio", precision: 10, scale: 6
+    t.decimal "retail_withdrawal_capital_ratio", precision: 10, scale: 6
+    t.decimal "whale_withdrawal_capital_ratio", precision: 10, scale: 6
+    t.decimal "institutional_withdrawal_capital_ratio", precision: 10, scale: 6
+    t.decimal "capital_dominance_score", precision: 10, scale: 6
+    t.decimal "whale_distribution_score", precision: 10, scale: 6
+    t.decimal "whale_accumulation_score", precision: 10, scale: 6
+    t.decimal "capital_behavior_score", precision: 10, scale: 6
+    t.datetime "computed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.decimal "count_volume_divergence_score", precision: 10, scale: 6
+    t.index ["day"], name: "index_exchange_flow_day_capital_behaviors_on_day", unique: true
+  end
+
+  create_table "exchange_flow_day_details", force: :cascade do |t|
+    t.date "day", null: false
+    t.integer "deposit_count", default: 0, null: false
+    t.decimal "avg_deposit_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "max_deposit_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "inflow_lt_1_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "inflow_1_10_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "inflow_10_100_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "inflow_100_500_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "inflow_gt_500_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.integer "inflow_lt_1_count", default: 0, null: false
+    t.integer "inflow_1_10_count", default: 0, null: false
+    t.integer "inflow_10_100_count", default: 0, null: false
+    t.integer "inflow_100_500_count", default: 0, null: false
+    t.integer "inflow_gt_500_count", default: 0, null: false
+    t.datetime "computed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.integer "withdrawal_count", default: 0, null: false
+    t.decimal "avg_withdrawal_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "max_withdrawal_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "outflow_lt_1_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "outflow_1_10_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "outflow_10_100_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "outflow_100_500_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "outflow_gt_500_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.integer "outflow_lt_1_count", default: 0, null: false
+    t.integer "outflow_1_10_count", default: 0, null: false
+    t.integer "outflow_10_100_count", default: 0, null: false
+    t.integer "outflow_100_500_count", default: 0, null: false
+    t.integer "outflow_gt_500_count", default: 0, null: false
+    t.index ["day"], name: "index_exchange_flow_day_details_on_day", unique: true
+  end
+
+  create_table "exchange_flow_days", force: :cascade do |t|
+    t.date "day", null: false
+    t.decimal "inflow_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "outflow_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "netflow_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.integer "inflow_utxo_count", default: 0, null: false
+    t.integer "outflow_utxo_count", default: 0, null: false
+    t.datetime "computed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["day"], name: "index_exchange_flow_days_on_day", unique: true
   end
 
   create_table "exchange_flows", force: :cascade do |t|
@@ -167,6 +346,70 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
     t.string "status"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.decimal "true_inflow_btc"
+    t.decimal "true_outflow_btc", precision: 20, scale: 8
+    t.decimal "true_net_btc", precision: 20, scale: 8
+    t.index ["true_outflow_btc"], name: "index_exchange_flows_on_true_outflow_btc"
+  end
+
+  create_table "exchange_inflow_breakdowns", force: :cascade do |t|
+    t.date "day", null: false
+    t.string "scope", default: "inflow", null: false
+    t.integer "min_occ", default: 8, null: false
+    t.decimal "lt10_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "b10_99_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "b100_499_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "b500p_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "total_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.integer "utxos_count", default: 0, null: false
+    t.integer "addresses_count", default: 0, null: false
+    t.decimal "top1_btc", precision: 20, scale: 8
+    t.decimal "top10_btc", precision: 20, scale: 8
+    t.decimal "top1_pct", precision: 8, scale: 4
+    t.decimal "top10_pct", precision: 8, scale: 4
+    t.jsonb "meta", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["day", "scope", "min_occ"], name: "idx_inflow_breakdowns_day_scope_occ", unique: true
+    t.index ["day"], name: "index_exchange_inflow_breakdowns_on_day"
+  end
+
+  create_table "exchange_observed_utxos", force: :cascade do |t|
+    t.string "txid", null: false
+    t.integer "vout", null: false
+    t.string "address"
+    t.decimal "value_btc", precision: 20, scale: 8, null: false
+    t.date "seen_day", null: false
+    t.string "source", default: "trueflow", null: false
+    t.datetime "spent_at"
+    t.date "spent_day"
+    t.string "spent_by_txid"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "spent_blockhash"
+    t.integer "spent_blockheight"
+    t.index ["address", "seen_day"], name: "index_exchange_observed_utxos_on_address_and_seen_day"
+    t.index ["address"], name: "index_exchange_observed_utxos_on_address"
+    t.index ["seen_day"], name: "index_exchange_observed_utxos_on_seen_day"
+    t.index ["spent_at"], name: "index_exchange_observed_utxos_on_spent_at"
+    t.index ["spent_by_txid"], name: "index_exchange_observed_utxos_on_spent_by_txid"
+    t.index ["spent_day"], name: "index_exchange_observed_utxos_on_spent_day"
+    t.index ["txid", "vout"], name: "index_exchange_observed_utxos_on_txid_and_vout", unique: true
+  end
+
+  create_table "exchange_outflow_breakdowns", force: :cascade do |t|
+    t.date "day", null: false
+    t.string "scope", null: false
+    t.string "bucket", null: false
+    t.decimal "btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "pct", precision: 10, scale: 4
+    t.jsonb "meta", default: {}, null: false
+    t.datetime "computed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["day", "scope", "bucket"], name: "idx_outflow_breakdowns_unique", unique: true
+    t.index ["day"], name: "index_exchange_outflow_breakdowns_on_day"
+    t.index ["scope"], name: "index_exchange_outflow_breakdowns_on_scope"
   end
 
   create_table "exchange_true_flows", force: :cascade do |t|
@@ -181,6 +424,25 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
     t.string "status"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.boolean "covered", default: false, null: false
+    t.integer "events_count"
+    t.integer "touching_exchange_events_count"
+    t.decimal "inflow_b_btc"
+    t.decimal "inflow_a_btc"
+    t.decimal "inflow_s_btc"
+    t.decimal "avg30_b"
+    t.decimal "avg30_a"
+    t.decimal "avg30_s"
+    t.decimal "ratio30_b"
+    t.decimal "ratio30_a"
+    t.decimal "ratio30_s"
+    t.decimal "outflow_ext_btc"
+    t.decimal "outflow_int_btc"
+    t.decimal "outflow_gross_btc"
+    t.decimal "outflow_confidence"
+    t.string "outflow_kind"
+    t.index ["day"], name: "index_exchange_true_flows_on_day", unique: true
+    t.index ["outflow_kind"], name: "index_exchange_true_flows_on_outflow_kind"
   end
 
   create_table "feature_requests", force: :cascade do |t|
@@ -198,7 +460,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
 
   create_table "guides", force: :cascade do |t|
     t.string "title"
-    t.string "slug"
+    t.string "slug", null: false
     t.text "content"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
@@ -211,8 +473,21 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
     t.index ["app_area"], name: "index_guides_on_app_area"
     t.index ["category"], name: "index_guides_on_category"
     t.index ["position"], name: "index_guides_on_position"
-    t.index ["slug"], name: "index_guides_on_slug"
+    t.index ["slug"], name: "index_guides_on_slug", unique: true
     t.index ["status"], name: "index_guides_on_status"
+  end
+
+  create_table "job_runs", force: :cascade do |t|
+    t.string "name"
+    t.string "status"
+    t.datetime "started_at"
+    t.datetime "finished_at"
+    t.integer "duration_ms"
+    t.integer "exit_code"
+    t.text "error"
+    t.text "meta"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
   end
 
   create_table "journal_entries", force: :cascade do |t|
@@ -258,6 +533,28 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
     t.datetime "updated_at", null: false
     t.index ["computed_at"], name: "index_market_snapshots_on_computed_at"
     t.index ["status"], name: "index_market_snapshots_on_status"
+  end
+
+  create_table "opsec_answers", force: :cascade do |t|
+    t.bigint "opsec_assessment_id", null: false
+    t.string "question_key", null: false
+    t.string "answer", null: false
+    t.integer "risk_points", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["opsec_assessment_id", "question_key"], name: "index_opsec_answers_on_opsec_assessment_id_and_question_key", unique: true
+    t.index ["opsec_assessment_id"], name: "index_opsec_answers_on_opsec_assessment_id"
+    t.index ["question_key"], name: "index_opsec_answers_on_question_key"
+  end
+
+  create_table "opsec_assessments", force: :cascade do |t|
+    t.integer "score", default: 0, null: false
+    t.string "risk_level", default: "yellow", null: false
+    t.integer "total_risk_points", default: 0, null: false
+    t.integer "max_risk_points", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["risk_level"], name: "index_opsec_assessments_on_risk_level"
   end
 
   create_table "price_zones", force: :cascade do |t|
@@ -374,6 +671,24 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
     t.index ["rune_id_block", "rune_id_tx"], name: "index_rune_tokens_on_rune_id_block_and_rune_id_tx", unique: true
   end
 
+  create_table "scan_cursors", force: :cascade do |t|
+    t.string "name", null: false
+    t.bigint "last_height", default: 0, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["name"], name: "index_scan_cursors_on_name", unique: true
+  end
+
+  create_table "scanner_cursors", force: :cascade do |t|
+    t.string "name", null: false
+    t.integer "last_blockheight"
+    t.string "last_blockhash"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["last_blockheight"], name: "index_scanner_cursors_on_last_blockheight"
+    t.index ["name"], name: "index_scanner_cursors_on_name", unique: true
+  end
+
   create_table "trade_simulation_points", force: :cascade do |t|
     t.bigint "trade_simulation_id", null: false
     t.date "day", null: false
@@ -391,7 +706,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
   create_table "trade_simulations", force: :cascade do |t|
     t.date "buy_day"
     t.date "sell_day"
-    t.decimal "btc_amount", precision: 20, scale: 8, null: false
+    t.decimal "btc_amount", precision: 20, scale: 8
     t.decimal "buy_fee_pct", precision: 6, scale: 3, default: "0.0", null: false
     t.decimal "buy_fee_fixed_eur", precision: 12, scale: 2, default: "0.0", null: false
     t.decimal "sell_fee_pct", precision: 6, scale: 3, default: "0.0", null: false
@@ -400,6 +715,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
     t.text "notes"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "status", default: "open", null: false
+    t.decimal "buy_amount_eur", precision: 20, scale: 8
+    t.index ["status"], name: "index_trade_simulations_on_status"
   end
 
   create_table "vault_addresses", force: :cascade do |t|
@@ -484,16 +802,33 @@ ActiveRecord::Schema[8.0].define(version: 2026_01_10_232546) do
     t.datetime "updated_at", null: false
     t.integer "exchange_likelihood"
     t.string "exchange_hint"
+    t.string "largest_output_address"
+    t.integer "largest_output_vout"
+    t.text "largest_output_desc"
+    t.string "tier"
+    t.string "flow_kind"
+    t.integer "flow_confidence"
+    t.string "actor_band"
+    t.text "flow_reasons"
+    t.jsonb "flow_scores"
     t.index ["alert_type"], name: "index_whale_alerts_on_alert_type"
     t.index ["block_height"], name: "index_whale_alerts_on_block_height"
     t.index ["block_time"], name: "index_whale_alerts_on_block_time"
     t.index ["score"], name: "index_whale_alerts_on_score"
+    t.index ["tier"], name: "index_whale_alerts_on_tier"
     t.index ["txid"], name: "index_whale_alerts_on_txid", unique: true
   end
 
+  add_foreign_key "address_links", "addresses", column: "address_a_id"
+  add_foreign_key "address_links", "addresses", column: "address_b_id"
+  add_foreign_key "addresses", "clusters"
   add_foreign_key "brc20_balances", "brc20_tokens"
   add_foreign_key "brc20_events", "brc20_tokens"
   add_foreign_key "brc20_token_daily_stats", "brc20_tokens"
+  add_foreign_key "cluster_metrics", "clusters"
+  add_foreign_key "cluster_profiles", "clusters"
+  add_foreign_key "cluster_signals", "clusters"
+  add_foreign_key "opsec_answers", "opsec_assessments"
   add_foreign_key "rune_balances", "rune_tokens"
   add_foreign_key "rune_events", "rune_tokens"
   add_foreign_key "rune_token_daily_stats", "rune_tokens"

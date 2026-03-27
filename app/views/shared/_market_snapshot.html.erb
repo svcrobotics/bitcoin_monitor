@@ -1,12 +1,21 @@
 <%# locals: snapshot: %>
 <% return unless snapshot&.status == "ok" %>
 
-<section class="mt-4 bg-gray-900/60 border border-gray-700 rounded-2xl p-4">
+<%# ---- Normalisation défensive : accepte ratio (-0.43) ou pourcentage (-43) ---- %>
+<%
+  dd_ath = snapshot.drawdown_pct.to_f
+  dd_ath = dd_ath / 100.0 if dd_ath.abs > 1.0
+%>
+
+<section class="mt-4 bg-gray-900/60 border border-gray-700 rounded-2xl p-4 sm:p-5">
   <div class="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-    <div>
-      <h2 class="text-sm font-semibold text-gray-100">🧭 Contexte marché</h2>
+    <div class="min-w-0">
+      <h2 class="text-sm font-semibold text-gray-100">
+        🧭 Contexte marché
+      </h2>
+
       <p class="text-xs text-gray-400 mt-0.5">
-        Snapshot macro • MA200 • cycle • risque
+        Snapshot macro • biais • cycle • drawdown • risque
       </p>
     </div>
 
@@ -15,38 +24,60 @@
     </span>
   </div>
 
-  <div class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-3 text-sm">
-    <div>
+  <div class="mt-4 grid grid-cols-2 sm:grid-cols-3 gap-3 text-sm">
+    <div class="rounded-xl bg-gray-900/40 border border-gray-800 p-3">
       <div class="text-xs text-gray-400">Biais</div>
       <div class="font-semibold text-gray-100"><%= snapshot.market_bias %></div>
+      <p class="text-[11px] text-gray-500 mt-1 leading-snug">
+        Direction macro dominante (filtre de contexte). À confirmer via prix/flux/niveaux.
+      </p>
     </div>
 
-    <div>
+    <div class="rounded-xl bg-gray-900/40 border border-gray-800 p-3">
       <div class="text-xs text-gray-400">Cycle</div>
       <div class="font-semibold text-gray-100"><%= snapshot.cycle_zone %></div>
+      <p class="text-[11px] text-gray-500 mt-1 leading-snug">
+        Zone de cycle estimée (proxy). Sert à calibrer l’agressivité (risk-on / risk-off).
+      </p>
     </div>
 
-    <div>
-      <div class="text-xs text-gray-400">vs MA200</div>
-      <div class="font-mono <%= pct_color_class(snapshot.price_vs_ma200_pct) %>">
-        <%= fmt_pct(snapshot.price_vs_ma200_pct, precision: 2, assume: :ratio, show_plus: true) %>
-      </div>
-    </div>
-
-    <div>
+    <div class="rounded-xl bg-gray-900/40 border border-gray-800 p-3">
       <div class="text-xs text-gray-400">Drawdown ATH</div>
       <div class="font-mono text-rose-300">
-        <%= fmt_pct(snapshot.drawdown_pct.to_f.abs, precision: 2, assume: :ratio) %>
+        <%= fmt_pct(dd_ath.abs, precision: 2, assume: :ratio) %>
       </div>
+      <p class="text-[11px] text-gray-500 mt-1 leading-snug">
+        Stress depuis le sommet. Contexte “risk” tant que la structure ne se rétablit pas.
+      </p>
     </div>
+  </div>
 
-    <% if snapshot.reasons.respond_to?(:each) && snapshot.reasons.any? %>
-      <div class="mt-3 flex flex-wrap gap-2">
-        <% snapshot.reasons.each do |reason| %>
-          <span class="text-[11px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700 text-gray-300">
-            <%= reason %>
-          </span>
-        <% end %>
+  <% if snapshot.reasons.respond_to?(:each) && snapshot.reasons.any? %>
+    <%
+      filtered_reasons =
+        Array(snapshot.reasons).map(&:to_s).map(&:strip).reject(&:blank?).reject do |s|
+          s.match?(/vs\s*MA200\s*:/i) ||
+          s.match?(/volatil/i) ||
+          s.match?(/\bPerf\b/i) ||
+          s.match?(/drawdown/i)
+        end
+    %>
+
+    <% if filtered_reasons.any? %>
+      <div class="mt-4">
+        <div class="flex items-center justify-between gap-3">
+          <p class="text-xs text-gray-400">Drivers</p>
+          <span class="text-[11px] text-gray-500">Observations clés</span>
+        </div>
+
+        <div class="mt-2 flex flex-wrap gap-2">
+          <% filtered_reasons.each do |reason| %>
+            <span class="text-[11px] px-2 py-1 rounded-full bg-gray-800 border border-gray-700 text-gray-300">
+              <%= reason %>
+            </span>
+          <% end %>
+        </div>
       </div>
     <% end %>
+  <% end %>
 </section>

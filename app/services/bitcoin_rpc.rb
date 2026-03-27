@@ -16,6 +16,18 @@ class BitcoinRpc
   WALLET_LOAD_RETRIES = Integer(ENV.fetch("BITCOIN_WALLET_LOAD_RETRIES", "8"))
   WALLET_LOAD_SLEEP_S = Float(ENV.fetch("BITCOIN_WALLET_LOAD_SLEEP_S", "0.2"))
 
+  # ---- Timeouts (ENV overridable) --------------------------------------------
+  # Timeout "normal" (getblockchaininfo, getblockhash, etc.)
+  OPEN_TIMEOUT_DEFAULT = Integer(ENV.fetch("BITCOIN_RPC_OPEN_TIMEOUT", "5"))
+  READ_TIMEOUT_DEFAULT = Integer(ENV.fetch("BITCOIN_RPC_READ_TIMEOUT", "30"))
+
+  # Timeout pour appels lourds (getblock sur gros blocs, etc.)
+  READ_TIMEOUT_BLOCK   = Integer(ENV.fetch("BITCOIN_RPC_READ_TIMEOUT_BLOCK", "180"))
+
+  # Retries transport (timeout/socket close)
+  TRANSPORT_RETRIES    = Integer(ENV.fetch("BITCOIN_RPC_TRANSPORT_RETRIES", "2"))
+  TRANSPORT_BASE_SLEEP = Float(ENV.fetch("BITCOIN_RPC_TRANSPORT_SLEEP_S", "0.08"))
+
   attr_reader :wallet, :host, :port, :user, :password
 
   def initialize(wallet: nil, host: DEFAULT_HOST, port: DEFAULT_PORT, user: DEFAULT_USER, password: DEFAULT_PASS)
@@ -28,7 +40,7 @@ class BitcoinRpc
 
     # ✅ Cookie auth (optionnel). Utilisé seulement si BITCOIN_RPC_COOKIE est défini.
     cookie_path = ENV["BITCOIN_RPC_COOKIE"].presence
-    
+
     if (@user.blank? || @password.blank?) && cookie_path.present? && File.exist?(cookie_path)
       u, p = File.read(cookie_path).strip.split(":", 2)
       @user = u
@@ -55,7 +67,11 @@ class BitcoinRpc
   # =========================================================
   # Core JSON-RPC low-level
   # =========================================================
-  def rpc_call(method, params = [], wallet: :default)
+  #
+  # - wallet: :default (wallet_path), nil (chain endpoint ""), or explicit wallet name
+  # - read_timeout / open_timeout: overridable per call
+  #
+  def rpc_call(method, params = [], wallet: :default, read_timeout: nil, open_timeout: nil)
     @id_seq += 1
 
     path =
@@ -75,39 +91,54 @@ class BitcoinRpc
     req["Proxy-Connection"] = "close"
     req.body = { jsonrpc: "1.0", id: @id_seq, method: method.to_s, params: params }.to_json
 
-    open_timeout = Integer(ENV.fetch("BITCOIN_RPC_OPEN_TIMEOUT", "10"))
-    read_timeout = Integer(ENV.fetch("BITCOIN_RPC_TIMEOUT", "60"))
+    # Timeouts
+    open_timeout ||= OPEN_TIMEOUT_DEFAULT
+    read_timeout ||= READ_TIMEOUT_DEFAULT
 
     transport_attempts = 0
-
     begin
-      res = Net::HTTP.start(uri.host, uri.port, open_timeout: open_timeout, read_timeout: read_timeout) do |h|
-        h.keep_alive_timeout = 0 if h.respond_to?(:keep_alive_timeout=)
-        h.max_retries = 0 if h.respond_to?(:max_retries=)
-        h.close_on_empty_response = true if h.respond_to?(:close_on_empty_response=)
-        h.request(req)
+      res = Net::HTTP.start(uri.host, uri.port, open_timeout: open_timeout, read_timeout: read_timeout) do |http|
+        # On évite keep-alive / retries internes qui donnent des sockets bizarres en cron
+        http.keep_alive_timeout = 0 if http.respond_to?(:keep_alive_timeout=)
+        http.max_retries = 0 if http.respond_to?(:max_retries=)
+        http.close_on_empty_response = true if http.respond_to?(:close_on_empty_response=)
+
+        http.request(req)
       end
-    rescue Net::ReadTimeout, EOFError, Errno::ECONNRESET => e
+    rescue Net::ReadTimeout, EOFError, Errno::ECONNRESET, Errno::EPIPE => e
       transport_attempts += 1
-      if transport_attempts <= 1
-        sleep 0.05
+
+      if transport_attempts <= TRANSPORT_RETRIES
+        # petit backoff (0.08s, 0.16s, 0.32s...)
+        sleep(TRANSPORT_BASE_SLEEP * (2 ** (transport_attempts - 1)))
         retry
       end
-      raise Error, "#{method} timeout/closed (after retry). host=#{@host} port=#{@port} path=#{path} wallet=#{wallet.inspect} : #{e.class} - #{e.message}"
+
+      raise Error,
+            "#{method} timeout/closed (after #{transport_attempts - 1} retries). " \
+            "host=#{@host} port=#{@port} path=#{path} wallet=#{wallet.inspect} " \
+            "timeouts(open=#{open_timeout}s read=#{read_timeout}s) : #{e.class} - #{e.message}"
+    end
+
+    unless res.is_a?(Net::HTTPSuccess)
+      snippet = res.body.to_s[0, 300]
+      raise Error,
+            "HTTP #{res.code} from bitcoind (#{method}). " \
+            "host=#{@host} port=#{@port} path=#{path} wallet=#{wallet.inspect} body=#{snippet.inspect}"
     end
 
     payload = JSON.parse(res.body) rescue nil
     raise Error, "RPC invalid JSON response: #{res.body.to_s[0, 300]}" if payload.nil?
 
     if payload["error"]
-      e    = payload["error"]
-      code = e["code"]
-      msg  = e["message"].to_s
+      err  = payload["error"]
+      code = err["code"]
+      msg  = err["message"].to_s
 
       # ✅ auto-load wallet si pas chargé (code -18) ET qu'on appelle le wallet par défaut
       if code == -18 && wallet == :default && @wallet.present?
         ensure_wallet_loaded!
-        return rpc_call(method, params, wallet: wallet)
+        return rpc_call(method, params, wallet: wallet, read_timeout: read_timeout, open_timeout: open_timeout)
       end
 
       raise Error, "RPC error #{code}: #{msg}"
@@ -120,8 +151,8 @@ class BitcoinRpc
     raise Error, "#{method} failed: #{e.class} - #{e.message}"
   end
 
-  def rpc_call_chain(method, params = [])
-    rpc_call(method, params, wallet: nil)
+  def rpc_call_chain(method, params = [], read_timeout: nil, open_timeout: nil)
+    rpc_call(method, params, wallet: nil, read_timeout: read_timeout, open_timeout: open_timeout)
   end
 
   def wallet_path
@@ -151,7 +182,7 @@ class BitcoinRpc
     # déjà chargé -> OK
     return true if wallet_loaded?(@wallet)
 
-    WALLET_LOAD_RETRIES.times do |attempt|
+    WALLET_LOAD_RETRIES.times do
       begin
         loadwallet(@wallet)
       rescue Error => e
@@ -186,7 +217,7 @@ class BitcoinRpc
 
   def wallet_loaded?(name)
     Array(listwallets).include?(name.to_s)
-  rescue => _
+  rescue
     false
   end
 
@@ -198,7 +229,11 @@ class BitcoinRpc
   def getblockcount       = rpc_call_chain("getblockcount")
   def get_block_count     = getblockcount
   def getblockhash(h)     = rpc_call_chain("getblockhash", [h.to_i])
-  def getblock(hash, v=1) = rpc_call_chain("getblock", [hash, v])
+
+  # ✅ getblock peut être lourd => timeout dédié
+  def getblock(hash, v = 1)
+    rpc_call_chain("getblock", [hash, v], read_timeout: READ_TIMEOUT_BLOCK)
+  end
 
   def getrawtransaction(txid, verbose = true, blockhash = nil)
     params = [txid.to_s, !!verbose]

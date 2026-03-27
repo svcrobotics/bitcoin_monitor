@@ -1,0 +1,449 @@
+# app/controllers/system_controller.rb
+class SystemController < ApplicationController
+  before_action :ensure_local_or_development!, only: [:run_tests]
+  before_action :catch_up_btc_price_days_in_development, only: [:index]
+
+  def index
+    @jobs = JobRun.recent.limit(200)
+    @scanner_status = build_scanner_status
+
+    names = JobRun.distinct.pluck(:name)
+    last_runs = names.map { |n| JobRun.for_job(n).recent.first }.compact
+    @job_health = build_job_health(last_runs)
+
+    @checks = {
+      bitcoind: bitcoind_check,
+      disks: disks_check,
+      bitcoind_activity: bitcoind_activity_check
+    }
+
+    @tables = build_tables_health
+  end
+
+  def tests
+    @qa_groups  = SystemTestStatus.groups
+    @qa_summary = SystemTestStatus.summary
+    @qa_stats   = SystemTestStatus.new.global_stats
+
+    log_path = Rails.root.join("tmp/qa/cluster_v3_last_run.log")
+    @last_test_output = File.exist?(log_path) ? File.read(log_path).truncate(5000) : nil
+  end
+
+  def run_tests
+    result = SystemTestRunner.call
+
+    if result.ok?
+      redirect_to system_tests_path, notice: "Tests Cluster V3 exécutés avec succès."
+    else
+      redirect_to system_tests_path, alert: "Échec de l’exécution des tests (code #{result.status}). Consulte tmp/qa/cluster_v3_last_run.log."
+    end
+  end
+
+  private
+
+  def ensure_local_or_development!
+    return if Rails.env.development?
+    return if request.local?
+
+    head :forbidden
+  end
+
+  def build_scanner_status
+    best_height = BitcoinRpc.new.getblockcount.to_i
+
+    exchange_cursor = ScannerCursor.find_by(name: "exchange_observed_scan")
+    exchange_last_height = exchange_cursor&.last_blockheight
+    exchange_lag = exchange_last_height ? (best_height - exchange_last_height) : nil
+
+    cluster_cursor = ScannerCursor.find_by(name: "cluster_scan")
+    cluster_last_height = cluster_cursor&.last_blockheight
+    cluster_lag = cluster_last_height ? (best_height - cluster_last_height) : nil
+
+    {
+      exchange_observed_scan: {
+        label: "Exchange observed scan",
+        last_blockheight: exchange_last_height,
+        best_height: best_height,
+        lag: exchange_lag,
+        last_blockhash: exchange_cursor&.last_blockhash,
+        updated_at: exchange_cursor&.updated_at,
+        status: if exchange_last_height.nil?
+                  :warn
+                elsif exchange_lag <= 3
+                  :ok
+                elsif exchange_lag <= 12
+                  :warn
+                else
+                  :fail
+                end
+      },
+
+      cluster_scan: {
+        label: "Cluster scan",
+        last_blockheight: cluster_last_height,
+        best_height: best_height,
+        lag: cluster_lag,
+        last_blockhash: cluster_cursor&.last_blockhash,
+        updated_at: cluster_cursor&.updated_at,
+        status: if cluster_last_height.nil?
+                  :warn
+                elsif cluster_lag <= 3
+                  :ok
+                elsif cluster_lag <= 12
+                  :warn
+                else
+                  :fail
+                end
+      }
+    }
+  rescue => e
+    {
+      exchange_observed_scan: {
+        label: "Exchange observed scan",
+        error: "#{e.class}: #{e.message}",
+        status: :fail
+      },
+      cluster_scan: {
+        label: "Cluster scan",
+        error: "#{e.class}: #{e.message}",
+        status: :fail
+      }
+    }
+  end
+
+  # =========================
+  # Job health
+  # =========================
+  def build_job_health(last_runs)
+    now = Time.current
+
+    sla = {
+      "exchange_address_builder"             => 26.hours,
+      "exchange_observed_scan"               => 1.hour,
+      "cluster_scan"                         => 1.hour,
+      "cluster_v3_build_metrics"             => 26.hours,
+      "cluster_v3_detect_signals"            => 26.hours,
+      "true_flow_rebuild"                    => 2.hours,
+      "market_snapshot"                      => 26.hours,
+      "whale_scan"                           => 2.hours,
+      "inflow_outflow_build"                 => 26.hours,
+      "inflow_outflow_details_build"         => 26.hours,
+      "inflow_outflow_behavior_build"        => 26.hours,
+      "inflow_outflow_capital_behavior_build"=> 26.hours,
+      "whales_reclassify_last_7d"            => 26.hours
+    }
+
+    tracked = sla.keys.to_set
+
+    last_runs
+      .select { |jr| tracked.include?(jr.name) }
+      .sort_by(&:name)
+      .map do |jr|
+        max_age = sla[jr.name] || 6.hours
+        last_time = jr.started_at || jr.created_at
+        age = last_time ? (now - last_time) : 999.years
+        stale = age > max_age
+
+        {
+          name: jr.name,
+          status: jr.status,
+          last_run_at: jr.started_at,
+          duration_ms: jr.duration_ms,
+          error: jr.error,
+          stale: stale,
+          max_age_h: (max_age / 3600.0).round(1)
+        }
+      end
+  end
+
+  # =========================
+  # Services checks
+  # =========================
+  def bitcoind_check
+    rpc = BitcoinRpc.new
+    info = rpc.get_blockchain_info
+
+    {
+      ok: true,
+      blocks: info["blocks"],
+      headers: info["headers"],
+      progress_pct: (info["verificationprogress"].to_f * 100).round(3)
+    }
+  rescue => e
+    { ok: false, error: "#{e.class}: #{e.message}" }
+  end
+
+  def bitcoind_activity_check
+    rpc = BitcoinRpc.new
+    info = rpc.get_blockchain_info
+
+    {
+      ok: true,
+      blocks: info["blocks"],
+      headers: info["headers"],
+      lag: info["headers"].to_i - info["blocks"].to_i,
+      progress_pct: (info["verificationprogress"].to_f * 100).round(3)
+    }
+  rescue => e
+    { ok: false, error: e.message }
+  end
+
+  def disks_check
+    {
+      bitcoind: disk_usage(path: "/var/lib/bitcoind", warn_pct: 85, fail_pct: 95, label: "Disque blockchain"),
+      data:     disk_usage(path: "/mnt/data",         warn_pct: 85, fail_pct: 95, label: "Disque data"),
+      system:   disk_usage(path: "/",                 warn_pct: 80, fail_pct: 90, label: "Disque système")
+    }
+  end
+
+  def disk_usage(path:, warn_pct:, fail_pct:, label:)
+    df = `df -h #{path} 2>/dev/null`.to_s
+
+    stat = `df -P #{path} 2>/dev/null | tail -1`.to_s.split
+    used_pct = stat[4].to_s.delete("%").to_i rescue nil
+    avail    = stat[3]
+    mount    = stat[5]
+
+    status =
+      if used_pct.nil?
+        :warn
+      elsif used_pct >= fail_pct
+        :fail
+      elsif used_pct >= warn_pct
+        :warn
+      else
+        :ok
+      end
+
+    {
+      label: label,
+      path: path,
+      mount: mount,
+      status: status,
+      used_pct: used_pct,
+      avail: avail,
+      raw: df
+    }
+  end
+
+  # =========================
+  # Tables freshness
+  # =========================
+  def build_tables_health
+    now = Time.current
+
+    btc_last   = BtcPriceDay.order(day: :desc).limit(1).pick(:day)&.in_time_zone
+    flow_last  = ExchangeTrueFlow.order(day: :desc).limit(1).pick(:day)&.in_time_zone
+    snap_last  = MarketSnapshot.order(computed_at: :desc).limit(1).pick(:computed_at)&.in_time_zone
+
+    inflow_outflow_last =
+      ExchangeFlowDay.order(day: :desc).limit(1).pick(:day)&.in_time_zone
+
+    inflow_outflow_details_last =
+      ExchangeFlowDayDetail.order(day: :desc).limit(1).pick(:day)&.in_time_zone
+
+    inflow_outflow_behavior_last =
+      ExchangeFlowDayBehavior.order(day: :desc).limit(1).pick(:day)&.in_time_zone
+
+    whale_job_last =
+      JobRun.where(name: "whale_scan", status: "ok", exit_code: 0).maximum(:started_at) ||
+      JobRun.where(name: "whale_scan", status: "ok", exit_code: 0).maximum(:created_at)
+
+    whale_data_last = WhaleAlert.maximum(:created_at)
+
+    exchange_builder_last =
+      JobRun.where(name: "exchange_address_builder", status: "ok", exit_code: 0).maximum(:started_at) ||
+      JobRun.where(name: "exchange_address_builder", status: "ok", exit_code: 0).maximum(:created_at)
+
+    exchange_observed_last =
+      JobRun.where(name: "exchange_observed_scan", status: "ok", exit_code: 0).maximum(:started_at) ||
+      JobRun.where(name: "exchange_observed_scan", status: "ok", exit_code: 0).maximum(:created_at)
+
+    exchange_addresses_last = ExchangeAddress.maximum(:updated_at)
+    exchange_observed_utxos_last = ExchangeObservedUtxo.maximum(:updated_at)
+
+    inflow_outflow_capital_behavior_last =
+      ExchangeFlowDayCapitalBehavior.order(day: :desc).limit(1).pick(:day)&.in_time_zone
+
+    cluster_last =
+      AddressLink.order(block_height: :desc).limit(1).pick(:created_at)&.in_time_zone ||
+      Cluster.maximum(:updated_at)&.in_time_zone
+
+    cluster_metrics_last =
+      ClusterMetric.order(snapshot_date: :desc).limit(1).pick(:snapshot_date)&.in_time_zone
+
+    cluster_signals_last =
+      ClusterSignal.order(snapshot_date: :desc).limit(1).pick(:snapshot_date)&.in_time_zone
+
+    {
+      "exchange_addresses" => build_table_row(
+        count: ExchangeAddress.count,
+        last_at: exchange_addresses_last,
+        sla_h: 26,
+        hint: "Set principal des adresses exchange-like. Dernier JobRun builder: #{fmt_time(exchange_builder_last)}",
+        now: now
+      ),
+
+      "exchange_observed_utxos" => build_table_row(
+        count: ExchangeObservedUtxo.count,
+        last_at: exchange_observed_utxos_last,
+        sla_h: 1,
+        hint: "UTXO observés sur le set exchange-like. Dernier JobRun scanner: #{fmt_time(exchange_observed_last)}",
+        now: now
+      ),
+
+      "clusters" => build_table_row(
+        count: Cluster.count,
+        last_at: cluster_last,
+        sla_h: 1,
+        hint: "Clusters multi-input construits par le scanner cluster.",
+        now: now
+      ),
+
+      "exchange_true_flows" => build_table_row(
+        count: ExchangeTrueFlow.count,
+        last_at: flow_last,
+        sla_h: 36,
+        hint: "Flow journalier. Attendu au moins 1 fois / jour.",
+        now: now,
+        min_day: Date.yesterday
+      ),
+
+      "whale_alerts" => build_table_row(
+        count: WhaleAlert.count,
+        last_at: whale_job_last,
+        sla_h: 2,
+        hint: "Fraîcheur basée sur JobRun whale_scan. Dernier insert WhaleAlert: #{fmt_time(whale_data_last)}",
+        now: now
+      ),
+
+      "market_snapshots" => build_table_row(
+        count: MarketSnapshot.count,
+        last_at: snap_last,
+        sla_h: 26,
+        hint: "Snapshot attendu 1 fois / jour.",
+        now: now
+      ),
+
+      "exchange_flow_days" => build_table_row(
+        count: ExchangeFlowDay.count,
+        last_at: inflow_outflow_last,
+        sla_h: 36,
+        hint: "V1 : agrégats inflow/outflow journaliers calculés depuis exchange_observed_utxos.",
+        now: now,
+        min_day: Date.yesterday
+      ),
+
+      "exchange_flow_day_details" => build_table_row(
+        count: ExchangeFlowDayDetail.count,
+        last_at: inflow_outflow_details_last,
+        sla_h: 36,
+        hint: "V2 : structure des dépôts et retraits observés par buckets.",
+        now: now,
+        min_day: Date.yesterday
+      ),
+
+      "exchange_flow_day_behaviors" => build_table_row(
+        count: ExchangeFlowDayBehavior.count,
+        last_at: inflow_outflow_behavior_last,
+        sla_h: 36,
+        hint: "V3 : ratios comportementaux retail / whale / institution et scores de comportement.",
+        now: now,
+        min_day: Date.yesterday
+      ),
+
+      "exchange_flow_day_capital_behaviors" => build_table_row(
+        count: ExchangeFlowDayCapitalBehavior.count,
+        last_at: inflow_outflow_capital_behavior_last,
+        sla_h: 36,
+        hint: "V4 : capital behavior, whale dominance et divergence activité / capital.",
+        now: now,
+        min_day: Date.yesterday
+      ),
+
+      "btc_price_days" => build_table_row(
+        count: BtcPriceDay.count,
+        last_at: btc_last,
+        sla_h: 36,
+        hint: Rails.env.development? ?
+          "En développement : mise à jour quotidienne attendue (J-1), avec rattrapage automatique après redémarrage." :
+          "Mise à jour quotidienne attendue (J-1).",
+        now: now,
+        min_day: Date.current - 1
+      ),
+
+      "cluster_metrics" => build_table_row(
+        count: ClusterMetric.count,
+        last_at: cluster_metrics_last,
+        sla_h: 36,
+        hint: "V3.1 : métriques agrégées cluster par snapshot_date.",
+        now: now,
+        min_day: Date.yesterday
+      ),
+
+      "cluster_signals" => build_table_row(
+        count: ClusterSignal.count,
+        last_at: cluster_signals_last,
+        sla_h: 36,
+        hint: "V3.1 : signaux cluster détectés à partir des métriques.",
+        now: now,
+        min_day: Date.yesterday
+      )
+    }
+  end
+
+  def build_table_row(count:, last_at:, sla_h:, hint:, now:, min_day: nil)
+    age_h =
+      if last_at.present?
+        ((now - last_at) / 3600.0)
+      else
+        999_999.0
+      end
+
+    dev_mode = Rails.env.development?
+
+    status =
+      if last_at.blank?
+        dev_mode ? :warn : :fail
+      elsif min_day
+        if last_at.to_date < min_day
+          dev_mode ? :warn : :fail
+        else
+          :ok
+        end
+      else
+        if age_h > sla_h
+          dev_mode ? :warn : :fail
+        else
+          :ok
+        end
+      end
+
+    {
+      count: count,
+      last_at: last_at,
+      sla_h: sla_h,
+      hint: hint,
+      age_h: age_h.round(1),
+      status: status,
+      min_day: min_day
+    }
+  end
+
+  def fmt_time(value)
+    value.present? ? value.in_time_zone.strftime("%Y-%m-%d %H:%M:%S") : "—"
+  end
+
+  def catch_up_btc_price_days_in_development
+    return unless Rails.env.development?
+
+    last_day = BtcPriceDay.maximum(:day)
+    target_day = Date.yesterday
+
+    return if last_day.present? && last_day >= target_day
+
+    BtcPriceDaysCatchup.call(target_day: target_day)
+  rescue => e
+    Rails.logger.warn("[btc_price_days:catchup] #{e.class}: #{e.message}")
+  end
+end

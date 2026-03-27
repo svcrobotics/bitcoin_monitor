@@ -1,0 +1,30 @@
+<div class="rounded-2xl border border-gray-800 bg-gray-900/60 p-5 sm:p-6">
+  <div class="flex flex-col gap-4">
+    <div>
+      <p class="text-xs uppercase tracking-wide text-gray-500">Address Intelligence</p>
+      <h2 class="mt-1 text-xl sm:text-2xl font-bold text-gray-100">
+        Vérifier une adresse Bitcoin avant transfert
+      </h2>
+      <p class="mt-2 text-sm text-gray-400 max-w-3xl">
+        Recherchez une adresse pour voir si elle a été observée, si elle appartient à un cluster,
+        sa taille, son activité et quelques preuves multi-input.
+      </p>
+    </div>
+
+    <%= form_with url: address_search_path, method: :get, local: true, class: "w-full" do %>
+      <div class="flex flex-col lg:flex-row gap-3">
+        <%= text_field_tag :q,
+          params[:q].presence || local_assigns[:prefill],
+          placeholder: "Ex: bc1..., 3..., 1...",
+          class: "w-full rounded-2xl border border-gray-700 bg-black/30 px-4 py-3 text-sm text-gray-100 placeholder:text-gray-500 focus:outline-none focus:ring-2 focus:ring-violet-500" %>
+
+        <%= submit_tag "Analyser",
+          class: "rounded-2xl px-5 py-3 text-sm font-semibold bg-violet-600 text-white hover:bg-violet-500 transition cursor-pointer" %>
+      </div>
+    <% end %>
+
+    <div class="text-xs text-gray-500">
+      Le moteur V1 repose sur l’heuristique multi-input. Il fournit un contexte on-chain, pas une garantie absolue.
+    </div>
+  </div>
+</div>

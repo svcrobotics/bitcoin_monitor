@@ -6,6 +6,7 @@
       <h1 class="text-2xl sm:text-3xl font-semibold text-gray-100">Trade simulator</h1>
       <p class="text-sm text-gray-400 mt-1">Historique de tes simulations (paper trades).</p>
     </div>
+
     <div class="flex gap-2">
       <%= link_to "← Dashboard", dashboard_path,
         class: "inline-flex items-center justify-center rounded-xl px-4 py-2
@@ -13,7 +14,7 @@
                 hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100
                 transition text-sm font-semibold" %>
 
-      <%= link_to "Nouvelle simulation", new_trade_simulation_path,
+      <%= link_to "Ouvrir une position", new_trade_simulation_path,
         class: "inline-flex items-center justify-center rounded-xl px-4 py-2
                 bg-cyan-600/15 border border-cyan-500/50 text-cyan-200
                 hover:bg-cyan-600/25 hover:border-cyan-400 hover:text-cyan-100
@@ -29,32 +30,94 @@
 
   <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
     <% @trade_simulations.each do |sim| %>
-      <%= link_to sim, class: "block rounded-2xl border border-gray-800 bg-gray-900/50 hover:bg-gray-900/70 transition p-5" do %>
+
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/50 hover:bg-gray-900/70 transition p-5">
+
+        <%# ---- Header ---- %>
         <div class="flex items-start justify-between gap-3">
           <div class="min-w-0">
             <p class="text-sm text-gray-400">Achat</p>
+
             <p class="text-gray-100 font-semibold">
-              <%= sim.buy_day %> → <%= sim.sell_day %>
+              <span class="font-mono"><%= sim.buy_day %></span>
+              →
+              <% if sim.closed? %>
+                <span class="font-mono"><%= sim.sell_day %></span>
+              <% else %>
+                <span class="text-amber-200 font-semibold">OUVERTE</span>
+              <% end %>
             </p>
+
+            <%# ---- Montant investi ---- %>
             <p class="mt-1 text-sm text-gray-400">
-              BTC: <span class="font-mono text-gray-200"><%= sim.btc_amount %></span>
+              Investi:
+              <% if sim.buy_amount_eur.present? %>
+                <span class="font-mono text-gray-200">
+                  <%= number_to_currency(sim.buy_amount_eur, unit: "€") %>
+                </span>
+              <% elsif sim.btc_amount.present? %>
+                <span class="font-mono text-gray-200">
+                  <%= sim.btc_amount %> BTC
+                </span>
+                <span class="text-[11px] text-gray-500 ml-1">(legacy)</span>
+              <% else %>
+                —
+              <% end %>
             </p>
+
           </div>
 
-          <span class="shrink-0 text-cyan-200 border border-cyan-500/40 bg-cyan-600/10 rounded-full px-2 py-1 text-xs font-semibold">
-            Simulation
-          </span>
+          <% if sim.open? %>
+            <span class="shrink-0 text-amber-200 border border-amber-500/40 bg-amber-600/10 rounded-full px-2 py-1 text-xs font-semibold">
+              Ouverte
+            </span>
+          <% else %>
+            <span class="shrink-0 text-emerald-200 border border-emerald-500/40 bg-emerald-600/10 rounded-full px-2 py-1 text-xs font-semibold">
+              Clôturée
+            </span>
+          <% end %>
         </div>
 
+        <%# ---- Frais ---- %>
         <div class="mt-4 grid grid-cols-2 gap-3 text-xs text-gray-400">
+
           <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
-            Frais buy: <span class="font-mono text-gray-200"><%= sim.buy_fee_pct %>%</span>
+            Frais achat:
+            <span class="font-mono text-gray-200"><%= sim.buy_fee_pct %>%</span>
+            <span class="text-gray-500">+</span>
+            <span class="font-mono text-gray-200"><%= number_to_currency(sim.buy_fee_fixed_eur, unit: "€") %></span>
           </div>
+
           <div class="rounded-xl border border-gray-800 bg-black/20 p-3">
-            Frais sell: <span class="font-mono text-gray-200"><%= sim.sell_fee_pct %>%</span>
+            Frais vente:
+            <span class="font-mono text-gray-200"><%= sim.sell_fee_pct %>%</span>
+            <span class="text-gray-500">+</span>
+            <span class="font-mono text-gray-200"><%= number_to_currency(sim.sell_fee_fixed_eur, unit: "€") %></span>
           </div>
+
         </div>
-      <% end %>
+
+        <%# ---- Actions ---- %>
+        <div class="mt-4 flex flex-wrap items-center gap-2">
+
+          <%= link_to "Voir", sim,
+            class: "inline-flex items-center justify-center rounded-xl px-3 py-2
+                    bg-gray-900/60 border border-gray-700/60 text-gray-200
+                    hover:bg-gray-800 hover:border-gray-600 hover:text-gray-100 transition
+                    text-xs font-semibold" %>
+
+          <% if sim.open? %>
+            <%= link_to "Clôturer", close_trade_simulation_path(sim),
+              class: "inline-flex items-center justify-center rounded-xl px-3 py-2
+                      bg-amber-600/15 border border-amber-500/50 text-amber-200
+                      hover:bg-amber-600/25 hover:border-amber-400 hover:text-amber-100 transition
+                      text-xs font-semibold" %>
+          <% end %>
+
+        </div>
+
+      </div>
+
     <% end %>
   </div>
 

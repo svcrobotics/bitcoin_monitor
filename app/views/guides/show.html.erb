@@ -1,222 +1,611 @@
-<!-- app/views/guides/show.html.erb -->
-<div class="max-w-5xl mx-auto px-4 sm:px-6 lg:px-8 py-10">
+<% content_for :title, @guide.title %>
+<% content_for :head do %>
+  <meta name="turbo-cache-control" content="no-cache">
+<% end %>
+<div class="min-h-screen bg-gray-950 text-gray-100">
+  <div class="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
 
-  <!-- Header -->
-  <div class="mb-8">
-    <div class="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-      <div>
-        <h1 class="text-2xl sm:text-3xl font-bold text-gray-100 tracking-tight">
-          <%= @guide.title %>
-        </h1>
+    <header class="mb-8">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+        <div class="min-w-0">
+          <div class="flex flex-wrap items-center gap-2 mb-3">
+            <%= link_to guides_path,
+                class: "inline-flex items-center rounded-xl border border-gray-800 bg-gray-900 px-3 py-1.5 text-sm text-gray-300 hover:bg-gray-800 hover:text-white transition" do %>
+              ← Retour aux guides
+            <% end %>
 
-        <p class="text-sm text-gray-400 mt-2">
-          Guide pédagogique : <span class="text-gray-200 font-semibold">Fun</span> → <span class="text-gray-200 font-semibold">Didactique</span> → <span class="text-gray-200 font-semibold">Technique</span>
-        </p>
-      </div>
+            <% if @guide.category.present? %>
+              <span class="inline-flex items-center rounded-full border border-gray-800 bg-gray-900 px-2.5 py-1 text-xs font-medium text-gray-300">
+                <%= @guide.category %>
+              </span>
+            <% end %>
 
-    </div>
-    <div class="flex items-center gap-2  sm:w-auto">
-        <%= link_to "← Retour aux guides", guides_path,
-          class: " sm:w-auto text-center px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 text-sm font-semibold" %>
-    </div>
-    <!-- Tabs (mobile: horizontal scroll) -->
-    <div class="mt-6 -mx-4 px-4 sm:mx-0 sm:px-0">
-      <div class="flex gap-2 overflow-x-auto whitespace-nowrap pb-2 [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
-        <button type="button"
-          class="guide-tab px-3 py-2 rounded-xl text-sm font-semibold border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800 transition"
-          data-tab="fun">
-          🧠 Fun
-        </button>
-
-        <button type="button"
-          class="guide-tab px-3 py-2 rounded-xl text-sm font-semibold border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800 transition"
-          data-tab="didactic">
-          🧭 Didactique
-        </button>
-
-        <button type="button"
-          class="guide-tab px-3 py-2 rounded-xl text-sm font-semibold border border-gray-800 bg-gray-900 text-gray-200 hover:bg-gray-800 transition"
-          data-tab="tech">
-          🧪 Technique
-        </button>
-      </div>
-    </div>
-  </div>
-
-  <% raw = @guide.content.to_s %>
-
-  <% sections = GuideSectionsParser.call(raw) %>
-  <% fun_md      = sections[:fun] %>
-  <% didactic_md = sections[:didactic] %>
-  <% tech_md     = sections[:tech] %>
-
-  <% meta = GuideFrontmatterParser.call(raw) %>
-  <% app_label = meta[:app_label] %>
-  <% app_path  = meta[:app_path] %>
-
-  <div class="grid lg:grid-cols-[1fr,320px] gap-6">
-
-    <!-- Main -->
-    <div class="space-y-6">
-
-      <!-- Context card -->
-      <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5">
-        <div class="flex items-start justify-between gap-4">
-          <div>
-            <p class="text-xs text-gray-400 uppercase tracking-wider">Objectif</p>
-            <p class="text-sm text-gray-200 mt-1">
-              Comprendre un concept blockchain <strong>sans perdre la rigueur</strong>, puis le relier à <strong>Bitcoin Monitor</strong>.
-            </p>
+            <% if @guide.app_area.present? %>
+              <span class="inline-flex items-center rounded-full border border-purple-500/20 bg-purple-500/10 px-2.5 py-1 text-xs font-medium text-purple-300">
+                <%= @guide.app_area %>
+              </span>
+            <% end %>
           </div>
 
-          <% if app_path.present? %>
-            <%= link_to(app_label.presence || "Voir dans l’app", app_path,
-              class: "shrink-0 inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-black text-sm font-semibold transition") %>
+          <h1 class="text-3xl sm:text-4xl font-bold tracking-tight text-white">
+            <%= @guide.title %>
+          </h1>
+
+          <% if @guide.excerpt.present? %>
+            <p class="mt-3 max-w-3xl text-sm sm:text-base text-gray-400 leading-relaxed">
+              <%= @guide.excerpt %>
+            </p>
           <% end %>
         </div>
 
-        <div class="mt-4 grid sm:grid-cols-3 gap-2">
-          <div class="rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2">
-            <p class="text-[11px] text-gray-400">Mode</p>
-            <p class="text-sm text-gray-200 font-semibold">3 couches</p>
-          </div>
-          <div class="rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2">
-            <p class="text-[11px] text-gray-400">Style</p>
-            <p class="text-sm text-gray-200 font-semibold">Prof cool + hacker</p>
-          </div>
-          <div class="rounded-xl border border-gray-800 bg-gray-950/40 px-3 py-2">
-            <p class="text-[11px] text-gray-400">Règle</p>
-            <p class="text-sm text-gray-200 font-semibold">Toujours concret</p>
-          </div>
+        <div class="shrink-0">
+          <%= link_to "/system",
+              class: "inline-flex items-center justify-center rounded-xl bg-gray-100 px-4 py-2.5 text-sm font-semibold text-gray-900 hover:bg-white transition" do %>
+            Ouvrir System
+          <% end %>
         </div>
       </div>
+    </header>
 
-      <!-- Content: Fun -->
-      <section id="guide-section-fun" class="guide-section hidden" data-section="fun">
-        <%= render partial: "guides/markdown_panel", locals: { title: "🧠 Fun", markdown: fun_md } %>
-      </section>
+    <div class="grid grid-cols-1 lg:grid-cols-[200px_minmax(0,1fr)_280px] gap-6 items-start">
 
-      <!-- Content: Didactic -->
-      <section id="guide-section-didactic" class="guide-section hidden" data-section="didactic">
-        <%= render partial: "guides/markdown_panel", locals: { title: "🧭 Didactique", markdown: didactic_md } %>
-      </section>
+      <%# -------------------------------------------------------------------- %>
+      <%# Navigation doc : versions + sujets %>
+      <%# -------------------------------------------------------------------- %>
+      <aside class="space-y-4">
+        <div class="bg-gray-900/95 border border-gray-800 rounded-2xl p-5 lg:sticky lg:top-6 space-y-6">
+          <section>
+            <h2 class="text-sm font-semibold text-gray-100">Documentation</h2>
+            <p class="mt-1 text-xs text-gray-500">
+              Sélectionne d’abord une version, puis un sujet
+            </p>
+          </section>
 
-      <!-- Content: Tech -->
-      <section id="guide-section-tech" class="guide-section hidden" data-section="tech">
-        <%= render partial: "guides/markdown_panel", locals: { title: "🧪 Technique", markdown: tech_md } %>
-      </section>
+          <% if @module_docs.present? %>
+            <section class="space-y-3">
+              <div class="flex items-center justify-between">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Versions</h3>
+                <span class="text-[11px] text-gray-500"><%= @available_versions.size %></span>
+              </div>
 
-      <!-- Footer nav -->
-      <div class="flex items-center justify-between pt-2">
-        <%= link_to "← Tous les guides", guides_path,
-          class: "text-sm text-gray-300 hover:text-white underline underline-offset-4" %>
+              <div class="space-y-2">
+                <% latest_version = @available_versions.max_by { |v| v[:version].delete_prefix("v").to_i } %>
 
-        <%= link_to "Modifier (admin)", edit_guide_path(@guide),
-          class: "text-sm text-gray-500 hover:text-gray-200 underline underline-offset-4" rescue nil %>
-      </div>
+                <% @available_versions.each do |version_data| %>
+                  <% active = @selected_version.present? && @selected_version[:version] == version_data[:version] %>
+                  <% is_latest = latest_version.present? && latest_version[:version] == version_data[:version] %>
+
+                  <%= link_to guide_path(@guide, doc_version: version_data[:version]),
+                      class: "block rounded-xl border px-3 py-2.5 transition #{active ? 'border-purple-500/30 bg-purple-500/10 text-purple-300' : 'border-gray-800 bg-black/20 text-gray-300 hover:bg-gray-800 hover:text-white'}" do %>
+                    <div class="flex items-center justify-between gap-3">
+                      <div class="flex items-center gap-2">
+                        <span class="text-sm font-medium"><%= version_data[:version].upcase %></span>
+                        <% if is_latest %>
+                          <span class="text-[10px] px-1.5 py-0.5 rounded-full border border-emerald-500/20 bg-emerald-500/10 text-emerald-300">
+                            Latest
+                          </span>
+                        <% end %>
+                      </div>
+
+                      <span class="text-[11px] text-gray-500">
+                        <%= Array(version_data[:sections]).size %>
+                      </span>
+                    </div>
+                  <% end %>
+                <% end %>
+              </div>
+            </section>
+
+            <section class="border-t border-gray-800 pt-5 space-y-3">
+              <div class="flex items-center justify-between">
+                <h3 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Sujets</h3>
+                <span class="text-[11px] text-gray-500"><%= @available_sections.size %></span>
+              </div>
+
+              <% if @selected_version.present? %>
+                <p class="text-xs text-gray-500">
+                  Version active :
+                  <span class="text-gray-300 font-medium"><%= @selected_version[:version].upcase %></span>
+                </p>
+              <% end %>
+
+              <div class="space-y-2">
+                <% @available_sections.each do |section| %>
+                  <% active = @selected_section.present? && @selected_section[:name] == section[:name] %>
+
+                  <%= link_to guide_path(@guide, doc_version: @selected_version[:version], doc_section: section[:name]),
+                      class: "block rounded-xl border px-3 py-2.5 transition #{active ? 'border-purple-500/30 bg-purple-500/10 text-purple-300' : 'border-gray-800 bg-black/20 text-gray-300 hover:bg-gray-800 hover:text-white'}" do %>
+                    <span class="text-sm font-medium">
+                      <%= section[:title].presence || section[:name].to_s.humanize %>
+                    </span>
+                  <% end %>
+                <% end %>
+              </div>
+            </section>
+          <% else %>
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4 text-sm text-gray-400">
+              Aucune documentation versionnée trouvée pour ce module.
+            </div>
+          <% end %>
+        </div>
+      </aside>
+
+      <%# -------------------------------------------------------------------- %>
+      <%# Contenu principal %>
+      <%# -------------------------------------------------------------------- %>
+      <main class="min-w-0">
+        <section class="rounded-2xl border border-gray-800 bg-gray-900/95 overflow-hidden">
+          <div class="border-b border-gray-800 px-6 py-5 sm:px-8">
+            <div class="flex flex-wrap items-center justify-between gap-3">
+              <div>
+                <h2 class="text-lg font-semibold text-gray-100">
+                  <%= @selected_section.present? ? (@selected_section[:title].presence || @selected_section[:name].to_s.humanize) : "Documentation" %>
+                </h2>
+                <p class="mt-1 text-sm text-gray-500">
+                  <% if @selected_version.present? %>
+                    <%= @module_docs[:module].to_s.humanize %> · <%= @selected_version[:version].upcase %>
+                  <% else %>
+                    Description fonctionnelle et technique du module
+                  <% end %>
+                </p>
+              </div>
+
+              <% if @guide.updated_at.present? %>
+                <div class="text-xs text-gray-500">
+                  Mise à jour :
+                  <span class="text-gray-300"><%= l(@guide.updated_at, format: :short) %></span>
+                </div>
+              <% end %>
+            </div>
+          </div>
+
+          <div class="px-6 py-8 sm:px-8">
+            <% if @selected_section.present? %>
+              <article id="guide-content" class="prose prose-invert prose-gray max-w-none prose-headings:scroll-mt-24 prose-pre:bg-black/40 prose-code:text-purple-300">
+                <%= markdown(@selected_section[:content]) %>
+              </article>
+            <% elsif @guide.content.present? %>
+              <article id="guide-content" class="prose prose-invert prose-gray max-w-none prose-headings:scroll-mt-24 prose-pre:bg-black/40 prose-code:text-purple-300">
+                <%= markdown(@guide.content) %>
+              </article>
+            <% else %>
+              <div class="rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-4 text-sm text-amber-200">
+                Ce guide ne contient pas encore de documentation.
+              </div>
+            <% end %>
+          </div>
+        </section>
+
+        <section class="mt-6 rounded-2xl border border-gray-800 bg-gray-900/95 p-6">
+          <h3 class="text-sm font-semibold text-gray-100">Informations du guide</h3>
+
+          <dl class="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <dt class="text-gray-500">Slug</dt>
+              <dd class="mt-1 text-gray-200 break-all"><%= @guide.slug %></dd>
+            </div>
+
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <dt class="text-gray-500">Position</dt>
+              <dd class="mt-1 text-gray-200"><%= @guide.position.presence || "—" %></dd>
+            </div>
+
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <dt class="text-gray-500">Créé le</dt>
+              <dd class="mt-1 text-gray-200">
+                <%= @guide.created_at.present? ? l(@guide.created_at, format: :short) : "—" %>
+              </dd>
+            </div>
+
+            <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+              <dt class="text-gray-500">Dernière mise à jour</dt>
+              <dd class="mt-1 text-gray-200">
+                <%= @guide.updated_at.present? ? l(@guide.updated_at, format: :short) : "—" %>
+              </dd>
+            </div>
+          </dl>
+        </section>
+      </main>
+
+      <%# -------------------------------------------------------------------- %>
+      <%# Sidebar droite : sommaire + santé + tests %>
+      <%# -------------------------------------------------------------------- %>
+      <aside class="space-y-4">
+        <div class="bg-gray-900/95 border border-gray-800 rounded-2xl p-5 lg:sticky lg:top-6 space-y-6">
+
+          <%# ---------------------------------------------------------------- %>
+          <%# Sommaire %>
+          <%# ---------------------------------------------------------------- %>
+          <section class="space-y-3">
+            <div class="flex items-center justify-between gap-3">
+              <div>
+                <h3 class="text-sm font-semibold text-gray-100">Sommaire</h3>
+                <p class="text-xs text-gray-500 mt-1">Titres détectés dans le document</p>
+              </div>
+
+              <button
+                type="button"
+                id="toc-refresh"
+                class="inline-flex items-center justify-center rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-xs font-medium text-gray-200 transition hover:bg-gray-700 hover:text-white">
+                ↻
+              </button>
+            </div>
+
+            <div id="toc" class="rounded-xl border border-gray-800 bg-black/20 p-3">
+              <p class="text-xs text-gray-500">Sections du document</p>
+            </div>
+          </section>
+
+          <%# ---------------------------------------------------------------- %>
+          <%# Santé du module %>
+          <%# ---------------------------------------------------------------- %>
+          <% if @module_health.present? %>
+            <% overall = @module_health[:overall_status] || :unknown %>
+
+            <section class="border-t border-gray-800 pt-6 space-y-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-sm font-semibold text-gray-100">Santé du module</h3>
+                  <p class="text-xs text-gray-500 mt-1">
+                    Vue synthétique des jobs, tables et scanners liés à ce guide
+                  </p>
+                </div>
+
+                <span class="shrink-0 text-[11px] px-2.5 py-1 rounded-full border <%= health_pill_classes(overall) %>">
+                  <%= health_label(overall) %>
+                </span>
+              </div>
+
+              <% jobs = Array(@module_health[:jobs]) %>
+              <% if jobs.any? %>
+                <section class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Jobs</h4>
+                    <span class="text-[11px] text-gray-500"><%= jobs.size %></span>
+                  </div>
+
+                  <div class="space-y-2">
+                    <% jobs.each do |job| %>
+                      <% job_status =
+                        case job[:status].to_s
+                        when "ok" then :ok
+                        when "fail" then :fail
+                        when "running" then :warn
+                        else :missing
+                        end %>
+
+                      <article class="rounded-xl border border-gray-800 bg-black/20 p-3">
+                        <div class="flex items-start justify-between gap-3">
+                          <div class="min-w-0">
+                            <p class="text-sm font-medium text-gray-100 break-words">
+                              <%= job[:name].presence || "Job inconnu" %>
+                            </p>
+                          </div>
+
+                          <span class="shrink-0 text-[11px] px-2 py-0.5 rounded-full border <%= health_pill_classes(job_status) %>">
+                            <%= health_label(job_status) %>
+                          </span>
+                        </div>
+
+                        <dl class="mt-3 grid grid-cols-1 gap-1 text-xs">
+                          <div class="flex items-center justify-between gap-3">
+                            <dt class="text-gray-500">Dernier run</dt>
+                            <dd class="text-gray-300 text-right">
+                              <%= job[:started_at].present? ? l(job[:started_at], format: :short) : "—" %>
+                            </dd>
+                          </div>
+
+                          <div class="flex items-center justify-between gap-3">
+                            <dt class="text-gray-500">Durée</dt>
+                            <dd class="text-gray-300 text-right">
+                              <%= job[:duration_ms].present? ? "#{number_with_delimiter(job[:duration_ms])} ms" : "—" %>
+                            </dd>
+                          </div>
+                        </dl>
+
+                        <% if job[:error].present? %>
+                          <div class="mt-3 rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-300 break-words">
+                            <%= job[:error] %>
+                          </div>
+                        <% end %>
+                      </article>
+                    <% end %>
+                  </div>
+                </section>
+              <% end %>
+
+              <% tables = Array(@module_health[:tables]) %>
+              <% if tables.any? %>
+                <section class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Tables</h4>
+                    <span class="text-[11px] text-gray-500"><%= tables.size %></span>
+                  </div>
+
+                  <div class="space-y-2">
+                    <% tables.each do |table| %>
+                      <% freshness = table[:freshness] || {} %>
+                      <% table_status = freshness[:status] || :unknown %>
+
+                      <article class="rounded-xl border border-gray-800 bg-black/20 p-3">
+                        <div class="flex items-start justify-between gap-3">
+                          <div class="min-w-0">
+                            <p class="text-sm font-medium text-gray-100 break-words">
+                              <%= table[:name].presence || "Table inconnue" %>
+                            </p>
+                          </div>
+
+                          <span class="shrink-0 text-[11px] px-2 py-0.5 rounded-full border <%= health_pill_classes(table_status) %>">
+                            <%= health_label(table_status) %>
+                          </span>
+                        </div>
+
+                        <dl class="mt-3 grid grid-cols-1 gap-1 text-xs">
+                          <div class="flex items-center justify-between gap-3">
+                            <dt class="text-gray-500">Count</dt>
+                            <dd class="text-gray-300 text-right">
+                              <%= table[:count].present? ? number_with_delimiter(table[:count]) : "—" %>
+                            </dd>
+                          </div>
+
+                          <div class="flex items-center justify-between gap-3">
+                            <dt class="text-gray-500">Dernière valeur</dt>
+                            <dd class="text-gray-300 text-right break-all">
+                              <%= freshness[:last_value].presence || "—" %>
+                            </dd>
+                          </div>
+                        </dl>
+                      </article>
+                    <% end %>
+                  </div>
+                </section>
+              <% end %>
+
+              <% scanners = Array(@module_health[:scanners]) %>
+              <% if scanners.any? %>
+                <section class="space-y-2">
+                  <div class="flex items-center justify-between">
+                    <h4 class="text-xs font-semibold uppercase tracking-wide text-gray-500">Scanners</h4>
+                    <span class="text-[11px] text-gray-500"><%= scanners.size %></span>
+                  </div>
+
+                  <div class="space-y-2">
+                    <% scanners.each do |scanner| %>
+                      <% scanner_status = scanner[:status] || :unknown %>
+
+                      <article class="rounded-xl border border-gray-800 bg-black/20 p-3">
+                        <div class="flex items-start justify-between gap-3">
+                          <div class="min-w-0">
+                            <p class="text-sm font-medium text-gray-100 break-words">
+                              <%= scanner[:name].presence || "Scanner inconnu" %>
+                            </p>
+                          </div>
+
+                          <span class="shrink-0 text-[11px] px-2 py-0.5 rounded-full border <%= health_pill_classes(scanner_status) %>">
+                            <%= health_label(scanner_status) %>
+                          </span>
+                        </div>
+
+                        <dl class="mt-3 grid grid-cols-1 gap-1 text-xs">
+                          <div class="flex items-center justify-between gap-3">
+                            <dt class="text-gray-500">Height</dt>
+                            <dd class="text-gray-300 text-right">
+                              <%= scanner[:last_blockheight].presence || "—" %>
+                            </dd>
+                          </div>
+
+                          <div class="flex items-center justify-between gap-3">
+                            <dt class="text-gray-500">Mise à jour</dt>
+                            <dd class="text-gray-300 text-right">
+                              <%= scanner[:updated_at].present? ? l(scanner[:updated_at], format: :short) : "—" %>
+                            </dd>
+                          </div>
+                        </dl>
+                      </article>
+                    <% end %>
+                  </div>
+                </section>
+              <% end %>
+            </section>
+          <% end %>
+
+          <%# ---------------------------------------------------------------- %>
+          <%# Tests du module %>
+          <%# ---------------------------------------------------------------- %>
+          <% if @spec_results.present? %>
+            <% specs_status = @spec_results[:status] || :unknown %>
+
+            <section class="border-t border-gray-800 pt-6 space-y-5">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-sm font-semibold text-gray-100">Tests du module</h3>
+                  <p class="text-xs text-gray-500 mt-1">
+                    Validation RSpec pour <%= @guide.title %> · <%= @selected_version[:version].upcase %>
+                  </p>
+                </div>
+
+                <span class="shrink-0 text-[11px] px-2.5 py-1 rounded-full border <%= health_pill_classes(specs_status) %>">
+                  <%= health_label(specs_status) %>
+                </span>
+              </div>
+
+              <div class="grid grid-cols-1 gap-3 text-sm">
+                <article class="rounded-xl border border-gray-800 bg-black/20 p-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-gray-400">Exemples</span>
+                    <span class="text-gray-200"><%= @spec_results.dig(:summary, :total_examples) || "—" %></span>
+                  </div>
+                </article>
+
+                <article class="rounded-xl border border-gray-800 bg-black/20 p-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-gray-400">Échecs</span>
+                    <span class="text-gray-200"><%= @spec_results.dig(:summary, :total_failures) || 0 %></span>
+                  </div>
+                </article>
+
+                <article class="rounded-xl border border-gray-800 bg-black/20 p-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-gray-400">Durée</span>
+                    <span class="text-gray-200">
+                      <%= @spec_results.dig(:summary, :duration).present? ? "#{@spec_results[:summary][:duration].round(2)}s" : "—" %>
+                    </span>
+                  </div>
+                </article>
+
+                <article class="rounded-xl border border-gray-800 bg-black/20 p-3">
+                  <div class="flex items-center justify-between gap-3">
+                    <span class="text-gray-400">Rapport généré</span>
+                    <span class="text-gray-200">
+                      <%= @spec_results[:generated_at].present? ? l(@spec_results[:generated_at], format: :short) : "—" %>
+                    </span>
+                  </div>
+                </article>
+              </div>
+
+              <% if Array(@spec_results[:entries]).any? %>
+                <div class="space-y-3">
+                  <% @spec_results[:entries].each do |entry| %>
+                    <% entry_status = entry[:status] || :unknown %>
+                    <% entry_examples = Array(entry[:examples]) %>
+
+                    <article class="rounded-xl border border-gray-800 bg-black/20 p-3">
+                      <div class="flex items-start justify-between gap-3">
+                        <div class="min-w-0">
+                          <p class="text-sm font-medium text-gray-100 break-words">
+                            <%= entry[:component_name] %>
+                          </p>
+                          <p class="mt-1 text-xs text-gray-400">
+                            <%= entry.dig(:summary, :label) %>
+                          </p>
+                        </div>
+
+                        <span class="shrink-0 text-[11px] px-2 py-0.5 rounded-full border <%= health_pill_classes(entry_status) %>">
+                          <%= health_label(entry_status) %>
+                        </span>
+                      </div>
+
+                      <% if entry_examples.any? %>
+                        <div class="mt-3 rounded-xl border border-gray-800 bg-gray-950/40 p-3 space-y-2">
+                          <% entry_examples.each do |example| %>
+                            <% ex_status = example[:status] || :unknown %>
+
+                            <div class="flex items-start justify-between gap-3">
+                              <p class="min-w-0 text-xs text-gray-300 leading-snug break-words">
+                                <%= example[:short_description].presence || example[:description] %>
+                              </p>
+
+                              <span class="shrink-0 text-[10px] px-2 py-0.5 rounded-full border <%= health_pill_classes(ex_status) %>">
+                                <%= health_label(ex_status) %>
+                              </span>
+                            </div>
+                          <% end %>
+                        </div>
+                      <% else %>
+                        <div class="mt-3 text-xs text-gray-500">
+                          Aucun exemple détecté pour ce composant.
+                        </div>
+                      <% end %>
+                    </article>
+                  <% end %>
+                </div>
+              <% end %>
+            </section>
+          <% else %>
+            <section class="border-t border-gray-800 pt-6 space-y-3">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <h3 class="text-sm font-semibold text-gray-100">Tests du module</h3>
+                  <p class="text-xs text-gray-500 mt-1">
+                    Aucun rapport RSpec détecté pour cette version
+                  </p>
+                </div>
+
+                <span class="shrink-0 text-[11px] px-2.5 py-1 rounded-full border <%= health_pill_classes(:missing) %>">
+                  <%= health_label(:missing) %>
+                </span>
+              </div>
+
+              <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 p-3 text-xs text-amber-200">
+                Lance :
+                <code class="text-amber-100">bundle exec rspec spec/modules/<%= @guide.slug.tr("-", "_") %>/<%= @selected_version&.dig(:version) || "v?" %> --format json --out tmp/qa/<%= @guide.slug.tr("-", "_") %>_<%= @selected_version&.dig(:version) || "v?" %>.json</code>
+              </div>
+            </section>
+          <% end %>
+
+          <div class="border-t border-gray-800 pt-5">
+            <%= link_to "/system",
+                class: "inline-flex w-full items-center justify-center rounded-xl bg-gray-100 px-3 py-2.5 text-sm font-semibold text-gray-900 transition hover:bg-white" do %>
+              Ouvrir System
+            <% end %>
+          </div>
+        </div>
+      </aside>
+
     </div>
-
-    <!-- Sidebar: TOC -->
-    <aside class="space-y-4">
-      <div class="bg-gray-900 border border-gray-800 rounded-2xl p-5 lg:sticky lg:top-6">
-        <div class="flex items-center justify-between">
-          <h3 class="text-sm font-semibold text-gray-100">Sommaire</h3>
-          <button type="button"
-            id="toc-refresh"
-            class="text-xs px-2 py-1 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200">
-            ↻
-          </button>
-        </div>
-
-        <div id="toc" class="mt-3 space-y-1 text-sm text-gray-300">
-          <p class="text-xs text-gray-500">Sélectionne un onglet.</p>
-        </div>
-      </div>
-    </aside>
-
   </div>
 </div>
 
 <script>
-  // --- Tabs + TOC ---
-  function initGuideTabs() {
-    const tabs = Array.from(document.querySelectorAll(".guide-tab"));
-    const sections = Array.from(document.querySelectorAll(".guide-section"));
-    const tocEl = document.getElementById("toc");
-    const tocRefresh = document.getElementById("toc-refresh");
+  function initToc() {
+    const content = document.getElementById("guide-content");
+    const toc = document.getElementById("toc");
 
-    if (tabs.length === 0 || sections.length === 0) return;
-
-    function setActiveTab(tabName) {
-      tabs.forEach((btn) => {
-        const active = btn.dataset.tab === tabName;
-        btn.classList.toggle("bg-emerald-500", active);
-        btn.classList.toggle("text-black", active);
-        btn.classList.toggle("border-emerald-400", active);
-
-        btn.classList.toggle("bg-gray-900", !active);
-        btn.classList.toggle("text-gray-200", !active);
-        btn.classList.toggle("border-gray-800", !active);
-      });
-
-      sections.forEach((sec) => {
-        const show = sec.dataset.section === tabName;
-        sec.classList.toggle("hidden", !show);
-      });
-
-      buildToc();
-    }
+    if (!content || !toc) return;
 
     function slugify(text) {
       return (text || "")
         .toLowerCase()
         .trim()
-        .replace(/[^\w\s-]/g, "")
-        .replace(/\s+/g, "-")
-        .replace(/-+/g, "-");
+        .normalize("NFD")
+        .replace(/[\u0300-\u036f]/g, "")
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "");
+    }
+
+    function linkClasses(level) {
+      const base = "block transition";
+      switch (level) {
+        case 1: return `${base} text-sm font-semibold text-gray-200 hover:text-white`;
+        case 2: return `${base} text-sm text-gray-300 hover:text-white ml-2`;
+        case 3: return `${base} text-sm text-gray-400 hover:text-gray-200 ml-4`;
+        case 4: return `${base} text-xs text-gray-400 hover:text-gray-200 ml-6`;
+        case 5: return `${base} text-xs text-gray-500 hover:text-gray-300 ml-8`;
+        case 6: return `${base} text-xs text-gray-600 hover:text-gray-400 ml-10`;
+        default: return base;
+      }
     }
 
     function buildToc() {
-      if (!tocEl) return;
+      const headings = content.querySelectorAll("h1, h2, h3, h4, h5, h6");
+      toc.innerHTML = "";
 
-      const visible = sections.find((s) => !s.classList.contains("hidden"));
-      if (!visible) {
-        tocEl.innerHTML = '<p class="text-xs text-gray-500">Sélectionne un onglet.</p>';
+      if (!headings.length) {
+        toc.innerHTML = '<p class="text-xs text-gray-500">Aucune section détectée</p>';
         return;
       }
 
-      const headings = Array.from(visible.querySelectorAll("h2, h3"));
-      if (headings.length === 0) {
-        tocEl.innerHTML = '<p class="text-xs text-gray-500">Ajoute des titres ## / ### dans cette section.</p>';
-        return;
-      }
+      headings.forEach((heading, index) => {
+        const level = parseInt(heading.tagName.replace("H", ""), 10);
 
-      headings.forEach((h) => {
-        if (!h.id) h.id = slugify(h.textContent || "");
+        if (!heading.id) {
+          const baseId = slugify(heading.textContent) || `section-${index + 1}`;
+          heading.id = `${baseId}-${index + 1}`;
+        }
+
+        const link = document.createElement("a");
+        link.href = `#${heading.id}`;
+        link.textContent = heading.textContent.trim();
+        link.className = linkClasses(level);
+
+        toc.appendChild(link);
       });
-
-      const items = headings.map((h) => {
-        const level = h.tagName.toLowerCase() === "h2" ? 0 : 1;
-        const cls = level === 0
-          ? "block px-2 py-1 rounded-lg hover:bg-gray-800"
-          : "block pl-6 pr-2 py-1 rounded-lg text-gray-400 hover:bg-gray-800 hover:text-gray-200";
-
-        return `<a class="${cls}" href="#${h.id}">${h.textContent}</a>`;
-      });
-
-      tocEl.innerHTML = `<div class="space-y-1">${items.join("")}</div>`;
     }
 
-    tabs.forEach((btn) => {
-      btn.addEventListener("click", () => setActiveTab(btn.dataset.tab));
-    });
-
-    if (tocRefresh) tocRefresh.addEventListener("click", buildToc);
-
-    // default tab
-    setActiveTab("fun");
+    buildToc();
   }
 
-  document.addEventListener("turbo:load", initGuideTabs);
-  document.addEventListener("DOMContentLoaded", initGuideTabs);
+  document.addEventListener("DOMContentLoaded", initToc);
+  document.addEventListener("turbo:load", initToc);
+  document.addEventListener("turbo:render", initToc);
 </script>
