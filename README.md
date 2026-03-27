@@ -8,6 +8,10 @@ L’objectif n’est pas de prédire le marché, mais de fournir une **lecture s
 
 ---
 
+## 📸 Aperçu
+
+![Bitcoin Monitor Dashboard](./screenshot-dashboard.png)
+
 ## 🚀 Pourquoi ce projet ?
 
 Le marché crypto est souvent analysé à travers des opinions ou des indicateurs isolés.
@@ -180,3 +184,18 @@ Développeur backend Ruby on Rails spécialisé dans les applications métier, l
 
 Projet personnel / expérimental.  
 Licence à définir.
+
+## Screenshot 
+
+![Bitcoin Monitor Dashboard](./screenshot-address.png)
+
+![Bitcoin Monitor Dashboard](./screenshot-guides_cluster.png)
+
+![Bitcoin Monitor Dashboard](./screenshot-system.png)
+
+![Bitcoin Monitor Dashboard](./screenshot-system_tests.png)
+
+![Bitcoin Monitor Dashboard](./screenshot-vault.png)
+
+
+
