@@ -1,17 +1,29 @@
 # 🟠 Bitcoin Monitor
 
-Bitcoin Monitor est une application **Ruby on Rails** dédiée à l’analyse du marché Bitcoin à partir de **données on-chain, prix et flux d’exchanges**.
+**Bitcoin Monitor** est une application Ruby on Rails dédiée à l’analyse du marché Bitcoin à partir de données on-chain, de prix et de flux d’exchanges.
 
-L’objectif n’est **pas de prédire le marché**, mais de fournir une **lecture structurée et factuelle** pour aider à la prise de décision (achat / vente / attente).
+L’objectif n’est pas de prédire le marché, mais de fournir une **lecture structurée, factuelle et exploitable** pour aider à la prise de décision.
 
 > ⚠️ Ceci n’est pas un conseil financier.
 
 ---
 
-## 🎯 Objectifs du projet
+## 🚀 Pourquoi ce projet ?
 
-- Centraliser des **données Bitcoin fiables** (prix, flux, métriques)
-- Fournir une **lecture synthétique du contexte de marché**
+Le marché crypto est souvent analysé à travers des opinions ou des indicateurs isolés.
+
+Bitcoin Monitor propose une approche différente :
+
+- 📊 centraliser des données fiables
+- 🧠 structurer leur interprétation
+- 📉 fournir une lecture claire du contexte de marché
+
+---
+
+## 🎯 Objectifs
+
+- Centraliser des données Bitcoin (prix, flux, métriques)
+- Fournir une lecture synthétique du marché
 - Aider à répondre à des questions concrètes :
   - Le marché est-il sous pression vendeuse ?
   - Sommes-nous dans une zone de risque élevée ?
@@ -21,137 +33,150 @@ L’objectif n’est **pas de prédire le marché**, mais de fournir une **lectu
 
 ## 🧠 Philosophie
 
-- 📊 **Données avant opinions**
-- 🔍 **Lecture multi-indicateurs**, pas un seul signal
-- 🧩 **Séparation claire** entre :
+- 📊 Données avant opinions  
+- 🔍 Lecture multi-indicateurs  
+- 🧩 Séparation claire :
   - données brutes
   - métriques calculées
-  - interprétation humaine
-- 🛠️ Outil conçu pour être **compréhensible**, même sans être trader pro
+  - interprétation  
+- 🛠️ Outil compréhensible, même sans expertise trading
 
 ---
 
 ## 📈 Fonctionnalités principales
 
-### 1️⃣ Prix Bitcoin
-- Historique des prix BTC (USD)
-- Graphique simple et lisible
-- Exclusion de la bougie du jour (données non stables)
-
-### 2️⃣ Contexte de marché (Market Snapshot)
-Calculé périodiquement via cron :
-
-- **MA200** (filtre de tendance long terme)
-- **Position dans le cycle** (distance au plus haut)
-- **Volatilité 30 jours**
-- **Risque global** (low / medium / high)
-
-Affiché sous forme de cartes :
-- Marché (bull / bear / neutral)
-- Cycle
-- Risque
+### 🟢 Analyse du prix Bitcoin
+- Historique BTC (USD)
+- Graphiques lisibles (Chart.js)
+- Exclusion des données instables (bougie du jour)
 
 ---
 
-### 3️⃣ Flux vers les exchanges (True Exchange Flow)
+### 🟢 Contexte de marché (Market Snapshot)
+
+Calcul périodique via tâches planifiées :
+
+- MA200 (tendance long terme)
+- Position dans le cycle
+- Volatilité 30 jours
+- Score de risque global
+
+Affichage :
+- état du marché (bull / bear / neutral)
+- cycle
+- niveau de risque
+
+---
+
+### 🟢 Flux des exchanges (True Exchange Flow)
+
 - Inflows BTC
 - Outflows BTC
 - Netflow BTC
-- Alignement prix ↔ flux
 
 Permet d’identifier :
-- pression vendeuse potentielle
-- absorption par le marché
-- phases de distribution ou d’accumulation
+- pression vendeuse
+- accumulation
+- distribution
 
 ---
 
-### 4️⃣ PnL théorique (Net USD)
-- Évolution de la valeur nette si la position était liquidée chaque jour
-- Intègre frais et slippage estimés
-- Identification du meilleur / pire point de sortie
+### 🟢 PnL théorique (Net USD)
+
+- Simulation de sortie quotidienne
+- Intégration des frais et slippage
+- Identification des points optimaux
 
 ---
 
-### 5️⃣ Alertes trader (heuristiques)
-Alertes générées à partir :
-- du contexte de marché
-- des flux
-- de la performance
-- du risque
+### 🟢 Alertes heuristiques
+
+Basées sur :
+- flux
+- contexte marché
+- performance
 
 Exemples :
-- ventes confirmées
-- pression vendeuse potentielle
-- pas de signal significatif
+- pression vendeuse confirmée
+- absence de signal
+- phase neutre
 
 ---
 
 ## 🖥️ Interface
 
 - Dashboard clair et lisible
-- Mode **simple** / **trader**
-- Graphiques **Chart.js** (sans Chartkick)
-- Responsive (desktop / tablette / mobile)
+- Mode simple / trader
+- Graphiques Chart.js
+- Responsive
 
 ---
 
 ## 🏗️ Architecture technique
 
 ### Backend
-- Ruby on Rails (standard, non API)
-- SQLite (par défaut, facilement migrable)
-- Services dédiés pour :
-  - calculs de métriques
+- Ruby on Rails
+- Services métiers dédiés :
+  - calculs
   - snapshots
-  - alignements prix / flux
+  - pipelines de données
+
+### Base de données
+- PostgreSQL
 
 ### Frontend
 - ERB + Tailwind CSS
-- Chart.js (via CDN)
-- JavaScript minimal et maîtrisé
-- Aucun framework JS lourd
+- JavaScript minimal
+- Chart.js (CDN)
 
 ---
 
-## ⏱️ Données & calculs
+## ⏱️ Traitement des données
 
-- Prix : données journalières (source externe)
-- Snapshots : pré-calculés via tâche planifiée
-- Logique métier centralisée côté serveur
-- Aucun calcul critique côté navigateur
+- Ingestion de données externes
+- Pré-calcul via jobs / cron
+- Agrégation côté serveur
+- Aucun calcul critique côté client
+
+---
+
+## 📊 Points techniques clés
+
+- architecture orientée services
+- séparation claire des responsabilités
+- pipelines de traitement de données
+- optimisation des requêtes
+- logique métier centralisée
 
 ---
 
 ## 🚧 État du projet
 
 - ✅ Base stable
-- ✅ Graphiques fonctionnels
-- ✅ Moteur de lecture marché opérationnel
-- 🔄 En évolution continue
+- ✅ Fonctionnalités principales opérationnelles
+- 🔄 Améliorations continues
 
 ---
 
-## 🗺️ Roadmap (idées)
+## 🗺️ Roadmap
 
-- Synchronisation des curseurs entre graphiques
-- Ajout d’overlays (zones de décision)
-- Historique et scoring des alertes
-- Export des données (CSV / JSON)
-- Support multi-actifs (après validation BTC)
+- Synchronisation des graphiques
+- Overlays de décision
+- Historique des alertes
+- Export CSV / JSON
+- Support multi-actifs
 
 ---
 
-## ⚠️ Avertissement
+## 👨‍💻 À propos
 
-Bitcoin Monitor est un **outil d’aide à la réflexion**, pas un oracle.
+Projet développé par Victor Perez.
 
-Les décisions de trading comportent des risques.
-L’auteur ne pourra être tenu responsable des pertes financières.
+Développeur backend Ruby on Rails spécialisé dans les applications métier, la data et l’analyse blockchain.
 
 ---
 
 ## 📜 Licence
 
 Projet personnel / expérimental.  
-Licence à définir selon l’évolution du projet.
+Licence à définir.
