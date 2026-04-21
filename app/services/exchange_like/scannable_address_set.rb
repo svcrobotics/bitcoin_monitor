@@ -11,19 +11,9 @@ module ExchangeLike
     )
 
     def call
-      rel =
-        if ExchangeAddress.respond_to?(:scannable)
-          ExchangeAddress.scannable
-        elsif ExchangeAddress.respond_to?(:operational)
-          ExchangeAddress.operational
-        else
-          ExchangeAddress.where.not(address: [nil, ""])
-        end
-
       addresses =
-        rel
-          .where.not(address: [nil, ""])
-          .pluck(:address)
+        ExchangeLike::ScannableAddressesCache
+          .fetch
           .map(&:to_s)
           .reject(&:blank?)
           .to_set

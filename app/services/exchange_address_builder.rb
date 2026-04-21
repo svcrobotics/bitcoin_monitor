@@ -175,7 +175,7 @@ class ExchangeAddressBuilder
     flush_aggregates!
 
     update_cursor!(range.end_height) if range.mode == :incremental
-
+    ExchangeLike::ScannableAddressesCache.invalidate!
     log_done(range, started_at)
 
     true

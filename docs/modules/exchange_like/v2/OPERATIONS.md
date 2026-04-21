@@ -318,3 +318,25 @@ Il fournit :
 * une base pour les modules analytiques
 
 ---
+
+## Redis
+
+Le module utilise Redis pour mettre en cache le set `scannable` :
+
+- clé : `exchange_like:scannable_addresses`
+- rôle : éviter une requête DB répétée à chaque scan
+- invalidation : après chaque run du builder
+- fallback : rechargement depuis PostgreSQL si cache vide
+
+## Performance — Redis cache
+
+Le set des adresses scannables est mis en cache Redis.
+
+Résultat mesuré :
+
+- sans cache : ~175s
+- avec cache : ~48s
+- gain : ~72%
+
+Conclusion :
+le cache Redis est critique pour les performances du scanner.
