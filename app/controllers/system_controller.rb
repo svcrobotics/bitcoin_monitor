@@ -6,10 +6,13 @@ class SystemController < ApplicationController
   def index
     @jobs = JobRun.recent.limit(200)
     @scanner_status = build_scanner_status
+    @exchange_like_status = build_exchange_like_status
 
-    names = JobRun.distinct.pluck(:name)
-    last_runs = names.map { |n| JobRun.for_job(n).recent.first }.compact
-    @job_health = build_job_health(last_runs)
+    @snapshot  = System::HealthSnapshotBuilder.call
+    @summary   = @snapshot[:summary]
+    @anomalies = @snapshot[:anomalies]
+    @job_health = @snapshot[:jobs]
+    @recovery  = @snapshot[:recovery]
 
     @checks = {
       bitcoind: bitcoind_check,
@@ -46,6 +49,51 @@ class SystemController < ApplicationController
     return if request.local?
 
     head :forbidden
+  end
+
+  def fmt_duration_ms(value)
+    return "—" if value.blank?
+
+    total_seconds = (value / 1000.0).round
+    minutes = total_seconds / 60
+    seconds = total_seconds % 60
+
+    if minutes.positive?
+      "#{minutes}m #{seconds}s"
+    else
+      "#{seconds}s"
+    end
+  end
+
+  def fmt_seconds(value)
+    return "—" if value.blank?
+
+    total_seconds = value.to_i
+    minutes = total_seconds / 60
+    seconds = total_seconds % 60
+
+    if minutes.positive?
+      "#{minutes}m #{seconds}s"
+    else
+      "#{seconds}s"
+    end
+  end
+
+  def status_badge_class(status)
+    case status.to_s
+    when "ok"
+      "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20"
+    when "running"
+      "text-sky-300 bg-sky-500/10 border border-sky-500/20"
+    when "warning", "late"
+      "text-amber-300 bg-amber-500/10 border border-amber-500/20"
+    when "failing", "long_running", "never_ran"
+      "text-rose-300 bg-rose-500/10 border border-rose-500/20"
+    when "disabled"
+      "text-gray-300 bg-gray-500/10 border border-gray-500/20"
+    else
+      "text-gray-300 bg-gray-500/10 border border-gray-500/20"
+    end
   end
 
   def build_scanner_status
@@ -111,51 +159,64 @@ class SystemController < ApplicationController
     }
   end
 
-  # =========================
-  # Job health
-  # =========================
-  def build_job_health(last_runs)
-    now = Time.current
+  def build_exchange_like_status
+    best_height = BitcoinRpc.new.getblockcount.to_i
 
-    sla = {
-      "exchange_address_builder"             => 26.hours,
-      "exchange_observed_scan"               => 1.hour,
-      "cluster_scan"                         => 1.hour,
-      "cluster_v3_build_metrics"             => 26.hours,
-      "cluster_v3_detect_signals"            => 26.hours,
-      "true_flow_rebuild"                    => 2.hours,
-      "market_snapshot"                      => 26.hours,
-      "whale_scan"                           => 2.hours,
-      "inflow_outflow_build"                 => 26.hours,
-      "inflow_outflow_details_build"         => 26.hours,
-      "inflow_outflow_behavior_build"        => 26.hours,
-      "inflow_outflow_capital_behavior_build"=> 26.hours,
-      "whales_reclassify_last_7d"            => 26.hours
+    builder_cursor = ScannerCursor.find_by(name: "exchange_address_builder")
+    scanner_cursor = ScannerCursor.find_by(name: "exchange_observed_scan")
+
+    builder_last_height = builder_cursor&.last_blockheight
+    scanner_last_height = scanner_cursor&.last_blockheight
+
+    builder_lag = builder_last_height ? (best_height - builder_last_height) : nil
+    scanner_lag = scanner_last_height ? (best_height - scanner_last_height) : nil
+
+    {
+      best_height: best_height,
+
+      builder: {
+        label: "Exchange address builder",
+        last_blockheight: builder_last_height,
+        last_blockhash: builder_cursor&.last_blockhash,
+        updated_at: builder_cursor&.updated_at,
+        lag: builder_lag,
+        status: cursor_health(builder_last_height, builder_lag, builder_cursor&.updated_at)
+      },
+
+      scanner: {
+        label: "Exchange observed scan",
+        last_blockheight: scanner_last_height,
+        last_blockhash: scanner_cursor&.last_blockhash,
+        updated_at: scanner_cursor&.updated_at,
+        lag: scanner_lag,
+        status: cursor_health(scanner_last_height, scanner_lag, scanner_cursor&.updated_at)
+      },
+
+      metrics: {
+        addresses_total: ExchangeAddress.count,
+        addresses_operational: ExchangeAddress.operational.count,
+        addresses_scannable: ExchangeAddress.scannable.count,
+        observed_total: ExchangeObservedUtxo.count,
+        new_addresses_24h: ExchangeAddress.where("first_seen_at >= ?", 24.hours.ago).count,
+        seen_24h: ExchangeObservedUtxo.where("seen_day >= ?", Date.current - 1).count,
+        spent_24h: ExchangeObservedUtxo.where.not(spent_day: nil).where("spent_day >= ?", Date.current - 1).count
+      }
     }
-
-    tracked = sla.keys.to_set
-
-    last_runs
-      .select { |jr| tracked.include?(jr.name) }
-      .sort_by(&:name)
-      .map do |jr|
-        max_age = sla[jr.name] || 6.hours
-        last_time = jr.started_at || jr.created_at
-        age = last_time ? (now - last_time) : 999.years
-        stale = age > max_age
-
-        {
-          name: jr.name,
-          status: jr.status,
-          last_run_at: jr.started_at,
-          duration_ms: jr.duration_ms,
-          error: jr.error,
-          stale: stale,
-          max_age_h: (max_age / 3600.0).round(1)
-        }
-      end
+  rescue => e
+    {
+      error: "#{e.class}: #{e.message}"
+    }
   end
 
+  def cursor_health(last_height, lag, updated_at)
+    return :warn if last_height.nil?
+    return :fail if updated_at.present? && updated_at < 12.hours.ago
+    return :ok if lag.to_i <= 3
+    return :warn if lag.to_i <= 24
+
+    :fail
+  end
+  
   # =========================
   # Services checks
   # =========================
@@ -233,8 +294,11 @@ class SystemController < ApplicationController
     now = Time.current
 
     btc_last   = BtcPriceDay.order(day: :desc).limit(1).pick(:day)&.in_time_zone
-    flow_last  = ExchangeTrueFlow.order(day: :desc).limit(1).pick(:day)&.in_time_zone
     snap_last  = MarketSnapshot.order(computed_at: :desc).limit(1).pick(:computed_at)&.in_time_zone
+
+    cluster_signals_job_last =
+      JobRun.where(name: "cluster_v3_detect_signals", status: "ok", exit_code: 0).maximum(:started_at) ||
+      JobRun.where(name: "cluster_v3_detect_signals", status: "ok", exit_code: 0).maximum(:created_at)
 
     inflow_outflow_last =
       ExchangeFlowDay.order(day: :desc).limit(1).pick(:day)&.in_time_zone
@@ -298,15 +362,6 @@ class SystemController < ApplicationController
         sla_h: 1,
         hint: "Clusters multi-input construits par le scanner cluster.",
         now: now
-      ),
-
-      "exchange_true_flows" => build_table_row(
-        count: ExchangeTrueFlow.count,
-        last_at: flow_last,
-        sla_h: 36,
-        hint: "Flow journalier. Attendu au moins 1 fois / jour.",
-        now: now,
-        min_day: Date.yesterday
       ),
 
       "whale_alerts" => build_table_row(
@@ -383,11 +438,10 @@ class SystemController < ApplicationController
 
       "cluster_signals" => build_table_row(
         count: ClusterSignal.count,
-        last_at: cluster_signals_last,
+        last_at: cluster_signals_job_last,
         sla_h: 36,
-        hint: "V3.1 : signaux cluster détectés à partir des métriques.",
-        now: now,
-        min_day: Date.yesterday
+        hint: "V3.1 : signaux cluster détectés à partir des métriques. Dernier snapshot_date présent: #{cluster_signals_last.present? ? cluster_signals_last.to_date.strftime("%Y-%m-%d") : "—"}",
+        now: now
       )
     }
   end
@@ -446,4 +500,11 @@ class SystemController < ApplicationController
   rescue => e
     Rails.logger.warn("[btc_price_days:catchup] #{e.class}: #{e.message}")
   end
+
 end
+
+
+
+
+
+

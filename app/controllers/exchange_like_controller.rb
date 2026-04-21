@@ -1,71 +1,54 @@
 class ExchangeLikeController < ApplicationController
   def index
-    @addresses_total       = ExchangeAddress.count
-    @addresses_operational = ExchangeAddress.operational.count
-    @addresses_scannable   = ExchangeAddress.scannable.count
+    summary = ExchangeLike::SummaryQuery.new.call
+    series  = ExchangeLike::DailySeriesQuery.new(days: 30).call
 
-    @observed_total = ExchangeObservedUtxo.count
+    @addresses_total       = summary[:addresses_total]
+    @addresses_operational = summary[:addresses_operational]
+    @addresses_scannable   = summary[:addresses_scannable]
+    @observed_total        = summary[:observed_total]
+    @new_addresses_24h     = summary[:new_addresses_24h]
+    @seen_24h              = summary[:seen_24h]
+    @spent_24h             = summary[:spent_24h]
 
-    @top_addresses =
-      ExchangeAddress
-        .operational
-        .order(occurrences: :desc)
-        .limit(10)
+    @builder_daily_discovery = series[:builder_daily_discovery]
+    @scanner_seen_daily      = series[:scanner_seen_daily]
+    @scanner_spent_daily     = series[:scanner_spent_daily]
 
-    builder_raw =
-      ExchangeAddress
-        .where("first_seen_at >= ?", 30.days.ago)
-        .group("DATE(first_seen_at)")
-        .order("DATE(first_seen_at)")
-        .count
-
-    @builder_daily_discovery = fill_daily_series(builder_raw, days: 30)
-
-    seen_raw =
-      ExchangeObservedUtxo
-        .where("seen_day >= ?", 30.days.ago.to_date)
-        .group("seen_day")
-        .order("seen_day")
-        .count
-
-    @scanner_seen_daily = fill_daily_series(seen_raw, days: 30)
-
-    spent_raw =
-      ExchangeObservedUtxo
-        .where.not(spent_day: nil)
-        .where("spent_day >= ?", 30.days.ago.to_date)
-        .group("spent_day")
-        .order("spent_day")
-        .count
-
-    @scanner_spent_daily = fill_daily_series(spent_raw, days: 30)
+    @top_addresses = ExchangeLike::TopAddressesQuery.new(limit: 10).call
 
     @best_height = BitcoinRpc.new.getblockcount.to_i
 
     builder_cursor = ScannerCursor.find_by(name: "exchange_address_builder")
     scanner_cursor = ScannerCursor.find_by(name: "exchange_observed_scan")
 
-    @builder_status = {
-      cursor_height: builder_cursor&.last_blockheight,
-      updated_at: builder_cursor&.updated_at,
-      lag: builder_cursor&.last_blockheight ? (@best_height - builder_cursor.last_blockheight) : nil
-    }
+    @builder_status = build_engine_status(builder_cursor, @best_height)
+    @scanner_status = build_engine_status(scanner_cursor, @best_height)
 
-    @scanner_status = {
-      cursor_height: scanner_cursor&.last_blockheight,
-      updated_at: scanner_cursor&.updated_at,
-      lag: scanner_cursor&.last_blockheight ? (@best_height - scanner_cursor.last_blockheight) : nil
-    }
+    @builder_status_presenter = ExchangeLike::StatusPresenter.new(@builder_status)
+    @scanner_status_presenter = ExchangeLike::StatusPresenter.new(@scanner_status)
   end
 
   private
 
-  def fill_daily_series(raw_counts, days: 30)
-    start_date = days.days.ago.to_date
-    end_date   = Date.current
+  def build_engine_status(cursor, best_height)
+    cursor_height = cursor&.last_blockheight
+    updated_at    = cursor&.updated_at
+    lag           = cursor_height ? (best_height - cursor_height) : nil
 
-    (start_date..end_date).each_with_object({}) do |day, series|
-      series[day] = raw_counts[day] || raw_counts[day.to_s] || 0
-    end
+    {
+      cursor_height: cursor_height,
+      updated_at: updated_at,
+      lag: lag,
+      health: engine_health(lag: lag, updated_at: updated_at)
+    }
+  end
+
+  def engine_health(lag:, updated_at:)
+    return "unknown" if lag.nil? || updated_at.nil?
+    return "stale" if updated_at < 12.hours.ago
+    return "late" if lag > 24
+
+    "ok"
   end
 end

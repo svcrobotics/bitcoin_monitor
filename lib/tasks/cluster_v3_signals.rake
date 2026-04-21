@@ -8,7 +8,9 @@ namespace :cluster do
       scope = Cluster.all
       total = scope.count
 
-      JobRun.log!("cluster_v3_detect_signals", meta: { date: date, total: total }.to_json) do
+      JobRunner.run!("cluster_v3_detect_signals", meta: { date: date, total: total }, triggered_by: "cron") do |jr|
+        JobRunner.heartbeat!(jr)
+
         puts "[cluster:v3_detect_signals] start date=#{date} total=#{total}"
 
         processed = 0
@@ -17,16 +19,37 @@ namespace :cluster do
           ClusterSignalEngine.call(cluster, snapshot_date: date)
           processed = i
 
-          puts "[cluster:v3_detect_signals] processed=#{i}/#{total}" if (i % 100).zero?
+          if (i % 100).zero?
+            JobRunner.progress!(
+              jr,
+              pct: total.positive? ? ((i.to_f / total) * 100).round(1) : 100.0,
+              label: "cluster #{i} / #{total}",
+              meta: {
+                snapshot_date: date,
+                processed: i,
+                total: total
+              }
+            )
+
+            puts "[cluster:v3_detect_signals] processed=#{i}/#{total}"
+          end
         end
+
+        JobRunner.heartbeat!(jr)
 
         puts "[cluster:v3_detect_signals] done processed=#{processed}"
 
-        {
+        result = {
           snapshot_date: date,
           clusters_processed: processed,
           total: total
         }
+
+        jr.update!(
+          meta: { date: date, total: total }.merge(result: result).to_json
+        )
+
+        result
       end
     rescue ArgumentError => e
       abort "[cluster:v3_detect_signals] invalid DATE format: #{e.message}"

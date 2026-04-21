@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_03_21_174129) do
+ActiveRecord::Schema[8.0].define(version: 2026_03_28_090229) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -488,6 +488,16 @@ ActiveRecord::Schema[8.0].define(version: 2026_03_21_174129) do
     t.text "meta"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.datetime "heartbeat_at"
+    t.string "triggered_by"
+    t.datetime "scheduled_for"
+    t.float "progress_pct"
+    t.string "progress_label"
+    t.jsonb "progress_meta"
+    t.index ["heartbeat_at"], name: "index_job_runs_on_heartbeat_at"
+    t.index ["name", "status", "started_at"], name: "index_job_runs_on_name_and_status_and_started_at"
+    t.index ["scheduled_for"], name: "index_job_runs_on_scheduled_for"
+    t.index ["triggered_by"], name: "index_job_runs_on_triggered_by"
   end
 
   create_table "journal_entries", force: :cascade do |t|

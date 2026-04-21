@@ -1,0 +1,44 @@
+@startmindmap
+* Exchange Flow
+
+** Objectif
+*** mesurer inflow/outflow exchange-like
+
+** Inputs
+*** WhaleAlert
+*** ExchangeAddress
+*** ExchangeObservedUtxo
+*** Bitcoin Core
+
+** Jobs
+*** whale_scan
+*** exchange_address_builder
+*** exchange_observed_scan
+*** inflow_outflow_build
+
+** Tables
+*** whale_alerts
+*** exchange_addresses
+*** exchange_observed_utxos
+*** exchange_true_flows
+
+** Calculs
+*** inflow
+*** outflow
+*** internal vs external
+*** ratio30
+
+** Outputs
+*** dashboard KPI
+*** netflow
+*** status red/green
+
+** Dépendances
+*** bitcoind RPC
+*** données whale fraîches
+
+** Risques
+*** faux positifs exchange-like
+*** trous de couverture
+
+@endmindmap

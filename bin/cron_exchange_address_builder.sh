@@ -14,25 +14,25 @@ if command -v rbenv >/dev/null 2>&1; then
   eval "$(rbenv init - bash)"
 fi
 
-ts() { date -Is; }
-
 export RAILS_ENV="${RAILS_ENV:-development}"
 
-echo "[exchange_address_builder] start $(ts)" >> "$LOG"
+echo "[$(date '+%F %T')] [exchange_address_builder] start triggered_by=${TRIGGERED_BY:-cron} scheduled_for=${SCHEDULED_FOR:-}" >> "$LOG"
 
-t0="$(date +%s)"
-set +e
-
-bundle exec bin/rails runner "ExchangeAddressBuilderJob.perform_now" >> "$LOG" 2>&1
-RC=$?
-
-t1="$(date +%s)"
-dur="$((t1 - t0))"
-
-if [ "$RC" -eq 0 ]; then
-  echo "[exchange_address_builder] done rc=$RC dur=${dur}s $(ts)" >> "$LOG"
+if bin/rails runner '
+JobRunner.run!(
+  "exchange_address_builder",
+  meta: {},
+  triggered_by: ENV.fetch("TRIGGERED_BY", "cron"),
+  scheduled_for: ENV["SCHEDULED_FOR"].presence
+) do |jr|
+  JobRunner.heartbeat!(jr)
+  ExchangeAddressBuilderJob.perform_now
+  JobRunner.heartbeat!(jr)
+end
+'; then
+  echo "[$(date '+%F %T')] [exchange_address_builder] done" >> "$LOG"
 else
-  echo "[exchange_address_builder] FAIL rc=$RC dur=${dur}s $(ts)" >> "$LOG"
-fi
-
-exit "$RC"
+  rc=$?
+  echo "[$(date '+%F %T')] [exchange_address_builder] failed rc=${rc}" >> "$LOG"
+  exit "$rc"
+fi >> "$LOG" 2>&1

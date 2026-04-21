@@ -32,5 +32,10 @@ module BitcoinMonitor
     # 🌍 Localisation par défaut
     config.i18n.default_locale = :fr
     config.i18n.available_locales = [:fr, :es, :en, :"zh-CN"]
+
+    config.autoload_paths << Rails.root.join("app/queries")
+    config.eager_load_paths << Rails.root.join("app/queries")
+    config.autoload_paths << Rails.root.join("app/presenters")
+    config.eager_load_paths << Rails.root.join("app/presenters")
   end
 end

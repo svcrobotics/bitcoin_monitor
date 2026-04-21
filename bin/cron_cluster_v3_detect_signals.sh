@@ -13,26 +13,14 @@ if command -v rbenv >/dev/null 2>&1; then
   eval "$(rbenv init - bash)"
 fi
 
-ts() { date -Is; }
-
 export RAILS_ENV="${RAILS_ENV:-development}"
 
-echo "[cluster_v3_detect_signals] start $(ts)" >> "$LOG"
+echo "[$(date '+%F %T')] [cluster_v3_detect_signals] start triggered_by=${TRIGGERED_BY:-cron} scheduled_for=${SCHEDULED_FOR:-}" >> "$LOG"
 
-t0="$(date +%s)"
-set +e
-
-bundle exec bin/rails cluster:v3:detect_signals >> "$LOG" 2>&1
-RC=$?
-
-set -e
-t1="$(date +%s)"
-dur="$((t1 - t0))"
-
-if [ "$RC" -eq 0 ]; then
-  echo "[cluster_v3_detect_signals] done rc=$RC dur=${dur}s $(ts)" >> "$LOG"
+if bin/rails cluster:v3:detect_signals; then
+  echo "[$(date '+%F %T')] [cluster_v3_detect_signals] done" >> "$LOG"
 else
-  echo "[cluster_v3_detect_signals] FAIL rc=$RC dur=${dur}s $(ts)" >> "$LOG"
-fi
-
-exit "$RC"
+  rc=$?
+  echo "[$(date '+%F %T')] [cluster_v3_detect_signals] failed rc=${rc}" >> "$LOG"
+  exit "$rc"
+fi >> "$LOG" 2>&1

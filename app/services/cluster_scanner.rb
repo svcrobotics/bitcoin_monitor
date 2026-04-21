@@ -9,20 +9,22 @@ class ClusterScanner
   CURSOR_NAME = "cluster_scan"
   INITIAL_BLOCKS_BACK = (Integer(ENV.fetch("CLUSTER_INITIAL_BLOCKS_BACK", "50")) rescue 50)
 
-  def self.call(from_height: nil, to_height: nil, limit: nil, rpc: nil)
+  def self.call(from_height: nil, to_height: nil, limit: nil, rpc: nil, job_run: nil)
     new(
       from_height: from_height,
       to_height: to_height,
       limit: limit,
-      rpc: rpc
+      rpc: rpc,
+      job_run: job_run
     ).call
   end
 
-  def initialize(from_height: nil, to_height: nil, limit: nil, rpc: nil)
+  def initialize(from_height: nil, to_height: nil, limit: nil, rpc: nil, job_run: nil)
     @from_height = from_height.present? ? from_height.to_i : nil
     @to_height   = to_height.present? ? to_height.to_i : nil
     @limit       = limit.present? ? limit.to_i : nil
     @rpc         = rpc || BitcoinRpc.new(wallet: nil)
+    @job_run = job_run
 
     @dirty_cluster_ids = Set.new
 
@@ -65,6 +67,11 @@ class ClusterScanner
     (range[:start_height]..range[:end_height]).each do |height|
       scanned = scan_block(height)
       @stats[:scanned_blocks] += 1 if scanned
+
+      if (@stats[:scanned_blocks] % 10).zero? || height == range[:end_height]
+        update_progress!(height, range[:start_height], range[:end_height])
+      end
+
       log_progress(height)
     end
 
@@ -424,6 +431,34 @@ class ClusterScanner
       "pruned_blocks_skipped=#{@stats[:pruned_blocks_skipped]} " \
       "tx_skipped_rpc_errors=#{@stats[:tx_skipped_rpc_errors]} " \
       "tx_skipped_missing_prevout=#{@stats[:tx_skipped_missing_prevout]}"
+    )
+  end
+
+  def update_progress!(current_height, start_height, end_height)
+    return if @job_run.blank?
+
+    total = (end_height - start_height + 1)
+    return if total <= 0
+
+    done = (current_height - start_height + 1)
+    pct = ((done.to_f / total) * 100).round(1)
+
+    JobRunner.progress!(
+      @job_run,
+      pct: pct,
+      label: "block #{current_height} / #{end_height}",
+      meta: {
+        start_height: start_height,
+        current_height: current_height,
+        end_height: end_height,
+        scanned_blocks: @stats[:scanned_blocks],
+        scanned_txs: @stats[:scanned_txs],
+        multi_input_txs: @stats[:multi_input_txs],
+        links_created: @stats[:links_created],
+        clusters_created: @stats[:clusters_created],
+        clusters_merged: @stats[:clusters_merged],
+        pruned_blocks_skipped: @stats[:pruned_blocks_skipped]
+      }
     )
   end
 end

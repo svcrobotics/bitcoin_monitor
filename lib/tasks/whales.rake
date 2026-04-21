@@ -6,11 +6,22 @@ namespace :whales do
   task scan: :environment do
     n = Integer(ENV.fetch("N", "144"))
 
-    JobRun.log!("whale_scan", meta: { last_n_blocks: n }.to_json) do
+    JobRunner.run!("whale_scan", meta: { last_n_blocks: n }, triggered_by: "cron") do |jr|
+      JobRunner.heartbeat!(jr)
+
       puts "🐋 Whale scan starting (last #{n} blocks)…"
-      ScanWhaleAlertsJob.perform_now(last_n_blocks: n)
+      ScanWhaleAlertsJob.perform_now(last_n_blocks: n, job_run_id: jr.id)
       puts "✅ Whale scan done (last #{n} blocks)"
-      { last_n_blocks: n }
+
+      JobRunner.heartbeat!(jr)
+
+      result = { last_n_blocks: n }
+
+      jr.update!(
+        meta: { last_n_blocks: n }.merge(result: result).to_json
+      )
+
+      result
     end
   rescue => e
     puts "❌ Whale scan failed: #{e.class} #{e.message}"
@@ -31,7 +42,6 @@ namespace :whales do
     puts "🐋 Whale backfill starting…"
     puts "  range=#{from}..#{to} step=#{step}"
 
-    # On scanne par chunks, du plus ancien au plus récent
     h = from
     while h <= to
       chunk_from = h
@@ -39,7 +49,6 @@ namespace :whales do
 
       puts "▶ scanning blocks #{chunk_from}..#{chunk_to}"
 
-      # ✅ Nécessite ScanWhaleAlertsJob qui supporte from_height/to_height
       ScanWhaleAlertsJob.perform_now(from_height: chunk_from, to_height: chunk_to)
 
       h = chunk_to + 1
@@ -63,11 +72,9 @@ namespace :whales do
 
     rpc = BitcoinRpc.new
 
-    # Cherche le block height ~ début de la période et la fin (aujourd'hui)
     start_day = Date.current - days
     end_day   = Date.current
 
-    # On prend ~ midi pour éviter les bords (jour qui change)
     start_time = start_day.to_time.in_time_zone.change(hour: 12)
     end_time   = end_day.to_time.in_time_zone.change(hour: 12)
 
@@ -178,8 +185,8 @@ namespace :whales do
   task reclassify_missing: :environment do
     scope = WhaleAlert.where(flow_kind: nil).or(WhaleAlert.where("meta->>'reclass_version' IS NULL"))
     puts "🔁 whales:reclassify_missing count=#{scope.count}"
-    ids = scope.pluck(:txid) # simple
-    ReclassifyWhaleAlertsJob.perform_now(since_time: 100.years.ago) if ids.any? # ou fais une version du job qui prend txids
+    ids = scope.pluck(:txid)
+    ReclassifyWhaleAlertsJob.perform_now(since_time: 100.years.ago) if ids.any?
   end
 
   # ---------------------------
@@ -197,7 +204,6 @@ namespace :whales do
       mid = (lo + hi) / 2
       hash = rpc.getblockhash(mid)
 
-      # ✅ on évite getblockheader (pas exposé dans ton wrapper)
       blk = rpc.getblock(hash)
       t   = blk["time"].to_i
 
@@ -211,5 +217,4 @@ namespace :whales do
 
     best
   end
-
 end

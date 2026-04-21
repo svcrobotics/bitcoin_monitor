@@ -7,22 +7,21 @@ class ExchangeObservedScanJob < ApplicationJob
     meta = {
       days_back: days_back,
       last_n_blocks: last_n_blocks
-    }.to_json
+    }
 
-    JobRun.log!("exchange_observed_scan", meta: meta) do |jr|
+    JobRunner.run!("exchange_observed_scan", meta: meta, triggered_by: "cron") do |jr|
+      JobRunner.heartbeat!(jr)
+
       res = ExchangeObservedScanner.call(
         days_back: days_back,
         last_n_blocks: last_n_blocks
       )
 
-      if jr
-        jr.update!(
-          meta: {
-            days_back: days_back,
-            last_n_blocks: last_n_blocks
-          }.merge(res).to_json
-        )
-      end
+      JobRunner.heartbeat!(jr)
+
+      jr.update!(
+        meta: meta.merge(res).to_json
+      )
 
       res
     end

@@ -4,6 +4,9 @@ set -euo pipefail
 APP="/home/victor/bitcoin_monitor"
 LOG="$APP/log/cron.victor.log"
 
+mkdir -p "$APP/log"
+cd "$APP"
+
 export RBENV_ROOT="${RBENV_ROOT:-/home/victor/.rbenv}"
 export PATH="$RBENV_ROOT/bin:$RBENV_ROOT/shims:$PATH"
 if command -v rbenv >/dev/null 2>&1; then
@@ -12,25 +15,29 @@ fi
 
 export RAILS_ENV="${RAILS_ENV:-development}"
 
-ts="$(date -Is)"
-ruby_v="$(ruby -v 2>/dev/null || true)"
-bundle_v="$(bundle -v 2>/dev/null || echo "bundle:NOT_FOUND")"
-echo "[btc_price_days] start ${ts} ruby=${ruby_v} bundler=${bundle_v} RAILS_ENV=${RAILS_ENV}" >> "$LOG"
+echo "[$(date '+%F %T')] [btc_price_daily] start triggered_by=${TRIGGERED_BY:-cron} scheduled_for=${SCHEDULED_FOR:-}" >> "$LOG"
 
-t0="$(date +%s)"
-cd "$APP"
+if bin/rails runner '
+require "rake"
 
-set +e
-bundle exec bin/rails btc_price_days:catchup >> "$LOG" 2>&1
-rc=$?
-set -e
+JobRunner.run!(
+  "btc_price_daily",
+  meta: {},
+  triggered_by: ENV.fetch("TRIGGERED_BY", "cron"),
+  scheduled_for: ENV["SCHEDULED_FOR"].presence
+) do |jr|
+  JobRunner.heartbeat!(jr)
 
-dt="$(( $(date +%s) - t0 ))"
+  Rails.application.load_tasks if Rake::Task.tasks.empty?
+  Rake::Task["btc_price_days:catchup"].reenable
+  Rake::Task["btc_price_days:catchup"].invoke
 
-if [ "$rc" -eq 0 ]; then
-  echo "[btc_price_days] done rc=${rc} dur=${dt}s $(date -Is)" >> "$LOG"
+  JobRunner.heartbeat!(jr)
+end
+'; then
+  echo "[$(date '+%F %T')] [btc_price_daily] done" >> "$LOG"
 else
-  echo "[btc_price_days] FAIL rc=${rc} dur=${dt}s $(date -Is)" >> "$LOG"
-fi
-
-exit "$rc"
+  rc=$?
+  echo "[$(date '+%F %T')] [btc_price_daily] failed rc=${rc}" >> "$LOG"
+  exit "$rc"
+fi >> "$LOG" 2>&1

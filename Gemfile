@@ -88,3 +88,5 @@ gem "chartkick"
 gem "groupdate"
 
 gem "sidekiq"
+
+gem "minitest", "~> 5.25"

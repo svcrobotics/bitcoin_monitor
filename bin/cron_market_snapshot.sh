@@ -4,28 +4,24 @@ set -euo pipefail
 APP="/home/victor/bitcoin_monitor"
 LOG="$APP/log/cron.victor.log"
 
-# ---- rbenv bootstrap (CRON ne charge pas .bashrc/.profile) ----
-export RBENV_ROOT="${RBENV_ROOT:-$HOME/.rbenv}"
+mkdir -p "$APP/log"
+cd "$APP"
+
+# rbenv bootstrap
+export RBENV_ROOT="${RBENV_ROOT:-/home/victor/.rbenv}"
 export PATH="$RBENV_ROOT/bin:$RBENV_ROOT/shims:$PATH"
 if command -v rbenv >/dev/null 2>&1; then
   eval "$(rbenv init - bash)"
 fi
 
-# ---- rails env (évite le mode production par défaut) ----
 export RAILS_ENV="${RAILS_ENV:-development}"
 
-ts="$(date -Is)"
-ruby_v="$(ruby -v 2>/dev/null || true)"
-bundle_v="$(bundle -v 2>/dev/null || echo "bundle:NOT_FOUND")"
-echo "[market_snapshot] start ${ts} ruby=${ruby_v} bundler=${bundle_v} RAILS_ENV=${RAILS_ENV}" >> "$LOG"
+echo "[$(date '+%F %T')] [market_snapshot] start triggered_by=${TRIGGERED_BY:-cron} scheduled_for=${SCHEDULED_FOR:-}" >> "$LOG"
 
-t0="$(date +%s)"
-cd "$APP"
-
-# Task Rails : crée un MarketSnapshot
-bundle exec bin/rails market:snapshot >> "$LOG" 2>&1
-rc=$?
-
-dt="$(( $(date +%s) - t0 ))"
-echo "[market_snapshot] done rc=${rc} dur=${dt}s $(date -Is)" >> "$LOG"
-exit "$rc"
+if bin/rails market:snapshot; then
+  echo "[$(date '+%F %T')] [market_snapshot] done" >> "$LOG"
+else
+  rc=$?
+  echo "[$(date '+%F %T')] [market_snapshot] failed rc=${rc}" >> "$LOG"
+  exit "$rc"
+fi >> "$LOG" 2>&1

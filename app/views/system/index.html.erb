@@ -1,463 +1,905 @@
 <!-- app/views/system/index.html.erb -->
 <% @checks          ||= {} %>
+<% @summary         ||= {} %>
+<% @recovery        ||= {} %>
+<% @anomalies       ||= [] %>
 <% @job_health      ||= [] %>
 <% @scanner_status  ||= {} %>
+<% @exchange_like_status ||= {} %>
 <% @tables          ||= {} %>
 <% @jobs            ||= [] %>
+<% @snapshot        ||= {} %>
 
 <%
-  pill = lambda do |kind|
-    case kind.to_s
-    when "ok"
-      "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
-    when "fail", "stale"
-      "text-rose-300 bg-rose-500/10 border-rose-500/20"
+  section_class = "rounded-2xl border border-white/10 bg-white/5 p-5"
+  panel_class   = "rounded-xl border border-white/10 bg-black/20 p-4"
+  label_class   = "text-[11px] uppercase tracking-[0.14em] text-gray-500"
+  muted_class   = "text-sm text-gray-400"
+  mono_class    = "font-mono text-xs"
+
+  global_state =
+    if @recovery[:critical_problems_count].to_i > 0
+      "critical"
+    elsif @anomalies.any?
+      "warning"
     else
-      "text-amber-300 bg-amber-500/10 border-amber-500/20"
+      "ok"
+    end
+
+  def status_badge_class(status)
+    case status.to_s
+    when "skipped"
+      "text-orange-300 bg-orange-500/10 border border-orange-500/20"
+    when "stuck"
+      "text-rose-200 bg-rose-500/20 border border-rose-500/30"
+    when "ok"
+      "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20"
+    when "running"
+      "text-sky-300 bg-sky-500/10 border border-sky-500/20"
+    when "warning", "late"
+      "text-amber-300 bg-amber-500/10 border border-amber-500/20"
+    when "failing", "fail", "long_running", "never_ran", "stale"
+      "text-rose-300 bg-rose-500/10 border border-rose-500/20"
+    when "disabled"
+      "text-gray-300 bg-gray-500/10 border border-gray-500/20"
+    else
+      "text-gray-300 bg-gray-500/10 border border-gray-500/20"
     end
   end
 
-  card_class  = "bg-gray-900/40 border border-gray-800 rounded-2xl p-5"
-  inner_class = "mt-4 bg-black/20 border border-gray-800 rounded-xl p-4"
-  label_class = "text-xs uppercase tracking-wide text-gray-500"
+  def global_badge_class(state)
+    case state.to_s
+    when "ok"
+      "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20"
+    when "warning"
+      "text-amber-300 bg-amber-500/10 border border-amber-500/20"
+    else
+      "text-rose-300 bg-rose-500/10 border border-rose-500/20"
+    end
+  end
 
-  disks = (@checks[:disks] || {})
+  def yes_no_badge(value)
+    value ? "OK" : "FAIL"
+  end
+
+  def yes_no_badge_class(value)
+    value ? "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20" :
+            "text-rose-300 bg-rose-500/10 border border-rose-500/20"
+  end
+
+  def safe_time(value)
+    return "—" if value.blank?
+    if respond_to?(:fmt_time)
+      fmt_time(value)
+    else
+      value.respond_to?(:strftime) ? value.strftime("%Y-%m-%d %H:%M:%S") : value.to_s
+    end
+  rescue
+    value.to_s
+  end
+
+  def safe_duration_ms(value)
+    return "—" if value.blank?
+    if respond_to?(:fmt_duration_ms)
+      fmt_duration_ms(value)
+    else
+      total_seconds = (value.to_f / 1000.0).round
+      minutes = total_seconds / 60
+      seconds = total_seconds % 60
+      minutes.positive? ? "#{minutes}m #{seconds}s" : "#{seconds}s"
+    end
+  end
+
+  def safe_seconds(value)
+    return "—" if value.blank?
+    if respond_to?(:fmt_seconds)
+      fmt_seconds(value)
+    else
+      total_seconds = value.to_i
+      minutes = total_seconds / 60
+      seconds = total_seconds % 60
+      minutes.positive? ? "#{minutes}m #{seconds}s" : "#{seconds}s"
+    end
+  end
+
+  bitcoind = @checks[:bitcoind] || {}
+  blockchain = @checks[:bitcoind_activity] || {}
+  disks = @checks[:disks] || {}
   disk_cards = [disks[:bitcoind], disks[:data], disks[:system]].compact
 %>
 
-<div class="max-w-6xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-  <div class="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-3 mb-6">
-    <div class="min-w-0">
-      <h1 class="text-2xl sm:text-3xl font-bold text-gray-100">System</h1>
-      <p class="text-sm text-gray-500 mt-1">
-        Supervision actuelle de l’infrastructure, des jobs, des scanners et des données.
+<div class="w-full max-w-none mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
+  <!-- Header -->
+  <section class="flex flex-col lg:flex-row lg:items-end lg:justify-between gap-4">
+    <div>
+      <div class="<%= label_class %>">Operations dashboard</div>
+      <h1 class="mt-2 text-3xl font-bold text-gray-100">System</h1>
+      <p class="mt-2 <%= muted_class %>">
+        Supervision opérationnelle de l’infrastructure, des jobs cron, des scanners et de la fraîcheur des données.
       </p>
     </div>
 
-    <div class="text-xs text-gray-500 font-mono">
-      <%= Time.current.strftime("%Y-%m-%d %H:%M:%S") %>
+    <div class="flex flex-col items-start lg:items-end gap-2">
+      <span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold <%= global_badge_class(global_state) %>">
+        <%= global_state.upcase %>
+      </span>
+      <div class="text-xs text-gray-500 font-mono">
+        snapshot:
+        <span class="text-gray-300"><%= safe_time(@snapshot[:generated_at] || Time.current) %></span>
+      </div>
     </div>
-  </div>
+  </section>
+
+  <!-- KPI -->
+  <section class="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-6 gap-4">
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Global status</div>
+      <div class="mt-3 text-2xl font-bold <%= global_state == "ok" ? "text-emerald-300" : global_state == "warning" ? "text-amber-300" : "text-rose-300" %>">
+        <%= global_state.upcase %>
+      </div>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Jobs actifs</div>
+      <div class="mt-3 text-2xl font-bold text-gray-100"><%= @summary[:active_jobs_count] || 0 %></div>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Jobs critiques</div>
+      <div class="mt-3 text-2xl font-bold text-gray-100"><%= @summary[:critical_jobs_count] || 0 %></div>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">En retard</div>
+      <div class="mt-3 text-2xl font-bold text-amber-300"><%= @summary[:late_jobs_count] || 0 %></div>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Running / longs</div>
+      <div class="mt-3 text-2xl font-bold text-sky-300">
+        <%= (@summary[:running_jobs_count] || 0) + (@summary[:long_running_jobs_count] || 0) %>
+      </div>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">En échec</div>
+      <div class="mt-3 text-2xl font-bold text-rose-300"><%= @summary[:failing_jobs_count] || 0 %></div>
+    </div>
+  </section>
+
+  <!-- Recovery -->
+  <section class="<%= section_class %>">
+    <div class="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4">
+      <div>
+        <div class="<%= label_class %>">Recovery</div>
+        <h2 class="mt-1 text-xl font-semibold text-gray-100">Recovery readiness</h2>
+        <p class="mt-2 <%= muted_class %>">
+          État synthétique du système pour reprise après panne, coupure électrique ou interruption prolongée.
+        </p>
+      </div>
+
+      <span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold <%= @recovery[:recovery_needed] ? "text-rose-300 bg-rose-500/10 border border-rose-500/20" : "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20" %>">
+        <%= @recovery[:recovery_needed] ? "RECOVERY NEEDED" : "READY" %>
+      </span>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">
+      <div class="<%= panel_class %>">
+        <div class="<%= label_class %>">Bitcoind RPC</div>
+        <div class="mt-3">
+          <span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold <%= yes_no_badge_class(bitcoind[:ok]) %>">
+            <%= yes_no_badge(bitcoind[:ok]) %>
+          </span>
+        </div>
+      </div>
+
+      <div class="<%= panel_class %>">
+        <div class="<%= label_class %>">Problèmes critiques</div>
+        <div class="mt-3 text-2xl font-bold text-gray-100"><%= @recovery[:critical_problems_count] || 0 %></div>
+      </div>
+
+      <div class="<%= panel_class %>">
+        <div class="<%= label_class %>">Ordre de reprise</div>
+        <div class="mt-3 text-sm text-gray-300 leading-6">
+          <%= (@recovery[:restart_order] || []).presence&.join(" → ") || "—" %>
+        </div>
+      </div>
+    </div>
+
+    <% if (@recovery[:critical_problems] || []).any? %>
+      <div class="mt-5 rounded-xl border border-rose-500/20 bg-rose-500/5 p-4">
+        <div class="text-sm font-semibold text-rose-200">Problèmes critiques détectés</div>
+        <div class="mt-3 grid grid-cols-1 md:grid-cols-2 gap-3">
+          <% @recovery[:critical_problems].each do |problem| %>
+            <div class="rounded-lg bg-black/20 border border-white/10 px-3 py-2">
+              <div class="text-sm text-gray-100"><%= problem[:name] %></div>
+              <div class="text-xs text-rose-300 mt-1"><%= problem[:status] %></div>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
+  </section>
 
   <!-- Infrastructure -->
-  <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
-    <!-- Bitcoind RPC -->
-    <section class="<%= card_class %>">
-      <% bitcoind = @checks[:bitcoind] || {} %>
+  <section class="<%= section_class %>">
+    <div class="mb-5">
+      <div class="<%= label_class %>">Infrastructure</div>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">Bitcoind, blockchain et stockage</h2>
+      <p class="mt-2 <%= muted_class %>">
+        Vue rapide de la connectivité RPC, de la progression blockchain et de l’occupation disque.
+      </p>
+    </div>
 
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <p class="<%= label_class %>">Service</p>
-          <h2 class="text-lg font-semibold text-gray-100 mt-0.5">Bitcoind RPC</h2>
-          <p class="text-xs text-gray-500 mt-1">Connectivité RPC et progression de sync.</p>
-        </div>
-
-        <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(bitcoind[:ok] ? "ok" : "fail") %>">
-          <%= bitcoind[:ok] ? "OK" : "FAIL" %>
-        </span>
-      </div>
-
-      <div class="<%= inner_class %>">
-        <% if bitcoind[:ok] %>
-          <div class="grid grid-cols-2 gap-4">
-            <div>
-              <p class="text-xs text-gray-500">Blocks</p>
-              <p class="text-xl font-mono text-gray-100"><%= bitcoind[:blocks] || "—" %></p>
-            </div>
-            <div>
-              <p class="text-xs text-gray-500">Progress</p>
-              <p class="text-xl font-mono text-gray-100"><%= bitcoind[:progress_pct] || "—" %>%</p>
-            </div>
-          </div>
-        <% else %>
-          <p class="text-xs text-gray-400 whitespace-pre-wrap"><%= bitcoind[:error] %></p>
-        <% end %>
-      </div>
-    </section>
-
-    <!-- Blockchain -->
-    <section class="<%= card_class %>">
-      <% bc = @checks[:bitcoind_activity] || {} %>
-
-      <div class="flex items-start justify-between gap-3">
-        <div class="min-w-0">
-          <p class="<%= label_class %>">Réseau</p>
-          <h2 class="text-lg font-semibold text-gray-100 mt-0.5">Blockchain</h2>
-          <p class="text-xs text-gray-500 mt-1">Headers, blocks, lag et progression.</p>
-        </div>
-
-        <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(bc[:ok] ? "ok" : "fail") %>">
-          <%= bc[:ok] ? "OK" : "FAIL" %>
-        </span>
-      </div>
-
-      <div class="<%= inner_class %>">
-        <% if bc[:ok] %>
-          <div class="space-y-2 text-xs">
-            <div class="flex items-center justify-between">
-              <span class="text-gray-500">blocks</span>
-              <span class="font-mono text-gray-200"><%= bc[:blocks] || "—" %></span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-gray-500">headers</span>
-              <span class="font-mono text-gray-200"><%= bc[:headers] || "—" %></span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-gray-500">lag</span>
-              <span class="font-mono text-gray-200"><%= bc[:lag] || "—" %></span>
-            </div>
-            <div class="flex items-center justify-between">
-              <span class="text-gray-500">progress</span>
-              <span class="font-mono text-gray-200"><%= bc[:progress_pct] || "—" %>%</span>
-            </div>
-          </div>
-        <% else %>
-          <p class="text-xs text-gray-400 whitespace-pre-wrap"><%= bc[:error] %></p>
-        <% end %>
-      </div>
-    </section>
-
-    <!-- Disks -->
-    <% disk_cards.each do |disk| %>
-      <% st = (disk[:status] || :warn).to_s %>
-
-      <section class="<%= card_class %>">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+      <div class="<%= panel_class %>">
         <div class="flex items-start justify-between gap-3">
-          <div class="min-w-0">
-            <p class="<%= label_class %>">Ressource</p>
-            <h2 class="text-lg font-semibold text-gray-100 mt-0.5"><%= disk[:label] || "Disque" %></h2>
-            <p class="text-xs text-gray-500 mt-1">
-              Occupation de <span class="font-mono"><%= disk[:path] || "—" %></span>
-            </p>
-
-            <% if disk[:mount].present? && disk[:mount].to_s != disk[:path].to_s %>
-              <p class="text-[11px] text-gray-600 mt-1">
-                mount: <span class="font-mono"><%= disk[:mount] %></span>
-              </p>
-            <% end %>
+          <div>
+            <div class="<%= label_class %>">Service</div>
+            <div class="mt-1 text-lg font-semibold text-gray-100">Bitcoind RPC</div>
           </div>
-
-          <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(st) %>">
-            <%= st.upcase %>
+          <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= yes_no_badge_class(bitcoind[:ok]) %>">
+            <%= yes_no_badge(bitcoind[:ok]) %>
           </span>
         </div>
 
-        <div class="<%= inner_class %>">
-          <div class="flex items-center justify-between">
-            <span class="text-xs text-gray-500">Utilisation</span>
-            <span class="text-sm font-mono text-gray-100"><%= disk[:used_pct] ? "#{disk[:used_pct]}%" : "—" %></span>
-          </div>
-
-          <div class="mt-3">
-            <pre class="text-xs text-gray-400 whitespace-pre-wrap leading-5"><%= disk[:raw] %></pre>
-          </div>
-        </div>
-      </section>
-    <% end %>
-  </div>
-
-  <!-- Jobs -->
-  <section class="mt-6 <%= card_class %>">
-    <div class="mb-4">
-      <p class="<%= label_class %>">Automatisation</p>
-      <h2 class="text-lg font-semibold text-gray-100 mt-0.5">Jobs critiques</h2>
-      <p class="text-xs text-gray-500 mt-1">État des jobs réellement utilisés aujourd’hui.</p>
-    </div>
-
-    <div class="space-y-3">
-      <% (@job_health || []).each do |j| %>
-        <% running = j[:status].to_s.downcase == "running" %>
-        <% stale   = j[:stale] %>
-
-        <% st =
-          if running && stale
-            "fail"
-          elsif running
-            "warn"
-          elsif stale
-            "stale"
-          else
-            j[:status].to_s.downcase.presence || "warn"
-          end
-        %>
-
-        <% runtime_ms =
-          if running && j[:last_run_at].present?
-            ((Time.current - j[:last_run_at]) * 1000).to_i
-          else
-            j[:duration_ms]
-          end
-        %>
-
-        <div class="bg-black/20 border border-gray-800 rounded-xl px-4 py-3">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="flex items-center gap-2 flex-wrap">
-                <span class="font-mono text-xs text-gray-200"><%= j[:name] %></span>
-
-                <% if running %>
-                  <span class="text-[11px] <%= stale ? "text-rose-300" : "text-amber-300" %>">
-                    <%= stale ? "running trop longtemps" : "running" %>
-                  </span>
-                <% elsif stale %>
-                  <span class="text-[11px] text-rose-300">retard</span>
-                <% end %>
-              </div>
-
-              <div class="mt-2 grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs text-gray-500">
-                <div>
-                  last:
-                  <span class="font-mono text-gray-300"><%= j[:last_run_at]&.strftime("%Y-%m-%d %H:%M:%S") || "—" %></span>
-                </div>
-                <div>
-                  dur:
-                  <span class="font-mono text-gray-300"><%= runtime_ms ? "#{runtime_ms}ms" : "—" %></span>
-                </div>
-                <div>
-                  SLA:
-                  <span class="font-mono text-gray-300"><%= j[:max_age_h] || "—" %>h</span>
-                </div>
-              </div>
-
-              <% if j[:error].present? %>
-                <div class="mt-2 text-xs text-gray-400 whitespace-pre-wrap"><%= j[:error].to_s.first(220) %></div>
-              <% end %>
+        <% if bitcoind[:ok] %>
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Blocks</span>
+              <span class="font-mono text-gray-200"><%= bitcoind[:blocks] || "—" %></span>
             </div>
-
-            <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(st) %>">
-              <% if running && stale %>
-                STALE RUNNING
-              <% elsif running %>
-                RUNNING
-              <% else %>
-                <%= st.upcase %>
-              <% end %>
-            </span>
-          </div>
-        </div>
-      <% end %>
-    </div>
-  </section>
-
-  <!-- Scanners -->
-  <section class="mt-6 <%= card_class %>">
-    <div class="mb-4">
-      <p class="<%= label_class %>">Scanners</p>
-      <h2 class="text-lg font-semibold text-gray-100 mt-0.5">État des curseurs</h2>
-      <p class="text-xs text-gray-500 mt-1">Dernier bloc scanné, best block et retard.</p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <% (@scanner_status || {}).each do |key, s| %>
-        <% badge_class =
-          case s[:status]
-          when :ok   then "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
-          when :warn then "text-amber-300 bg-amber-500/10 border-amber-500/20"
-          else            "text-rose-300 bg-rose-500/10 border-rose-500/20"
-          end
-        %>
-
-        <div class="bg-black/20 border border-gray-800 rounded-xl p-4">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="text-gray-100 font-semibold"><%= s[:label] || key %></div>
-
-              <% if s[:error].present? %>
-                <div class="mt-2 text-xs text-gray-400 whitespace-pre-wrap"><%= s[:error] %></div>
-              <% else %>
-                <div class="mt-2 text-xs text-gray-500 space-y-1">
-                  <div>
-                    last scanned:
-                    <span class="font-mono text-gray-200"><%= s[:last_blockheight] || "—" %></span>
-                  </div>
-                  <div>
-                    best block:
-                    <span class="font-mono text-gray-200"><%= s[:best_height] || "—" %></span>
-                  </div>
-                  <div>
-                    lag:
-                    <span class="font-mono <%= s[:lag].to_i > 12 ? "text-rose-300" : "text-gray-300" %>"><%= s[:lag] || "—" %></span>
-                  </div>
-                  <div>
-                    updated:
-                    <span class="font-mono text-gray-300"><%= s[:updated_at]&.strftime("%Y-%m-%d %H:%M:%S") || "—" %></span>
-                  </div>
-                  <% if s[:last_blockhash].present? %>
-                    <div>
-                      hash:
-                      <span class="font-mono text-gray-400 break-all"><%= s[:last_blockhash] %></span>
-                    </div>
-                  <% end %>
-                </div>
-              <% end %>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Progress</span>
+              <span class="font-mono text-gray-200"><%= bitcoind[:progress_pct] || "—" %>%</span>
             </div>
-
-            <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= badge_class %>">
-              <%= s[:status].to_s.upcase %>
-            </span>
           </div>
+        <% else %>
+          <pre class="mt-4 text-xs text-rose-200 whitespace-pre-wrap"><%= bitcoind[:error].presence || "Erreur RPC non disponible." %></pre>
+        <% end %>
+      </div>
+
+      <div class="<%= panel_class %>">
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="<%= label_class %>">Réseau</div>
+            <div class="mt-1 text-lg font-semibold text-gray-100">Blockchain</div>
+          </div>
+          <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= yes_no_badge_class(blockchain[:ok]) %>">
+            <%= yes_no_badge(blockchain[:ok]) %>
+          </span>
         </div>
-      <% end %>
-    </div>
-  </section>
 
-  <!-- Tables -->
-  <section class="mt-6 <%= card_class %>">
-    <div class="mb-4">
-      <p class="<%= label_class %>">Données</p>
-      <h2 class="text-lg font-semibold text-gray-100 mt-0.5">État des tables</h2>
-      <p class="text-xs text-gray-500 mt-1">Volume, fraîcheur et détection des retards.</p>
-    </div>
-
-    <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
-      <% (@tables || {}).each do |k, v| %>
-        <% last = v[:last_at] || v[:last_day] %>
-
-        <% last_time =
-          case last
-          when Time, ActiveSupport::TimeWithZone, DateTime then last
-          when Date then last.in_time_zone
-          when String
-            begin
-              Time.zone.parse(last)
-            rescue
-              nil
-            end
-          else
-            nil
-          end
-        %>
-
-        <% status = (v[:status] || :warn).to_sym %>
-        <% daily  = v[:min_day].present? %>
-
-        <% age_h =
-          if v.key?(:age_h)
-            v[:age_h].to_f
-          elsif last_time
-            ((Time.current - last_time) / 3600.0)
-          else
-            nil
-          end
-        %>
-
-        <% badge_class =
-          case status
-          when :ok   then "text-emerald-300 bg-emerald-500/10 border-emerald-500/20"
-          when :warn then "text-amber-300 bg-amber-500/10 border-amber-500/20"
-          else            "text-rose-300 bg-rose-500/10 border-rose-500/20"
-          end
-        %>
-
-        <div class="bg-black/20 border border-gray-800 rounded-xl p-4">
-          <div class="flex items-start justify-between gap-3">
-            <div class="min-w-0">
-              <div class="text-gray-100 font-semibold"><%= k %></div>
-
-              <div class="mt-2 text-xs text-gray-500 space-y-1">
-                <div>
-                  count:
-                  <span class="font-mono text-gray-200"><%= v[:count] || "—" %></span>
-                </div>
-
-                <div>
-                  last:
-                  <span class="font-mono text-gray-200">
-                    <% if last_time %>
-                      <%= daily ? last_time.to_date.strftime("%Y-%m-%d") : last_time.strftime("%Y-%m-%d %H:%M:%S %z") %>
-                    <% else %>
-                      —
-                    <% end %>
-                  </span>
-                </div>
-
-                <% if daily %>
-                  <% last_day = last_time&.to_date %>
-                  <% expected = v[:min_day].to_date %>
-
-                  <div>
-                    attendu:
-                    <span class="font-mono text-gray-300">≥ <%= expected.strftime("%Y-%m-%d") %></span>
-                  </div>
-
-                  <div>
-                    dernier jour:
-                    <span class="font-mono text-gray-300"><%= last_day ? last_day.strftime("%Y-%m-%d") : "—" %></span>
-                  </div>
-
-                  <% if last_day && last_day < expected %>
-                    <div>
-                      retard:
-                      <span class="font-mono text-rose-300"><%= (expected - last_day).to_i %>j</span>
-                    </div>
-                  <% end %>
-                <% else %>
-                  <div>
-                    âge:
-                    <span class="font-mono text-gray-300"><%= age_h ? "#{age_h.round(1)}h" : "—" %></span>
-                    <% if v[:sla_h] %>
-                      <span class="mx-2 text-gray-700">•</span>
-                      SLA:
-                      <span class="font-mono text-gray-300"><%= v[:sla_h] %>h</span>
-                    <% end %>
-                  </div>
-                <% end %>
-              </div>
+        <% if blockchain[:ok] %>
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Blocks</span>
+              <span class="font-mono text-gray-200"><%= blockchain[:blocks] || "—" %></span>
             </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Headers</span>
+              <span class="font-mono text-gray-200"><%= blockchain[:headers] || "—" %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Lag</span>
+              <span class="font-mono <%= blockchain[:lag].to_i > 0 ? "text-amber-300" : "text-gray-200" %>"><%= blockchain[:lag] || "—" %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Progress</span>
+              <span class="font-mono text-gray-200"><%= blockchain[:progress_pct] || "—" %>%</span>
+            </div>
+          </div>
+        <% else %>
+          <pre class="mt-4 text-xs text-rose-200 whitespace-pre-wrap"><%= blockchain[:error].presence || "Erreur blockchain non disponible." %></pre>
+        <% end %>
+      </div>
 
-            <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= badge_class %>">
-              <%= status.to_s.upcase %>
+      <% disk_cards.each do |disk| %>
+        <% disk_state = (disk[:status] || "warn").to_s %>
+        <div class="<%= panel_class %>">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="<%= label_class %>">Disque</div>
+              <div class="mt-1 text-lg font-semibold text-gray-100"><%= disk[:label] || "Storage" %></div>
+            </div>
+            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(disk_state) %>">
+              <%= disk_state.upcase %>
             </span>
           </div>
 
-          <% if v[:hint].present? %>
-            <div class="mt-2 text-xs text-gray-400"><%= v[:hint] %></div>
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Path</span>
+              <span class="font-mono text-gray-200"><%= disk[:path] || "—" %></span>
+            </div>
+            <% if disk[:mount].present? %>
+              <div class="flex items-center justify-between">
+                <span class="text-gray-500">Mount</span>
+                <span class="font-mono text-gray-200"><%= disk[:mount] %></span>
+              </div>
+            <% end %>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Utilisation</span>
+              <span class="font-mono text-gray-200"><%= disk[:used_pct] ? "#{disk[:used_pct]}%" : "—" %></span>
+            </div>
+          </div>
+
+          <% if disk[:raw].present? %>
+            <pre class="mt-4 text-xs text-gray-400 whitespace-pre-wrap leading-5"><%= disk[:raw] %></pre>
           <% end %>
         </div>
       <% end %>
     </div>
   </section>
 
-  <!-- QA / Tests -->
-  <section class="mt-6 <%= card_class %>">
-    <%= link_to "QA / Tests", system_tests_path,
-    class: "text-sm text-violet-400 hover:text-violet-300" %>
-  </section>
-
-  <!-- Recent runs -->
-  <section class="mt-6 <%= card_class %>">
-    <div class="mb-4">
-      <p class="<%= label_class %>">Logs</p>
-      <h2 class="text-lg font-semibold text-gray-100 mt-0.5">Dernières exécutions</h2>
-      <p class="text-xs text-gray-500 mt-1">Historique récent des JobRuns.</p>
+  <!-- Exchange Like -->
+  <section class="<%= section_class %>">
+    <div class="mb-5">
+      <div class="<%= label_class %>">Exchange Like</div>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">Builder, scanner et dataset</h2>
+      <p class="mt-2 <%= muted_class %>">
+        Supervision du module exchange_like : adresses détectées, UTXO observés et fraîcheur des curseurs.
+      </p>
     </div>
 
-    <div class="overflow-x-auto rounded-xl border border-gray-800">
-      <table class="min-w-full text-sm">
-        <thead class="bg-black/20 text-xs text-gray-500">
-          <tr>
-            <th class="text-left py-3 px-4">Job</th>
-            <th class="text-left py-3 px-4">Statut</th>
-            <th class="text-left py-3 px-4">Début</th>
-            <th class="text-left py-3 px-4">Durée</th>
-            <th class="text-left py-3 px-4">Erreur</th>
+    <% if @exchange_like_status[:error].present? %>
+      <div class="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 text-sm text-rose-200">
+        <%= @exchange_like_status[:error] %>
+      </div>
+    <% else %>
+      <% builder = @exchange_like_status[:builder] || {} %>
+      <% scanner = @exchange_like_status[:scanner] || {} %>
+      <% metrics = @exchange_like_status[:metrics] || {} %>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div class="<%= panel_class %>">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="<%= label_class %>">Builder</div>
+              <div class="mt-1 text-lg font-semibold text-gray-100"><%= builder[:label] || "—" %></div>
+            </div>
+            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(builder[:status]) %>">
+              <%= builder[:status].to_s.upcase.presence || "UNKNOWN" %>
+            </span>
+          </div>
+
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Cursor</span>
+              <span class="font-mono text-gray-200"><%= builder[:last_blockheight] || "—" %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Lag</span>
+              <span class="font-mono text-gray-200"><%= builder[:lag] || "—" %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Updated at</span>
+              <span class="font-mono text-gray-200"><%= safe_time(builder[:updated_at]) %></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="<%= label_class %>">Scanner</div>
+              <div class="mt-1 text-lg font-semibold text-gray-100"><%= scanner[:label] || "—" %></div>
+            </div>
+            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(scanner[:status]) %>">
+              <%= scanner[:status].to_s.upcase.presence || "UNKNOWN" %>
+            </span>
+          </div>
+
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Cursor</span>
+              <span class="font-mono text-gray-200"><%= scanner[:last_blockheight] || "—" %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Lag</span>
+              <span class="font-mono text-gray-200"><%= scanner[:lag] || "—" %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Updated at</span>
+              <span class="font-mono text-gray-200"><%= safe_time(scanner[:updated_at]) %></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Dataset</div>
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Addresses total</span>
+              <span class="font-mono text-gray-200"><%= metrics[:addresses_total] || 0 %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Operational</span>
+              <span class="font-mono text-gray-200"><%= metrics[:addresses_operational] || 0 %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Scannable</span>
+              <span class="font-mono text-gray-200"><%= metrics[:addresses_scannable] || 0 %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Observed UTXO</span>
+              <span class="font-mono text-gray-200"><%= metrics[:observed_total] || 0 %></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Recent activity</div>
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">New addresses 24h</span>
+              <span class="font-mono text-gray-200"><%= metrics[:new_addresses_24h] || 0 %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Seen 24h</span>
+              <span class="font-mono text-gray-200"><%= metrics[:seen_24h] || 0 %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Spent 24h</span>
+              <span class="font-mono text-gray-200"><%= metrics[:spent_24h] || 0 %></span>
+            </div>
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Best block</span>
+              <span class="font-mono text-gray-200"><%= @exchange_like_status[:best_height] || "—" %></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    <% end %>
+  </section>
+  
+  <!-- Anomalies -->
+  <section class="<%= section_class %>">
+    <div class="mb-5">
+      <div class="<%= label_class %>">Exceptions</div>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">Anomalies à traiter</h2>
+      <p class="mt-2 <%= muted_class %>">
+        Liste courte des jobs nécessitant une attention immédiate.
+      </p>
+    </div>
+
+    <% if @anomalies.any? %>
+      <div class="space-y-3">
+        <% @anomalies.each do |job| %>
+          <div class="rounded-xl border border-amber-500/20 bg-amber-500/5 p-4">
+            <div class="flex items-start justify-between gap-4">
+              <div class="min-w-0">
+                <div class="text-sm font-semibold text-gray-100"><%= job[:label] || job[:name] %></div>
+                <div class="mt-1 text-xs text-gray-400">
+                  <span class="font-mono">status=<%= job[:status] %></span>
+                  <span class="mx-2 text-gray-600">•</span>
+                  <span class="font-mono">cron=<%= job[:cron] || "—" %></span>
+                  <span class="mx-2 text-gray-600">•</span>
+                  <span class="font-mono">delay=<%= safe_seconds(job[:delay_seconds]) %></span>
+                  <span class="mx-2 text-gray-600">•</span>
+                  <span class="font-mono">missed=<%= job[:missed_runs] || 0 %></span>
+                </div>
+              </div>
+
+              <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(job[:status]) %>">
+                <%= job[:status].to_s.upcase %>
+              </span>
+            </div>
+
+            <% if job[:last_error].present? %>
+              <pre class="mt-4 rounded-lg border border-rose-500/20 bg-black/30 p-3 text-xs text-rose-200 whitespace-pre-wrap overflow-x-auto"><%= job[:last_error] %></pre>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/5 p-4 text-sm text-emerald-300">
+        Aucune anomalie détectée.
+      </div>
+    <% end %>
+  </section>
+
+  <!-- Jobs -->
+  <section class="<%= section_class %>">
+    <div class="mb-5">
+      <div class="<%= label_class %>">Cron supervision</div>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">Jobs détaillés</h2>
+      <p class="mt-2 <%= muted_class %>">
+        Vue compacte des exécutions, retards, durées, heartbeat et état opérationnel.
+      </p>
+    </div>
+
+    <div class="rounded-xl border border-white/10 overflow-hidden">
+      <table class="w-full table-fixed text-xs">
+        <thead class="bg-black/20 text-gray-400">
+          <tr class="text-left">
+            <th class="py-3 px-3 w-[18%]">Job</th>
+            <th class="py-3 px-3 w-[8%]">Cat.</th>
+            <th class="py-3 px-3 w-[8%]">Cron</th>
+            <th class="py-3 px-3 w-[8%]">Statut</th>
+            <th class="py-3 px-3 w-[16%]">Exécution</th>
+            <th class="py-3 px-3 w-[12%]">Durées</th>
+            <th class="py-3 px-3 w-[10%]">Retard</th>
+            <th class="py-3 px-3 w-[10%]">Runtime</th>
+            <th class="py-3 px-3 w-[5%]">Lock</th>
+            <th class="py-3 px-3 w-[5%]">Exit</th>
           </tr>
         </thead>
 
         <tbody class="text-gray-300">
-          <% (@jobs || []).each do |jr| %>
-            <% st = jr.status.to_s.downcase.presence || "warn" %>
+          <% @job_health.each do |job| %>
+            <tr class="border-t border-white/5 align-top hover:bg-white/5 transition">
+              <td class="py-3 px-3">
+                <div class="font-medium text-gray-100 truncate"><%= job[:label] || job[:name] %></div>
+                <div class="mt-1 font-mono text-[10px] text-gray-500 truncate"><%= job[:name] %></div>
 
-            <tr class="border-t border-gray-800 hover:bg-white/5 transition">
-              <td class="py-3 px-4 font-mono text-xs text-gray-200"><%= jr.name %></td>
-              <td class="py-3 px-4">
-                <span class="inline-flex items-center px-2.5 py-1 rounded-full border text-[11px] font-semibold <%= pill.call(st) %>">
-                  <%= st.upcase %>
+                <% if job[:command].present? %>
+                  <div class="mt-1 font-mono text-[10px] text-gray-600 truncate"><%= job[:command] %></div>
+                <% end %>
+
+                <div class="mt-2 flex flex-wrap gap-1">
+                  <% if job[:critical] %>
+                    <span class="inline-flex rounded-full px-2 py-0.5 text-[10px] text-amber-300 bg-amber-500/10 border border-amber-500/20">
+                      critical
+                    </span>
+                  <% end %>
+
+                  <% unless job[:active] %>
+                    <span class="inline-flex rounded-full px-2 py-0.5 text-[10px] text-gray-400 bg-gray-500/10 border border-gray-500/20">
+                      disabled
+                    </span>
+                  <% end %>
+                </div>
+              </td>
+
+              <td class="py-3 px-3">
+                <div class="truncate"><%= job[:category] || "—" %></div>
+                <div class="mt-1 text-[10px] text-gray-500 font-mono"><%= job[:last_triggered_by] || "—" %></div>
+              </td>
+
+              <td class="py-3 px-3 font-mono text-[10px] break-words">
+                <%= job[:cron] || "—" %>
+              </td>
+
+              <td class="py-3 px-3">
+                <span class="inline-flex items-center rounded-full px-2.5 py-1 text-[10px] font-semibold <%= status_badge_class(job[:status]) %>">
+                  <%= job[:status].to_s.upcase %>
+                </span>
+
+                <div class="mt-2 space-y-1 text-[10px]">
+                  <div class="text-emerald-300 truncate">ok: <%= safe_time(job[:last_ok_at]) %></div>
+                  <div class="text-rose-300 truncate">fail: <%= safe_time(job[:last_fail_at]) %></div>
+                  <div class="text-orange-300 truncate">skip: <%= safe_time(job[:last_skipped_at]) %></div>
+                </div>
+              </td>
+
+              <td class="py-3 px-3 font-mono text-[10px]">
+                <div class="truncate text-gray-200">start: <%= safe_time(job[:last_run_at]) %></div>
+                <div class="truncate text-gray-400 mt-1">end: <%= safe_time(job[:last_finish_at]) %></div>
+                <div class="truncate text-gray-500 mt-1">hb: <%= safe_seconds(job[:heartbeat_age_seconds]) %></div>
+              </td>
+
+              <td class="py-3 px-3 font-mono text-[10px]">
+                <div class="truncate text-gray-200">last: <%= safe_duration_ms(job[:last_duration_ms]) %></div>
+                <div class="truncate text-gray-400 mt-1">avg10: <%= safe_duration_ms(job[:avg_duration_ms]) %></div>
+                <div class="truncate text-gray-500 mt-1">max10: <%= safe_duration_ms(job[:max_duration_ms]) %></div>
+              </td>
+
+              <td class="py-3 px-3 font-mono text-[10px]">
+                <div class="<%= job[:delay_seconds].to_i > 0 ? "text-amber-300" : "text-gray-200" %>">
+                  delay: <%= safe_seconds(job[:delay_seconds]) %>
+                </div>
+                <div class="mt-1 text-gray-400">
+                  missed: <%= job[:missed_runs] || 0 %>
+                </div>
+                <div class="mt-1 <%= job[:capacity_status] == "over" ? "text-rose-300" : job[:capacity_status] == "tight" ? "text-amber-300" : "text-emerald-300" %>">
+                  capacity: <%= job[:capacity_status] || "unknown" %>
+                </div>
+                <div class="mt-1 text-orange-300">
+                  skips10: <%= job[:skips_in_last_10] || 0 %>
+                </div>
+              </td>
+
+              <td class="py-3 px-3 font-mono text-[10px]">
+                <div class="text-sky-300 truncate"><%= safe_seconds(job[:current_runtime_seconds]) %></div>
+
+                <% if job[:progress_pct].present? || job[:progress_label].present? %>
+                  <div class="mt-2">
+                    <% if job[:progress_pct].present? %>
+                      <div class="text-gray-300 mb-1"><%= job[:progress_pct] %>%</div>
+                      <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                        <div class="h-full bg-sky-400 rounded-full" style="width: <%= [[job[:progress_pct].to_f, 0].max, 100].min %>%"></div>
+                      </div>
+                    <% end %>
+
+                    <% if job[:progress_label].present? %>
+                      <div class="mt-1 text-[10px] text-gray-500 truncate"><%= job[:progress_label] %></div>
+                    <% end %>
+                  </div>
+                <% end %>
+              </td>
+
+              <td class="py-3 px-3 text-[10px]">
+                <span class="<%= job[:lock_present] ? "text-amber-300" : "text-gray-500" %>">
+                  <%= job[:lock_present] ? "yes" : "no" %>
                 </span>
               </td>
-              <td class="py-3 px-4 text-xs font-mono text-gray-300"><%= jr.started_at&.strftime("%Y-%m-%d %H:%M:%S") || "—" %></td>
-              <td class="py-3 px-4 text-xs font-mono text-gray-300"><%= jr.duration_ms ? "#{jr.duration_ms}ms" : "—" %></td>
-              <td class="py-3 px-4 text-xs text-gray-400"><%= jr.error.to_s.first(180) %></td>
+
+              <td class="py-3 px-3 font-mono text-[10px]">
+                <%= job[:last_exit_code].nil? ? "—" : job[:last_exit_code] %>
+              </td>
+            </tr>
+
+            <% if job[:last_error].present? %>
+              <tr class="border-t border-white/5">
+                <td colspan="10" class="px-3 pb-4">
+                  <div class="rounded-lg border border-rose-500/20 bg-black/30 p-3 text-[10px] text-rose-200 whitespace-pre-wrap break-words">
+                    <%= job[:last_error] %>
+                  </div>
+                </td>
+              </tr>
+            <% end %>
+          <% end %>
+
+          <% if @job_health.blank? %>
+            <tr>
+              <td colspan="10" class="py-6 px-4 text-sm text-gray-500">Aucune donnée job disponible.</td>
+            </tr>
+          <% end %>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- Scanners -->
+  <section class="<%= section_class %>">
+    <div class="mb-5">
+      <div class="<%= label_class %>">Scanner cursors</div>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">État des scanners</h2>
+      <p class="mt-2 <%= muted_class %>">
+        Dernier bloc scanné, best block, lag et date de mise à jour.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+      <% (@scanner_status || {}).each do |key, s| %>
+        <% scanner_status = (s[:status] || :warn).to_s %>
+        <div class="<%= panel_class %>">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="text-base font-semibold text-gray-100"><%= s[:label] || key %></div>
+            </div>
+            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(scanner_status) %>">
+              <%= scanner_status.upcase %>
+            </span>
+          </div>
+
+          <% if s[:error].present? %>
+            <pre class="mt-4 text-xs text-rose-200 whitespace-pre-wrap"><%= s[:error] %></pre>
+          <% else %>
+            <div class="mt-4 space-y-2 text-sm">
+              <div class="flex items-center justify-between">
+                <span class="text-gray-500">Last scanned</span>
+                <span class="font-mono text-gray-200"><%= s[:last_blockheight] || "—" %></span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-gray-500">Best block</span>
+                <span class="font-mono text-gray-200"><%= s[:best_height] || "—" %></span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-gray-500">Lag</span>
+                <span class="font-mono <%= s[:lag].to_i > 12 ? "text-rose-300" : "text-gray-200" %>"><%= s[:lag] || "—" %></span>
+              </div>
+              <div class="flex items-center justify-between">
+                <span class="text-gray-500">Updated</span>
+                <span class="font-mono text-gray-200"><%= safe_time(s[:updated_at]) %></span>
+              </div>
+              <% if s[:last_blockhash].present? %>
+                <div>
+                  <div class="text-gray-500 mb-1">Hash</div>
+                  <div class="font-mono text-xs text-gray-400 break-all"><%= s[:last_blockhash] %></div>
+                </div>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+
+      <% if @scanner_status.blank? %>
+        <div class="text-sm text-gray-500">Aucun scanner disponible.</div>
+      <% end %>
+    </div>
+  </section>
+
+  <!-- Tables -->
+  <section class="<%= section_class %>">
+    <div class="mb-5">
+      <div class="<%= label_class %>">Data freshness</div>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">État des tables</h2>
+      <p class="mt-2 <%= muted_class %>">
+        Volume, fraîcheur, âge des données et retard éventuel par rapport aux attentes.
+      </p>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-2 2xl:grid-cols-3 gap-4">
+      <% (@tables || {}).each do |name, table| %>
+        <%
+          raw_last = table[:last_at] || table[:last_day]
+
+          last_time =
+            case raw_last
+            when Time, ActiveSupport::TimeWithZone, DateTime then raw_last
+            when Date then raw_last.in_time_zone
+            when String
+              begin
+                Time.zone.parse(raw_last)
+              rescue
+                nil
+              end
+            else
+              nil
+            end
+
+          table_status = (table[:status] || :warn).to_s
+          daily_table  = table[:min_day].present?
+
+          age_h =
+            if table.key?(:age_h)
+              table[:age_h].to_f
+            elsif last_time
+              ((Time.current - last_time) / 3600.0)
+            end
+
+          last_day =
+            if daily_table
+              last_time&.to_date
+            end
+
+          expected_day =
+            if daily_table
+              begin
+                table[:min_day].to_date
+              rescue
+                nil
+              end
+            end
+        %>
+
+        <div class="<%= panel_class %>">
+          <div class="flex items-start justify-between gap-3">
+            <div class="min-w-0">
+              <div class="text-sm font-semibold text-gray-100 break-words"><%= name %></div>
+            </div>
+
+            <span class="shrink-0 inline-flex items-center rounded-full px-2.5 py-1 text-[11px] font-semibold <%= status_badge_class(table_status) %>">
+              <%= table_status.upcase %>
+            </span>
+          </div>
+
+          <div class="mt-4 grid grid-cols-2 gap-x-4 gap-y-2 text-xs">
+            <div class="text-gray-500">Count</div>
+            <div class="text-right font-mono text-gray-200 truncate"><%= table[:count] || "—" %></div>
+
+            <div class="text-gray-500">Last</div>
+            <div class="text-right font-mono text-gray-200 break-words">
+              <% if last_time %>
+                <%= daily_table ? last_time.to_date.strftime("%Y-%m-%d") : last_time.strftime("%Y-%m-%d %H:%M") %>
+              <% else %>
+                —
+              <% end %>
+            </div>
+
+            <% if daily_table %>
+              <div class="text-gray-500">Attendu</div>
+              <div class="text-right font-mono text-gray-200">
+                <%= expected_day ? expected_day.strftime("%Y-%m-%d") : "—" %>
+              </div>
+
+              <div class="text-gray-500">Dernier jour</div>
+              <div class="text-right font-mono text-gray-200">
+                <%= last_day ? last_day.strftime("%Y-%m-%d") : "—" %>
+              </div>
+
+              <div class="text-gray-500">Retard</div>
+              <div class="text-right font-mono <%= expected_day && last_day && last_day < expected_day ? "text-rose-300" : "text-gray-200" %>">
+                <% if expected_day && last_day && last_day < expected_day %>
+                  <%= (expected_day - last_day).to_i %>j
+                <% else %>
+                  0j
+                <% end %>
+              </div>
+            <% else %>
+              <div class="text-gray-500">Âge</div>
+              <div class="text-right font-mono text-gray-200">
+                <%= age_h ? "#{age_h.round(1)}h" : "—" %>
+              </div>
+
+              <div class="text-gray-500">SLA</div>
+              <div class="text-right font-mono text-gray-200">
+                <%= table[:sla_h].present? ? "#{table[:sla_h]}h" : "—" %>
+              </div>
+            <% end %>
+          </div>
+
+          <% if table[:hint].present? %>
+            <div class="mt-4 border-t border-white/5 pt-3 text-xs text-gray-400 leading-5">
+              <%= table[:hint] %>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+
+      <% if @tables.blank? %>
+        <div class="text-sm text-gray-500">Aucune métrique de table disponible.</div>
+      <% end %>
+    </div>
+  </section>
+
+  <!-- QA -->
+  <section class="<%= section_class %>">
+    <div class="flex items-center justify-between gap-4">
+      <div>
+        <div class="<%= label_class %>">Quality assurance</div>
+        <h2 class="mt-1 text-xl font-semibold text-gray-100">QA / Tests</h2>
+        <p class="mt-2 <%= muted_class %>">
+          Accès à la page de validation et aux contrôles de non-régression.
+        </p>
+      </div>
+
+      <%= link_to "Ouvrir QA / Tests",
+          system_tests_path,
+          class: "inline-flex items-center rounded-xl border border-violet-500/20 bg-violet-500/10 px-4 py-2 text-sm font-medium text-violet-300 hover:bg-violet-500/15 transition" %>
+    </div>
+  </section>
+
+  <!-- Recent JobRuns -->
+  <section class="<%= section_class %>">
+    <div class="mb-5">
+      <div class="<%= label_class %>">Recent execution log</div>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">Dernières exécutions</h2>
+      <p class="mt-2 <%= muted_class %>">
+        Historique récent des `JobRun`, utile pour comprendre la chronologie effective des opérations.
+      </p>
+    </div>
+
+    <div class="overflow-x-auto rounded-xl border border-white/10">
+      <table class="min-w-full text-sm">
+        <thead class="bg-black/20 text-gray-400">
+          <tr class="text-left">
+            <th class="py-3 px-4">Job</th>
+            <th class="py-3 px-4">Statut</th>
+            <th class="py-3 px-4">Début</th>
+            <th class="py-3 px-4">Fin</th>
+            <th class="py-3 px-4">Durée</th>
+            <th class="py-3 px-4">Exit</th>
+            <th class="py-3 px-4">Erreur</th>
+          </tr>
+        </thead>
+
+        <tbody class="text-gray-300">
+          <% @jobs.first(30).each do |jr| %>
+            <tr class="border-t border-white/5 align-top hover:bg-white/5 transition">
+              <td class="py-3 px-4">
+                <div class="font-mono text-xs text-gray-200"><%= jr.name %></div>
+              </td>
+              <td class="py-3 px-4">
+                <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(jr.status) %>">
+                  <%= jr.status.to_s.upcase %>
+                </span>
+              </td>
+              <td class="py-3 px-4 font-mono text-xs"><%= safe_time(jr.started_at || jr.created_at) %></td>
+              <td class="py-3 px-4 font-mono text-xs"><%= safe_time(jr.finished_at) %></td>
+              <td class="py-3 px-4 font-mono text-xs"><%= safe_duration_ms(jr.duration_ms) %></td>
+              <td class="py-3 px-4 font-mono text-xs"><%= jr.exit_code.nil? ? "—" : jr.exit_code %></td>
+              <td class="py-3 px-4 text-xs text-gray-400">
+                <%= jr.error.to_s.first(220).presence || "—" %>
+              </td>
+            </tr>
+          <% end %>
+
+          <% if @jobs.blank? %>
+            <tr>
+              <td colspan="7" class="py-6 px-4 text-sm text-gray-500">Aucun JobRun récent disponible.</td>
             </tr>
           <% end %>
         </tbody>

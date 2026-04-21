@@ -14,25 +14,24 @@ if command -v rbenv >/dev/null 2>&1; then
   eval "$(rbenv init - bash)"
 fi
 
-ts() { date -Is; }
-
 export RAILS_ENV="${RAILS_ENV:-development}"
 
-echo "[cluster_scan] start $(ts)" | tee -a "$LOG"
+echo "[$(date '+%F %T')] [cluster_scan] start triggered_by=${TRIGGERED_BY:-cron} scheduled_for=${SCHEDULED_FOR:-}" >> "$LOG"
 
-t0="$(date +%s)"
-set +e
-
-bundle exec bin/rails cluster:scan 2>&1 | tee -a "$LOG"
-RC=${PIPESTATUS[0]}
-
-t1="$(date +%s)"
-dur="$((t1 - t0))"
-
-if [ "$RC" -eq 0 ]; then
-  echo "[cluster_scan] done rc=$RC dur=${dur}s $(ts)" | tee -a "$LOG"
+if bin/rails runner '
+JobRunner.run!(
+  "cluster_scan",
+  triggered_by: ENV.fetch("TRIGGERED_BY", "cron"),
+  scheduled_for: ENV["SCHEDULED_FOR"].presence
+) do |jr|
+  JobRunner.heartbeat!(jr)
+  ClusterScanner.call(job_run: jr)
+  JobRunner.heartbeat!(jr)
+end
+'; then
+  echo "[$(date '+%F %T')] [cluster_scan] done" >> "$LOG"
 else
-  echo "[cluster_scan] FAIL rc=$RC dur=${dur}s $(ts)" | tee -a "$LOG"
-fi
-
-exit "$RC"
+  rc=$?
+  echo "[$(date '+%F %T')] [cluster_scan] failed rc=${rc}" >> "$LOG"
+  exit "$rc"
+fi >> "$LOG" 2>&1

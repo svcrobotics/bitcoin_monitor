@@ -11,7 +11,7 @@
   <section class="mb-8">
     <h2 class="text-lg font-semibold text-gray-100 mb-3">Summary</h2>
 
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-4">
       <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
         <p class="text-xs text-gray-500">Total addresses</p>
         <p class="text-xl font-mono text-gray-100"><%= @addresses_total %></p>
@@ -30,6 +30,21 @@
       <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
         <p class="text-xs text-gray-500">Observed UTXO</p>
         <p class="text-xl font-mono text-gray-100"><%= @observed_total %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">New addresses 24h</p>
+        <p class="text-xl font-mono text-gray-100"><%= @new_addresses_24h %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Seen 24h</p>
+        <p class="text-xl font-mono text-gray-100"><%= @seen_24h %></p>
+      </div>
+
+      <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
+        <p class="text-xs text-gray-500">Spent 24h</p>
+        <p class="text-xl font-mono text-gray-100"><%= @spent_24h %></p>
       </div>
     </div>
   </section>
@@ -116,15 +131,36 @@
       </p>
     </div>
 
-    <div class="grid grid-cols-2 md:grid-cols-4 gap-4">
+    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+
       <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
-        <p class="text-xs text-gray-500">Builder cursor</p>
-        <p class="text-xl font-mono text-gray-100"><%= @builder_status[:cursor_height] || "—" %></p>
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs text-gray-500">Builder</p>
+          <span class="px-2 py-1 rounded-full text-[10px] font-semibold <%= @builder_status_presenter.badge_classes %>">
+            <%= @builder_status_presenter.label %>
+          </span>
+        </div>
+        <p class="text-xs text-gray-500">Cursor</p>
+        <p class="text-xl font-mono text-gray-100"><%= @builder_status_presenter.cursor_height %></p>
+        <p class="mt-3 text-xs text-gray-500">Lag</p>
+        <p class="text-sm font-mono text-gray-300"><%= @builder_status_presenter.lag %></p>
+        <p class="mt-3 text-xs text-gray-500">Updated at</p>
+        <p class="text-xs font-mono text-gray-300"><%= @builder_status_presenter.updated_at %></p>
       </div>
 
       <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
-        <p class="text-xs text-gray-500">Scanner cursor</p>
-        <p class="text-xl font-mono text-gray-100"><%= @scanner_status[:cursor_height] || "—" %></p>
+        <div class="flex items-center justify-between mb-2">
+          <p class="text-xs text-gray-500">Scanner</p>
+          <span class="px-2 py-1 rounded-full text-[10px] font-semibold <%= @scanner_status_presenter.badge_classes %>">
+            <%= @scanner_status_presenter.label %>
+          </span>
+        </div>
+        <p class="text-xs text-gray-500">Cursor</p>
+        <p class="text-xl font-mono text-gray-100"><%= @scanner_status_presenter.cursor_height %></p>
+        <p class="mt-3 text-xs text-gray-500">Lag</p>
+        <p class="text-sm font-mono text-gray-300"><%= @scanner_status_presenter.lag %></p>
+        <p class="mt-3 text-xs text-gray-500">Updated at</p>
+        <p class="text-xs font-mono text-gray-300"><%= @scanner_status_presenter.updated_at %></p>
       </div>
 
       <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
@@ -133,9 +169,15 @@
       </div>
 
       <div class="bg-gray-900/40 border border-gray-800 rounded-xl p-4">
-        <p class="text-xs text-gray-500">Scanner lag</p>
-        <p class="text-xl font-mono text-gray-100"><%= @scanner_status[:lag] || "—" %></p>
+        <p class="text-xs text-gray-500">Scannable coverage</p>
+        <p class="text-xl font-mono text-gray-100">
+          <%= @addresses_scannable %> / <%= @addresses_operational %>
+        </p>
+        <p class="mt-2 text-xs text-gray-500">
+          addresses used by scanner vs operational set
+        </p>
       </div>
+
     </div>
   </section>
 

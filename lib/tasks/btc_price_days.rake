@@ -4,10 +4,14 @@ namespace :btc_price_days do
   task catchup: :environment do
     date = Date.current
 
-    JobRun.log!("btc_price_days_catchup", meta: { date: date }.to_json) do
+    JobRunner.run!("btc_price_days_catchup", meta: { date: date }, triggered_by: "cron") do |jr|
+      JobRunner.heartbeat!(jr)
+
       puts "[btc_price_days:catchup] start date=#{date}"
 
       result = BtcPriceDaysCatchup.call
+
+      JobRunner.heartbeat!(jr)
 
       puts "[btc_price_days:catchup] from=#{result[:from]} to=#{result[:to]} built=#{result[:built]} ok=#{result[:ok]}"
 
@@ -20,6 +24,10 @@ namespace :btc_price_days do
       end
 
       puts "[btc_price_days:catchup] done"
+
+      jr.update!(
+        meta: { date: date }.merge(result: result).to_json
+      )
 
       result
     end

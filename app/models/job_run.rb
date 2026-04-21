@@ -1,41 +1,31 @@
-# frozen_string_literal: true
-
+# app/models/job_run.rb
 class JobRun < ApplicationRecord
-  scope :recent, -> { order(started_at: :desc) }
-  scope :for_job, ->(name) { where(name: name) }
+  STATUSES = %w[running ok fail skipped].freeze
+  TRIGGERS = %w[cron manual recovery].freeze
 
-  def self.log!(name, meta: nil)
-    jr = create!(
-      name: name,
-      status: "running",
-      started_at: Time.current,
-      meta: meta
-    )
+  validates :name, presence: true
+  validates :status, presence: true, inclusion: { in: STATUSES }
+  validates :triggered_by, inclusion: { in: TRIGGERS }, allow_blank: true
 
-    t0 = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-    yield
-    ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0) * 1000).round
+  scope :recent, -> { order(started_at: :desc, created_at: :desc) }
+  scope :running, -> { where(status: "running") }
+  scope :failed, -> { where(status: "fail") }
+  scope :ok, -> { where(status: "ok") }
+  scope :skipped, -> { where(status: "skipped") }
 
-    jr.update!(
-      status: "ok",
-      finished_at: Time.current,
-      duration_ms: ms,
-      exit_code: 0
-    )
+  def running?
+    status == "running"
+  end
 
-    jr
-  rescue => e
-    ms = ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - t0) * 1000).round rescue nil
+  def ok?
+    status == "ok"
+  end
 
-    jr&.update!(
-      status: "fail",
-      finished_at: Time.current,
-      duration_ms: ms,
-      exit_code: 1,
-      error: "#{e.class}: #{e.message}"
-    )
+  def fail?
+    status == "fail"
+  end
 
-    raise
+  def skipped?
+    status == "skipped"
   end
 end
-
