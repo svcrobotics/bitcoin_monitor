@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-8acf5291.js";
+            window.path_to_searchindex_js = "searchindex-87cf1f22.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-0c8533e1.js"></script>
+        <script src="toc-8cbbe486.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -175,7 +175,226 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="quand-le-module-btc-a-cessé-dêtre-juste-un-graphique"><a class="header" href="#quand-le-module-btc-a-cessé-dêtre-juste-un-graphique">Quand le module BTC a cessé d’être “juste un graphique”</a></h1>
+                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
+<h2 id="pourquoi-raconter-la-construction-de-bitcoin-monitor-"><a class="header" href="#pourquoi-raconter-la-construction-de-bitcoin-monitor-">Pourquoi raconter la construction de Bitcoin Monitor ?</a></h2>
+<p>Pendant longtemps, j’ai pensé que les applications professionnelles naissaient d’une architecture parfaitement pensée dès le départ.</p>
+<p>Je pensais qu’un développeur senior :</p>
+<ul>
+<li>savait immédiatement quoi construire,</li>
+<li>choisissait instantanément la bonne architecture,</li>
+<li>anticipait tous les problèmes,</li>
+<li>et écrivait naturellement du “bon code”.</li>
+</ul>
+<p>Puis Bitcoin Monitor est arrivé.</p>
+<p>Et progressivement, j’ai compris quelque chose d’important :</p>
+<blockquote>
+<p>les vraies applications professionnelles ne naissent pas parfaites.</p>
+</blockquote>
+<p>Elles évoluent.</p>
+<hr>
+<h1 id="le-début-du-projet"><a class="header" href="#le-début-du-projet">Le début du projet</a></h1>
+<p>À l’origine, Bitcoin Monitor était un projet relativement simple.</p>
+<p>L’objectif principal était de construire :</p>
+<ul>
+<li>un dashboard Bitcoin,</li>
+<li>quelques indicateurs,</li>
+<li>des analyses de marché,</li>
+<li>et une lecture plus rationnelle des comportements blockchain.</li>
+</ul>
+<p>Le projet ne devait pas devenir :</p>
+<ul>
+<li>une plateforme complexe,</li>
+<li>un moteur d’intelligence blockchain,</li>
+<li>ni une architecture orientée pipelines massifs.</li>
+</ul>
+<p>Et pourtant…</p>
+<p>C’est exactement ce qu’il a commencé à devenir.</p>
+<hr>
+<h1 id="pourquoi-ce-livre-existe"><a class="header" href="#pourquoi-ce-livre-existe">Pourquoi ce livre existe</a></h1>
+<p>Ce livre n’est pas :</p>
+<ul>
+<li>un tutoriel Rails classique,</li>
+<li>une suite de CRUD,</li>
+<li>ni une collection de “best practices” théoriques.</li>
+</ul>
+<p>Ce livre raconte :</p>
+<blockquote>
+<p>l’évolution réelle d’une application Rails qui grandit.</p>
+</blockquote>
+<p>Avec :</p>
+<ul>
+<li>ses erreurs,</li>
+<li>ses hésitations,</li>
+<li>ses refactorings,</li>
+<li>ses problèmes de performance,</li>
+<li>ses mauvaises idées,</li>
+<li>ses découvertes,</li>
+<li>et ses moments de déclic.</li>
+</ul>
+<hr>
+<h1 id="le-vrai-sujet-du-livre"><a class="header" href="#le-vrai-sujet-du-livre">Le vrai sujet du livre</a></h1>
+<p>Au fil du développement, un changement important est apparu.</p>
+<p>Le vrai problème n’était plus :</p>
+<blockquote>
+<p>“comment coder une fonctionnalité ?”</p>
+</blockquote>
+<p>Mais :</p>
+<blockquote>
+<p>“comment faire évoluer une application sans qu’elle devienne incontrôlable ?”</p>
+</blockquote>
+<p>Et cette question change complètement la manière de développer.</p>
+<hr>
+<h1 id="ce-que-bitcoin-monitor-a-progressivement-révélé"><a class="header" href="#ce-que-bitcoin-monitor-a-progressivement-révélé">Ce que Bitcoin Monitor a progressivement révélé</a></h1>
+<p>Chaque module du projet a introduit de nouveaux problèmes :</p>
+<p>Le module BTC a révélé :</p>
+<ul>
+<li>les problèmes de fraîcheur,</li>
+<li>la montée des responsabilités,</li>
+<li>la nécessité du cache,</li>
+<li>la supervision,</li>
+<li>la séparation des couches.</li>
+</ul>
+<p>Le module Exchange Like a révélé :</p>
+<ul>
+<li>les pipelines blockchain,</li>
+<li>les datasets massifs,</li>
+<li>les heuristiques probabilistes,</li>
+<li>les scanners incrémentaux,</li>
+<li>les jobs longs,</li>
+<li>l’observabilité système.</li>
+</ul>
+<p>Et chaque nouveau problème a forcé l’architecture à évoluer.</p>
+<hr>
+<h1 id="une-application-vivante"><a class="header" href="#une-application-vivante">Une application vivante</a></h1>
+<p>Très vite, Bitcoin Monitor a cessé d’être :</p>
+<blockquote>
+<p>“une application Rails”.</p>
+</blockquote>
+<p>Le projet est progressivement devenu :</p>
+<ul>
+<li>un ensemble de pipelines,</li>
+<li>des scanners blockchain,</li>
+<li>des datasets,</li>
+<li>des jobs distribués,</li>
+<li>des systèmes de supervision,</li>
+<li>des caches mémoire,</li>
+<li>des flux de données vivants.</li>
+</ul>
+<p>Et surtout :
+le projet a commencé à révéler quelque chose d’extrêmement important :</p>
+<blockquote>
+<p>une application professionnelle est un système vivant.</p>
+</blockquote>
+<hr>
+<h1 id="pourquoi-raconter-lhistoire-des-modules"><a class="header" href="#pourquoi-raconter-lhistoire-des-modules">Pourquoi raconter l’histoire des modules</a></h1>
+<p>La plupart des livres techniques montrent :</p>
+<ul>
+<li>le résultat final,</li>
+<li>une architecture propre,</li>
+<li>des exemples simplifiés.</li>
+</ul>
+<p>Mais ils montrent rarement :</p>
+<ul>
+<li>comment les problèmes apparaissent,</li>
+<li>pourquoi certaines décisions deviennent nécessaires,</li>
+<li>ou comment une architecture mûrit réellement.</li>
+</ul>
+<p>C’est précisément ce que ce livre veut raconter.</p>
+<p>Chaque chapitre correspond à :</p>
+<ul>
+<li>un module,</li>
+<li>un problème réel,</li>
+<li>une tension d’architecture,</li>
+<li>un moment d’évolution du système.</li>
+</ul>
+<hr>
+<h1 id="le-vrai-objectif-pédagogique"><a class="header" href="#le-vrai-objectif-pédagogique">Le vrai objectif pédagogique</a></h1>
+<p>Le but de ce livre n’est pas seulement d’apprendre :</p>
+<ul>
+<li>Ruby on Rails,</li>
+<li>Redis,</li>
+<li>PostgreSQL,</li>
+<li>Sidekiq,</li>
+<li>Bitcoin Core,</li>
+<li>ou les pipelines blockchain.</li>
+</ul>
+<p>Le vrai objectif est plus profond.</p>
+<p>Le livre cherche à montrer :</p>
+<blockquote>
+<p>comment un développeur commence progressivement à penser comme un ingénieur logiciel senior.</p>
+</blockquote>
+<hr>
+<h1 id="ce-que-vous-allez-voir-dans-ce-livre"><a class="header" href="#ce-que-vous-allez-voir-dans-ce-livre">Ce que vous allez voir dans ce livre</a></h1>
+<p>Au fil des chapitres, nous allons voir apparaître :</p>
+<ul>
+<li>des dashboards qui deviennent des pipelines,</li>
+<li>des jobs qui deviennent des systèmes vivants,</li>
+<li>des heuristiques qui deviennent des moteurs probabilistes,</li>
+<li>des datasets qui explosent,</li>
+<li>des problèmes de performance,</li>
+<li>des besoins de cache,</li>
+<li>des architectures qui doivent devenir observables.</li>
+</ul>
+<p>Mais surtout :
+nous allons voir comment chaque problème pousse naturellement l’application vers une architecture plus mature.</p>
+<hr>
+<h1 id="une-chronique-dingénierie"><a class="header" href="#une-chronique-dingénierie">Une chronique d’ingénierie</a></h1>
+<p>Bitcoin Monitor n’est pas présenté ici comme :</p>
+<blockquote>
+<p>“un projet parfait”.</p>
+</blockquote>
+<p>Au contraire.</p>
+<p>Le livre montre :</p>
+<ul>
+<li>les erreurs,</li>
+<li>les refactorings,</li>
+<li>les hésitations,</li>
+<li>les moments où certaines idées semblaient bonnes,</li>
+<li>puis se sont révélées dangereuses.</li>
+</ul>
+<p>Et c’est précisément ce qui rend le projet intéressant.</p>
+<p>Parce qu’en ingénierie réelle :</p>
+<blockquote>
+<p>les systèmes évoluent rarement de manière linéaire.</p>
+</blockquote>
+<hr>
+<h1 id="pour-qui-est-ce-livre-"><a class="header" href="#pour-qui-est-ce-livre-">Pour qui est ce livre ?</a></h1>
+<p>Ce livre s’adresse :</p>
+<ul>
+<li>aux développeurs Rails,</li>
+<li>aux backend engineers,</li>
+<li>aux développeurs blockchain,</li>
+<li>aux personnes qui construisent des systèmes orientés données,</li>
+<li>et surtout :</li>
+<li>à ceux qui veulent comprendre comment une application devient progressivement professionnelle.</li>
+</ul>
+<hr>
+<h1 id="le-principe-du-livre"><a class="header" href="#le-principe-du-livre">Le principe du livre</a></h1>
+<p>Chaque chapitre est écrit :</p>
+<ul>
+<li>après le développement réel du module,</li>
+<li>en se basant sur les vrais fichiers,</li>
+<li>les vrais services,</li>
+<li>les vrais jobs,</li>
+<li>les vrais problèmes rencontrés.</li>
+</ul>
+<p>L’objectif est simple :</p>
+<blockquote>
+<p>raconter l’évolution réelle de Bitcoin Monitor pendant qu’elle se produit.</p>
+</blockquote>
+<hr>
+<h1 id="bienvenue-dans-bitcoin-monitor"><a class="header" href="#bienvenue-dans-bitcoin-monitor">Bienvenue dans Bitcoin Monitor</a></h1>
+<p>Ce livre raconte :</p>
+<ul>
+<li>la construction d’une application,</li>
+<li>mais aussi la transformation progressive de la manière de penser de ses développeurs.</li>
+</ul>
+<p>Parce qu’au final :</p>
+<blockquote>
+<p>construire une application professionnelle change aussi la façon de réfléchir à l’ingénierie logicielle.</p>
+</blockquote>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="quand-le-module-btc-a-cessé-dêtre-juste-un-graphique"><a class="header" href="#quand-le-module-btc-a-cessé-dêtre-juste-un-graphique">Quand le module BTC a cessé d’être “juste un graphique”</a></h1>
 <blockquote>
 <p><em>Bitcoin Monitor n’a jamais été pensé comme un simple dashboard crypto.</em></p>
 <p>Très tôt, une idée revenait constamment :</p>
