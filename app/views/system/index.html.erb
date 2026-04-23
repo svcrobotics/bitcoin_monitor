@@ -6,6 +6,7 @@
 <% @job_health      ||= [] %>
 <% @scanner_status  ||= {} %>
 <% @exchange_like_status ||= {} %>
+<% @btc_status ||= {} %>
 <% @tables          ||= {} %>
 <% @jobs            ||= [] %>
 <% @snapshot        ||= {} %>
@@ -446,6 +447,151 @@
             <div class="flex items-center justify-between">
               <span class="text-gray-500">Best block</span>
               <span class="font-mono text-gray-200"><%= @exchange_like_status[:best_height] || "—" %></span>
+            </div>
+          </div>
+        </div>
+      </div>
+    <% end %>
+  </section>
+  
+  <!-- BTC -->
+  <section class="<%= section_class %>">
+    <div class="mb-5">
+      <div class="<%= label_class %>">BTC</div>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">Daily, intraday et fraîcheur</h2>
+      <p class="mt-2 <%= muted_class %>">
+        Supervision du module BTC : snapshot daily, chandeliers intraday et fraîcheur des données.
+      </p>
+    </div>
+
+    <% if @btc_status[:error].present? %>
+      <div class="rounded-xl border border-rose-500/20 bg-rose-500/5 p-4 text-sm text-rose-200">
+        <%= @btc_status[:error] %>
+      </div>
+    <% else %>
+      <% daily = @btc_status[:daily] || {} %>
+      <% intraday_5m = @btc_status[:intraday_5m] || {} %>
+      <% intraday_1h = @btc_status[:intraday_1h] || {} %>
+
+      <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+        <div class="<%= panel_class %>">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="<%= label_class %>">Daily</div>
+              <div class="mt-1 text-lg font-semibold text-gray-100">Snapshot / contexte</div>
+            </div>
+            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(daily[:status]) %>">
+              <%= daily[:status].to_s.upcase.presence || "UNKNOWN" %>
+            </span>
+          </div>
+
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Last day</span>
+              <span class="font-mono text-gray-200"><%= daily[:last_day] || "—" %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Source</span>
+              <span class="font-mono text-gray-200"><%= daily[:source] || "—" %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Close USD</span>
+              <span class="font-mono text-gray-200"><%= daily[:close_usd] ? daily[:close_usd].to_f.round(2) : "—" %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Snapshot at</span>
+              <span class="font-mono text-gray-200"><%= safe_time(daily[:snapshot_at]) %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">MA200</span>
+              <span class="font-mono text-gray-200"><%= daily[:ma200_usd] ? daily[:ma200_usd].to_f.round(2) : "—" %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">ATH</span>
+              <span class="font-mono text-gray-200"><%= daily[:ath_usd] ? daily[:ath_usd].to_f.round(2) : "—" %></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="<%= label_class %>">Intraday</div>
+              <div class="mt-1 text-lg font-semibold text-gray-100">BTC/USD 5m</div>
+            </div>
+            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(intraday_5m[:status]) %>">
+              <%= intraday_5m[:status].to_s.upcase.presence || "UNKNOWN" %>
+            </span>
+          </div>
+
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Source</span>
+              <span class="font-mono text-gray-200"><%= intraday_5m[:source] || "—" %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Candles</span>
+              <span class="font-mono text-gray-200"><%= intraday_5m[:candles_count] || 0 %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Last open</span>
+              <span class="font-mono text-gray-200"><%= safe_time(intraday_5m[:last_open_time]) %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Last close</span>
+              <span class="font-mono text-gray-200"><%= safe_time(intraday_5m[:last_close_time]) %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Last close price</span>
+              <span class="font-mono text-gray-200"><%= intraday_5m[:last_close] ? intraday_5m[:last_close].to_f.round(2) : "—" %></span>
+            </div>
+          </div>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <div class="<%= label_class %>">Intraday</div>
+              <div class="mt-1 text-lg font-semibold text-gray-100">BTC/USD 1h</div>
+            </div>
+            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(intraday_1h[:status]) %>">
+              <%= intraday_1h[:status].to_s.upcase.presence || "UNKNOWN" %>
+            </span>
+          </div>
+
+          <div class="mt-4 space-y-2 text-sm">
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Source</span>
+              <span class="font-mono text-gray-200"><%= intraday_1h[:source] || "—" %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Candles</span>
+              <span class="font-mono text-gray-200"><%= intraday_1h[:candles_count] || 0 %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Last open</span>
+              <span class="font-mono text-gray-200"><%= safe_time(intraday_1h[:last_open_time]) %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Last close</span>
+              <span class="font-mono text-gray-200"><%= safe_time(intraday_1h[:last_close_time]) %></span>
+            </div>
+
+            <div class="flex items-center justify-between">
+              <span class="text-gray-500">Last close price</span>
+              <span class="font-mono text-gray-200"><%= intraday_1h[:last_close] ? intraday_1h[:last_close].to_f.round(2) : "—" %></span>
             </div>
           </div>
         </div>

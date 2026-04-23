@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_03_28_090229) do
+ActiveRecord::Schema[8.0].define(version: 2026_04_22_135108) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -161,6 +161,25 @@ ActiveRecord::Schema[8.0].define(version: 2026_03_28_090229) do
     t.index ["tick"], name: "index_brc20_tokens_on_tick", unique: true
   end
 
+  create_table "btc_candles", force: :cascade do |t|
+    t.string "market", null: false
+    t.string "timeframe", null: false
+    t.datetime "open_time", null: false
+    t.datetime "close_time", null: false
+    t.decimal "open", precision: 20, scale: 8, null: false
+    t.decimal "high", precision: 20, scale: 8, null: false
+    t.decimal "low", precision: 20, scale: 8, null: false
+    t.decimal "close", precision: 20, scale: 8, null: false
+    t.decimal "volume", precision: 24, scale: 8
+    t.integer "trades_count"
+    t.string "source", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["market", "timeframe", "open_time"], name: "index_btc_candles_on_market_and_timeframe_and_open_time", unique: true
+    t.index ["market", "timeframe"], name: "index_btc_candles_on_market_and_timeframe"
+    t.index ["open_time"], name: "index_btc_candles_on_open_time"
+  end
+
   create_table "btc_price_days", force: :cascade do |t|
     t.date "day", null: false
     t.decimal "open_usd", precision: 20, scale: 8
@@ -178,7 +197,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_03_28_090229) do
     t.decimal "high_eur", precision: 20, scale: 8
     t.decimal "low_eur", precision: 20, scale: 8
     t.index ["computed_at"], name: "index_btc_price_days_on_computed_at"
-    t.index ["day"], name: "index_btc_price_days_on_day", unique: true
+    t.index ["day", "source"], name: "index_btc_price_days_on_day_and_source", unique: true
   end
 
   create_table "cluster_metrics", force: :cascade do |t|

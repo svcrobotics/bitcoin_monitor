@@ -1,0 +1,248 @@
+@startmindmap
+* BTC MODULE
+** 1. Ce que voit l’utilisateur
+*** Dashboard BTC
+**** page principale du module
+***** prix BTC
+***** variation daily
+***** MA200
+***** ATH
+***** drawdown
+***** graphique simple
+***** graphique chandeliers
+*** Aide pédagogique
+**** explique comment lire les bougies
+**** aide sur corps / mèches / couleurs
+*** Statut des données
+**** fresh
+**** delayed
+**** stale
+
+** 2. Les données utilisées
+*** BtcPriceDay
+**** historique daily BTC
+***** tendance long terme
+***** line chart
+***** variation par période
+*** BtcCandle
+**** bougies intraday
+***** 5m
+***** 1h
+***** future extension possible
+****** 1m
+****** 15m
+****** 4h
+****** 1d
+*** MarketSnapshot
+**** résumé marché déjà calculé
+***** MA200
+***** ATH
+***** drawdown
+***** amplitude 30j
+***** market bias
+***** cycle zone
+***** risk level
+
+** 3. D’où viennent les données
+*** BinanceProvider
+**** récupère les candles intraday réelles
+**** normalise le payload Binance
+**** source intraday principale actuelle
+*** Source daily existante
+**** alimente BtcPriceDay
+**** base du contexte marché daily
+*** MarketSnapshotBuilder
+**** calcule le snapshot marché à partir du daily
+
+** 4. Comment les données entrent dans le module
+*** IntradayBackfill
+**** appelle Binance
+**** transforme les données
+**** remplit btc_candles
+**** met à jour les candles récentes
+*** Cron intraday
+**** 5m
+***** met à jour les candles 5 minutes
+**** 1h
+***** met à jour les candles 1 heure
+*** Jobs / scripts shell
+**** gardent le module vivant sans intervention manuelle
+
+** 5. Comment le module prépare les données
+*** DailyHistoryQuery
+**** prépare l’historique daily
+**** choisit la bonne ligne par jour
+**** privilégie composite si disponible
+*** SummaryQuery
+**** prépare le résumé du marché
+**** combine daily + snapshot
+**** alimente les cartes KPI
+*** PeriodMetricsQuery
+**** calcule perf période
+**** calcule volatilité
+**** calcule drawdown
+**** calcule position dans la plage
+*** CandlesQuery
+**** prépare les bougies pour le graphique
+**** limite les dernières bougies utiles
+**** structure le format pour le front
+*** CandlesStatusQuery
+**** donne la dernière bougie
+**** donne la source
+**** donne le nombre de bougies
+**** alimente freshness et /system
+
+** 6. Comment on décide si les données sont fraîches
+*** FreshnessChecker
+**** fraîcheur daily
+**** compare snapshot / dernière donnée au temps courant
+*** CandlesFreshnessChecker
+**** fraîcheur intraday
+**** adapte les seuils selon le timeframe
+***** 5m
+***** 1h
+***** etc.
+*** Résultat métier
+**** ok
+**** warning
+**** stale
+**** fail / offline après normalisation système
+
+** 7. Comment les données deviennent lisibles
+*** SummaryPresenter
+**** transforme les chiffres en labels UI
+**** formatte prix / pourcentages / source / date
+*** ChartPresenter
+**** prépare les points du line chart
+**** transforme le daily en série lisible
+*** StatusPresenter
+**** transforme fresh / delayed / stale en badge UI
+**** applique une sémantique visuelle cohérente
+*** Aide pédagogique
+**** transforme les chandeliers en lecture compréhensible
+**** explique corps
+**** explique mèches
+**** explique contexte de lecture
+
+** 8. Comment ça s’affiche
+*** Btc::DashboardController
+**** orchestre le dashboard
+**** récupère les données
+**** choisit range / market / timeframe
+**** assemble les blocs
+*** dashboard/show.html.erb
+**** assemble la page BTC
+**** affiche les KPI
+**** affiche le line chart
+**** affiche les candles
+*** _candles_chart.html.erb
+**** affiche le graphique chandeliers
+**** affiche timeframe / market
+**** affiche freshness
+**** affiche l’aide pédagogique
+*** btc_candles_controller.js
+**** dessine les chandeliers avec Lightweight Charts
+**** convertit les timestamps
+**** gère le resize
+**** rend le graphique lisible
+*** Line chart UI
+**** donne une lecture simple / macro
+*** Candles chart UI
+**** donne une lecture détaillée / intraday
+
+** 9. Comment on surveille le module
+*** /system
+**** état daily
+**** état intraday 5m
+**** état intraday 1h
+**** source des données
+**** dernière clôture
+**** count de bougies
+**** statut normalisé
+*** Log cron
+**** vérifie que les backfills tournent
+**** aide à diagnostiquer les erreurs
+*** Recovery / health
+**** permet de voir rapidement si le module est en retard
+**** permet de voir si une source est absente
+*** Monitoring futur possible
+**** cache Redis
+**** temps de réponse
+**** dernière mise à jour du cache
+
+** 10. Comment on sécurise le module
+*** Tests queries
+**** DailyHistoryQuery
+**** SummaryQuery
+**** PeriodMetricsQuery
+**** CandlesQuery
+**** CandlesStatusQuery
+*** Tests freshness
+**** FreshnessChecker
+**** CandlesFreshnessChecker
+*** Tests ingestion
+**** IntradayBackfill
+**** upsert
+**** passage des arguments provider
+*** Tests provider
+**** BinanceProvider
+**** parsing payload
+**** erreurs HTTP
+**** market / timeframe invalides
+*** Test controller dashboard
+**** vérifie que /btc/dashboard répond
+**** vérifie que la page se rend correctement
+*** Intégrité des données
+**** validations sur BtcCandle
+***** OHLC cohérent
+***** close_time > open_time
+***** timeframe autorisé
+**** validations sur BtcPriceDay
+***** multi-source cohérent
+***** unicité day + source
+*** Fallback sécurité
+**** PostgreSQL reste la source de vérité
+**** Redis reste du cache
+**** si Redis tombe, fallback DB
+
+** 11. Cache Redis
+*** Pourquoi Redis
+**** accélérer les lectures fréquentes
+**** réduire la charge PostgreSQL
+**** préparer les futurs refresh automatiques
+*** Ce qui est mis en cache
+**** summary
+**** candles 5m
+**** candles 1h
+**** candles status
+*** Clés Redis
+**** btc:summary:btcusd
+**** btc:candles:btcusd:5m:120
+**** btc:candles:btcusd:1h:120
+**** btc:status:btcusd:5m
+**** btc:status:btcusd:1h
+*** Stratégie
+**** PostgreSQL = vérité
+**** Redis = cache rapide
+**** fallback DB si cache indisponible
+*** Validation perf
+**** benchmark sans Redis
+**** benchmark avec Redis
+**** cache froid
+**** cache chaud
+**** payloads mesurés
+
+** 12. Documentation du module
+*** Mindmap métier
+**** vue rapide du module
+**** ce que montre le module
+**** comment les données circulent
+*** Documentation tests
+**** couverture backend
+**** benchmark cache
+*** Documentation future
+**** module spec
+**** roadmap
+**** file map complémentaire si besoin
+
+@endmindmap

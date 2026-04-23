@@ -1,0 +1,285 @@
+<!-- app/views/btc/shared/_candles_chart.html.erb -->
+<div class="mt-6 rounded-xl border border-gray-800 bg-black/20 p-4">
+  <div class="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+    <div>
+      <p class="text-sm font-medium text-white">Vue chandeliers</p>
+      <p class="text-xs text-gray-500">
+        Lecture détaillée OHLC •
+        <span class="text-gray-300"><%= candles_market.upcase %></span> •
+        source :
+        <span class="text-gray-300"><%= candles_status[:source].presence || "—" %></span>
+      </p>
+    </div>
+
+    <div class="flex flex-col gap-2 lg:items-end">
+      <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium <%= candles_freshness[:badge_class] %>">
+        <%= candles_freshness[:label] %>
+      </span>
+
+      <div class="flex flex-wrap gap-2">
+        <% { "BTC/USD" => "btcusd", "BTC/EUR" => "btceur" }.each do |label, market| %>
+          <%= link_to label,
+              btc_dashboard_path(
+                range: range,
+                candles_market: market,
+                candles_timeframe: candles_timeframe
+              ),
+              class: "px-3 py-1.5 rounded-lg text-xs #{market == candles_market ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300'}" %>
+        <% end %>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <% %w[1m 5m 15m 1h 4h 1d].each do |tf| %>
+          <%= link_to tf,
+              btc_dashboard_path(
+                range: range,
+                candles_market: candles_market,
+                candles_timeframe: tf
+              ),
+              class: "px-3 py-1.5 rounded-lg text-xs #{tf == candles_timeframe ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300'}" %>
+        <% end %>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-3 text-xs text-gray-500 flex flex-wrap gap-x-4 gap-y-1">
+    <span>
+      Dernière clôture :
+      <span class="text-gray-300">
+        <%= candles_status[:last_close_time].present? ? l(Time.zone.parse(candles_status[:last_close_time].to_s), format: :short) : "—" %>
+      </span>
+    </span>
+
+    <span>
+      Bougies stockées :
+      <span class="text-gray-300"><%= candles_status[:candles_count] %></span>
+    </span>
+
+    <span>
+      Timeframe :
+      <span class="text-gray-300"><%= candles_timeframe %></span>
+    </span>
+  </div>
+
+  <% if candles_data.present? %>
+    <div
+      class="mt-4 w-full rounded-xl overflow-hidden"
+      data-controller="btc-candles"
+      data-btc-candles-candles-value="<%= candles_data.to_json %>"
+      style="height: 360px;">
+    </div>
+  <% else %>
+    <div class="mt-4 rounded-xl border border-dashed border-gray-700 p-6 text-sm text-gray-400">
+      Aucune donnée candles disponible pour
+      <span class="text-gray-200 font-medium"><%= candles_market.upcase %></span>
+      en
+      <span class="text-gray-200 font-medium"><%= candles_timeframe %></span>.
+    </div>
+  <% end %>
+
+  <details class="mt-4 group rounded-xl border border-gray-800 bg-black/10 p-4">
+    <summary class="cursor-pointer select-none flex items-center justify-between gap-3">
+      <div>
+        <p class="text-sm font-medium text-white">Aide — lire les chandeliers</p>
+        <p class="text-xs text-gray-500 mt-1">
+          Comprendre ce que racontent les bougies, les corps et les mèches.
+        </p>
+      </div>
+
+      <div class="text-gray-500 text-sm">
+        <span class="group-open:hidden">▸</span>
+        <span class="hidden group-open:inline">▾</span>
+      </div>
+    </summary>
+
+    <div class="mt-4 grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+
+      <!-- BASE -->
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+        <p class="font-medium text-white">Comprendre une bougie</p>
+
+        <ul class="mt-3 space-y-3 text-gray-300 leading-6">
+          <li>
+            Une bougie représente l’évolution du prix pendant une période :
+            <span class="text-gray-100 font-semibold">1m</span>,
+            <span class="text-gray-100 font-semibold">5m</span>,
+            <span class="text-gray-100 font-semibold">1h</span>,
+            etc.
+          </li>
+
+          <li>
+            Le <span class="text-gray-100 font-semibold">corps</span>
+            montre la différence entre le prix d’ouverture et de clôture.
+          </li>
+
+          <li>
+            Les <span class="text-gray-100 font-semibold">mèches</span>
+            montrent jusqu’où le prix est monté ou descendu avant de revenir.
+          </li>
+        </ul>
+      </div>
+
+      <!-- COULEURS -->
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+        <p class="font-medium text-white">Couleur des bougies</p>
+
+        <ul class="mt-3 space-y-3 text-gray-300 leading-6">
+          <li>
+            <span class="text-emerald-300 font-semibold">Bougie verte</span> :
+            le prix termine au-dessus de son ouverture.
+            Les acheteurs ont dominé la période.
+          </li>
+
+          <li>
+            <span class="text-rose-300 font-semibold">Bougie rouge</span> :
+            le prix termine sous son ouverture.
+            Les vendeurs ont dominé la période.
+          </li>
+        </ul>
+      </div>
+
+      <!-- CORPS -->
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+        <p class="font-medium text-white">Lecture du corps</p>
+
+        <ul class="mt-3 space-y-3 text-gray-300 leading-6">
+
+          <li>
+            <span class="text-emerald-300 font-semibold">
+              Grand corps vert
+            </span> :
+            forte poussée acheteuse.
+            Plus le corps est grand,
+            plus les acheteurs ont contrôlé le mouvement.
+          </li>
+
+          <li>
+            <span class="text-rose-300 font-semibold">
+              Grand corps rouge
+            </span> :
+            forte pression vendeuse.
+            Les vendeurs dominent largement la période.
+          </li>
+
+          <li>
+            <span class="text-gray-100 font-semibold">
+              Petit corps
+            </span> :
+            hésitation ou équilibre temporaire entre acheteurs et vendeurs.
+            Souvent observé pendant une consolidation.
+          </li>
+
+        </ul>
+      </div>
+
+      <!-- MECHES -->
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+        <p class="font-medium text-white">Lecture des mèches</p>
+
+        <ul class="mt-3 space-y-3 text-gray-300 leading-6">
+
+          <li>
+            <span class="text-emerald-300 font-semibold">
+              Longue mèche haute verte
+            </span> :
+            les acheteurs ont poussé fort vers le haut,
+            mais une partie de la hausse a été rejetée avant la clôture.
+            Les vendeurs commencent à défendre les niveaux élevés.
+          </li>
+
+          <li>
+            <span class="text-emerald-300 font-semibold">
+              Longue mèche basse verte
+            </span> :
+            les vendeurs ont tenté de faire baisser le prix,
+            mais les acheteurs ont repris le contrôle avant la clôture.
+            Signal de défense acheteuse.
+          </li>
+
+          <li>
+            <span class="text-rose-300 font-semibold">
+              Longue mèche haute rouge
+            </span> :
+            tentative de hausse rejetée fortement par les vendeurs,
+            puis retour du prix vers le bas avant clôture.
+            Souvent vu comme un rejet baissier.
+          </li>
+
+          <li>
+            <span class="text-rose-300 font-semibold">
+              Longue mèche basse rouge
+            </span> :
+            forte baisse pendant la période,
+            puis réaction acheteuse partielle avant la clôture.
+            Les vendeurs gardent l’avantage,
+            mais des acheteurs réapparaissent.
+          </li>
+
+          <li>
+            <span class="text-gray-100 font-semibold">
+              Grandes mèches des deux côtés
+            </span> :
+            forte bataille entre acheteurs et vendeurs,
+            volatilité élevée,
+            direction moins claire.
+          </li>
+
+        </ul>
+      </div>
+
+      <!-- LECTURE RAPIDE -->
+      <div class="rounded-xl border border-gray-800 bg-black/20 p-4 md:col-span-2">
+        <p class="font-medium text-white">Lecture rapide du marché</p>
+
+        <ul class="mt-3 space-y-3 text-gray-300 leading-6">
+
+          <li>
+            <span class="text-emerald-300 font-semibold">
+              Grandes bougies vertes répétées
+            </span> :
+            momentum acheteur fort,
+            marché dynamique à la hausse.
+          </li>
+
+          <li>
+            <span class="text-rose-300 font-semibold">
+              Grandes bougies rouges répétées
+            </span> :
+            pression vendeuse importante,
+            marché sous stress baissier.
+          </li>
+
+          <li>
+            <span class="text-gray-100 font-semibold">
+              Petites bougies répétées
+            </span> :
+            ralentissement,
+            hésitation,
+            consolidation.
+          </li>
+
+          <li>
+            <span class="text-gray-100 font-semibold">
+              Multiples longues mèches
+            </span> :
+            marché nerveux,
+            combats fréquents entre acheteurs et vendeurs,
+            volatilité élevée.
+          </li>
+
+        </ul>
+      </div>
+
+    </div>
+
+    <div class="mt-4 rounded-xl border border-amber-500/20 bg-amber-500/5 p-4 text-xs text-amber-200 leading-6">
+      Une bougie seule ne suffit jamais.
+      Il faut toujours la lire avec :
+      la tendance générale,
+      le timeframe utilisé,
+      le contexte marché
+      et les bougies précédentes.
+    </div>
+  </details>
+
+</div>

@@ -12,7 +12,10 @@ Rails.application.routes.draw do
 
   resources :journal_entries
   
-  
+  namespace :btc do
+    resource :dashboard, only: [:show], controller: :dashboard
+  end
+
   root "dashboard#index"
 
   # Route nommée pour le dashboard

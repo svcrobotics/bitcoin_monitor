@@ -1,0 +1,82 @@
+<section class="mt-6 bg-gray-900/40 border border-gray-800 rounded-2xl p-5 sm:p-6">
+  <div class="flex items-center justify-between gap-4">
+    <div>
+      <h1 class="text-lg font-semibold text-white">BTC Dashboard</h1>
+      <p class="text-sm text-gray-400">Lecture daily propre du marché Bitcoin.</p>
+    </div>
+
+    <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-medium <%= @freshness[:badge_class] %>">
+      <%= @freshness[:label] %>
+    </span>
+  </div>
+
+  <div class="mt-4 flex gap-2">
+    <% %w[7d 30d 1y].each do |range| %>
+      <%= link_to range, btc_dashboard_path(range: range),
+          class: "px-3 py-1.5 rounded-lg text-sm #{range == @range ? 'bg-orange-500 text-white' : 'bg-gray-800 text-gray-300'}" %>
+    <% end %>
+  </div>
+
+  <div class="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <p class="text-xs text-gray-400">Prix actuel</p>
+      <p class="mt-1 text-lg font-semibold text-white"><%= @summary_ui[:price_now_label] %></p>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <p class="text-xs text-gray-400">Variation daily</p>
+      <p class="mt-1 text-lg font-semibold text-white"><%= @summary_ui[:daily_change_label] %></p>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <p class="text-xs text-gray-400">MA200</p>
+      <p class="mt-1 text-lg font-semibold text-white"><%= @summary_ui[:ma200_label] %></p>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <p class="text-xs text-gray-400">ATH</p>
+      <p class="mt-1 text-lg font-semibold text-white"><%= @summary_ui[:ath_label] %></p>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-xl border border-gray-800 bg-black/20 p-4">
+    <div class="flex items-center justify-between gap-4">
+      <p class="text-sm font-medium text-white">Courbe daily</p>
+      <p class="text-xs text-gray-500">
+        <%= @range %> • <%= @summary_ui[:source_label] %>
+      </p>
+    </div>
+
+    <div
+      class="mt-4 w-full rounded-xl overflow-hidden"
+      data-controller="btc-chart"
+      data-btc-chart-series-value="<%= @chart_data.to_json %>"
+      style="height: 320px;">
+    </div>
+  </div>
+
+  <%= render "btc/shared/candles_chart",
+    range: @range,
+    candles_market: @candles_market,
+    candles_timeframe: @candles_timeframe,
+    candles_data: @candles_data,
+    candles_status: @candles_status,
+    candles_freshness: @candles_freshness %>
+
+  <div class="mt-6 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <p class="text-xs text-gray-400">Drawdown</p>
+      <p class="mt-1 text-white font-semibold"><%= @summary_ui[:drawdown_label] %></p>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <p class="text-xs text-gray-400">Amplitude 30j</p>
+      <p class="mt-1 text-white font-semibold"><%= @summary_ui[:amplitude_30d_label] %></p>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <p class="text-xs text-gray-400">Source</p>
+      <p class="mt-1 text-white font-semibold"><%= @summary_ui[:source_label] %></p>
+    </div>
+  </div>
+</section>

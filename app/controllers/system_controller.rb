@@ -7,6 +7,7 @@ class SystemController < ApplicationController
     @jobs = JobRun.recent.limit(200)
     @scanner_status = build_scanner_status
     @exchange_like_status = build_exchange_like_status
+    @btc_status = build_btc_status
 
     @snapshot  = System::HealthSnapshotBuilder.call
     @summary   = @snapshot[:summary]
@@ -21,6 +22,21 @@ class SystemController < ApplicationController
     }
 
     @tables = build_tables_health
+  end
+
+  def normalize_system_status(value)
+    case value.to_s
+    when "fresh"
+      "ok"
+    when "delayed"
+      "warning"
+    when "stale"
+      "stale"
+    when "offline"
+      "fail"
+    else
+      "warning"
+    end
   end
 
   def tests
@@ -200,6 +216,69 @@ class SystemController < ApplicationController
         new_addresses_24h: ExchangeAddress.where("first_seen_at >= ?", 24.hours.ago).count,
         seen_24h: ExchangeObservedUtxo.where("seen_day >= ?", Date.current - 1).count,
         spent_24h: ExchangeObservedUtxo.where.not(spent_day: nil).where("spent_day >= ?", Date.current - 1).count
+      }
+    }
+  rescue => e
+    {
+      error: "#{e.class}: #{e.message}"
+    }
+  end
+
+  def build_btc_status
+    daily_last = BtcPriceDay.where.not(close_usd: nil).order(day: :desc).first
+    snapshot   = MarketSnapshot.latest_ok
+
+    five_m_relation = BtcCandle.for_market("btcusd").for_timeframe("5m")
+    one_h_relation  = BtcCandle.for_market("btcusd").for_timeframe("1h")
+
+    five_m_last = five_m_relation.recent_first.first
+    one_h_last  = one_h_relation.recent_first.first
+
+    five_m_freshness = Btc::Health::CandlesFreshnessChecker.call(
+      last_close_time: five_m_last&.close_time,
+      timeframe: "5m"
+    )
+
+    one_h_freshness = Btc::Health::CandlesFreshnessChecker.call(
+      last_close_time: one_h_last&.close_time,
+      timeframe: "1h"
+    )
+
+    daily_freshness = Btc::Health::FreshnessChecker.call(
+      snapshot&.computed_at || daily_last&.day
+    )
+
+    {
+      daily: {
+        status: normalize_system_status(daily_freshness),
+        last_day: daily_last&.day,
+        source: daily_last&.source,
+        close_usd: daily_last&.close_usd,
+        snapshot_at: snapshot&.computed_at,
+        ma200_usd: snapshot&.ma200_usd,
+        ath_usd: snapshot&.ath_usd
+      },
+
+      intraday_5m: {
+        status: normalize_system_status(five_m_freshness),
+        market: "btcusd",
+        timeframe: "5m",
+        source: five_m_last&.source,
+        candles_count: five_m_relation.count,
+        last_open_time: five_m_last&.open_time,
+        last_close_time: five_m_last&.close_time,
+        last_close: five_m_last&.close
+      },
+
+      intraday_1h: {
+        status: normalize_system_status(one_h_freshness),
+        market: "btcusd",
+        timeframe: "1h",
+        source: one_h_last&.source,
+        candles_count: one_h_relation.count,
+        last_open_time: one_h_last&.open_time,
+        last_close_time: one_h_last&.close_time,
+        last_close: one_h_last&.close
       }
     }
   rescue => e
