@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-87cf1f22.js";
+            window.path_to_searchindex_js = "searchindex-d0d2a529.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-8cbbe486.js"></script>
+        <script src="toc-692c3d96.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -1593,6 +1593,507 @@ last scanned block
 <hr>
 <h3 id="backfill"><a class="header" href="#backfill">Backfill</a></h3>
 <p>Reconstruction historique d’un dataset à partir des anciens blocs.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="chapitre--cluster--le-jour-où-bitcoin-monitor-a-commencé-à-relier-les-adresses-entre-elles"><a class="header" href="#chapitre--cluster--le-jour-où-bitcoin-monitor-a-commencé-à-relier-les-adresses-entre-elles">Chapitre — Cluster : le jour où Bitcoin Monitor a commencé à relier les adresses entre elles</a></h1>
+<blockquote>
+<p><em>Au début, Bitcoin Monitor observait des transactions.</em></p>
+<p>Puis un nouveau problème est apparu :</p>
+<blockquote>
+<p>une transaction seule ne raconte presque rien.</p>
+</blockquote>
+<p>Ce chapitre raconte comment le projet a progressivement tenté de répondre à une question beaucoup plus difficile :</p>
+<blockquote>
+<p>quelles adresses appartiennent probablement à la même entité ?</p>
+</blockquote>
+</blockquote>
+<p>Et cette question allait transformer :</p>
+<ul>
+<li>l’architecture,</li>
+<li>les performances,</li>
+<li>les datasets,</li>
+<li>les scanners,</li>
+<li>et même la manière de penser le système.</li>
+</ul>
+<hr>
+<h1 id="1-le-problème-invisible"><a class="header" href="#1-le-problème-invisible">1. Le problème invisible</a></h1>
+<p>Pendant longtemps, Bitcoin Monitor observait :</p>
+<ul>
+<li>des blocs,</li>
+<li>des transactions,</li>
+<li>des UTXO,</li>
+<li>des mouvements.</li>
+</ul>
+<p>Mais quelque chose manquait.</p>
+<p>Le système voyait :</p>
+<pre><code class="language-text">A → B
+</code></pre>
+<p>sans comprendre :</p>
+<pre><code class="language-text">qui contrôle réellement quoi.
+</code></pre>
+<p>Et c’est là qu’un nouveau besoin est apparu :</p>
+<blockquote>
+<p>relier les adresses entre elles.</p>
+</blockquote>
+<hr>
+<h1 id="2-le-déclic"><a class="header" href="#2-le-déclic">2. Le déclic</a></h1>
+<p>Un jour, une évidence est apparue.</p>
+<p>Sur Bitcoin, lorsqu’une transaction possède plusieurs inputs :</p>
+<pre><code class="language-text">input A
+input B
+input C
+</code></pre>
+<p>il est extrêmement probable que :</p>
+<ul>
+<li>les clés privées associées</li>
+<li>soient contrôlées par la même entité.</li>
+</ul>
+<p>Pourquoi ?</p>
+<p>Parce que pour signer une transaction multi-input :</p>
+<blockquote>
+<p>il faut contrôler toutes les clés des inputs.</p>
+</blockquote>
+<p>Cette idée semble simple.</p>
+<p>Mais elle ouvre quelque chose d’énorme :</p>
+<blockquote>
+<p>construire des clusters d’adresses.</p>
+</blockquote>
+<hr>
+<h1 id="3-le-système-commence-à-penser-en-entités"><a class="header" href="#3-le-système-commence-à-penser-en-entités">3. Le système commence à penser en entités</a></h1>
+<p>Avant Cluster :</p>
+<p>Bitcoin Monitor observait :</p>
+<ul>
+<li>des adresses,</li>
+<li>des transactions,</li>
+<li>des outputs.</li>
+</ul>
+<p>Après Cluster :</p>
+<p>le système commençait à observer :</p>
+<ul>
+<li>des groupes,</li>
+<li>des comportements,</li>
+<li>des ensembles cohérents.</li>
+</ul>
+<p>C’est une transition majeure.</p>
+<p>Le projet cessait progressivement de voir :</p>
+<pre><code class="language-text">des objets techniques
+</code></pre>
+<p>pour commencer à voir :</p>
+<pre><code class="language-text">des acteurs blockchain.
+</code></pre>
+<hr>
+<h1 id="4-la-première-version-du-scanner"><a class="header" href="#4-la-première-version-du-scanner">4. La première version du scanner</a></h1>
+<p>La première implémentation semblait relativement simple.</p>
+<p>Le scanner :</p>
+<ul>
+<li>lisait les blocs,</li>
+<li>parcourait les transactions,</li>
+<li>récupérait les inputs,</li>
+<li>extrayait les adresses,</li>
+<li>puis créait des liens.</li>
+</ul>
+<p>Le pipeline ressemblait à ceci :</p>
+<pre><code class="language-text">Bitcoin Core RPC
+      ↓
+scan block
+      ↓
+extract inputs
+      ↓
+group addresses
+      ↓
+create links
+      ↓
+merge clusters
+</code></pre>
+<p>Sur le papier :
+cela semblait suffisant.</p>
+<p>En réalité :
+ce n’était que le début.</p>
+<hr>
+<h1 id="5-le-premier-vrai-problème--les-prevouts"><a class="header" href="#5-le-premier-vrai-problème--les-prevouts">5. Le premier vrai problème : les prevouts</a></h1>
+<p>Très vite, une difficulté importante est apparue.</p>
+<p>Dans Bitcoin :</p>
+<ul>
+<li>les inputs ne contiennent pas directement les adresses précédentes,</li>
+<li>ils référencent des outputs antérieurs.</li>
+</ul>
+<p>Le scanner devait donc :</p>
+<ul>
+<li>relire les prevouts,</li>
+<li>reconstruire les transactions précédentes,</li>
+<li>extraire les scripts,</li>
+<li>comprendre les adresses.</li>
+</ul>
+<p>Et là, Bitcoin Monitor a commencé à découvrir une réalité importante :</p>
+<blockquote>
+<p>analyser Bitcoin coûte cher.</p>
+</blockquote>
+<hr>
+<h1 id="6-les-performances-commencent-à-souffrir"><a class="header" href="#6-les-performances-commencent-à-souffrir">6. Les performances commencent à souffrir</a></h1>
+<p>Le scanner devait maintenant :</p>
+<ul>
+<li>lire énormément de blocs,</li>
+<li>reconstruire les prevouts,</li>
+<li>parser des scripts,</li>
+<li>créer des liens,</li>
+<li>fusionner des clusters.</li>
+</ul>
+<p>Les premiers symptômes sont apparus :</p>
+<ul>
+<li>CPU élevé,</li>
+<li>scans très longs,</li>
+<li>mémoire qui grimpe,</li>
+<li>ralentissements PostgreSQL,</li>
+<li>jobs interminables.</li>
+</ul>
+<p>Le problème n’était plus :</p>
+<blockquote>
+<p>“le code fonctionne-t-il ?”</p>
+</blockquote>
+<p>Mais :</p>
+<blockquote>
+<p>“le système peut-il tenir dans le temps ?”</p>
+</blockquote>
+<hr>
+<h1 id="7-cluster-cesse-dêtre-une-simple-feature"><a class="header" href="#7-cluster-cesse-dêtre-une-simple-feature">7. Cluster cesse d’être une simple feature</a></h1>
+<p>C’est un moment important dans la vie d’une application.</p>
+<p>Le module Cluster n’était plus :</p>
+<pre><code class="language-text">une fonctionnalité.
+</code></pre>
+<p>Il devenait :</p>
+<pre><code class="language-text">un pipeline massif de reconstruction d’identité probabiliste.
+</code></pre>
+<p>Et cela change tout.</p>
+<hr>
+<h1 id="8-les-premières-tables-apparaissent"><a class="header" href="#8-les-premières-tables-apparaissent">8. Les premières tables apparaissent</a></h1>
+<p>Pour stocker les relations, plusieurs modèles sont apparus.</p>
+<p>Par exemple :</p>
+<pre><code class="language-ruby">Cluster
+ClusterAddress
+ClusterLink
+</code></pre>
+<p>Puis progressivement :</p>
+<ul>
+<li>profils,</li>
+<li>métriques,</li>
+<li>signaux,</li>
+<li>snapshots.</li>
+</ul>
+<p>Le système ne stockait plus seulement :</p>
+<pre><code class="language-text">des données blockchain.
+</code></pre>
+<p>Mais :</p>
+<pre><code class="language-text">une interprétation structurée de comportements.
+</code></pre>
+<hr>
+<h1 id="9-les-datasets-explosent"><a class="header" href="#9-les-datasets-explosent">9. Les datasets explosent</a></h1>
+<p>Très vite :
+les volumes sont devenus gigantesques.</p>
+<p>Des centaines de milliers :</p>
+<ul>
+<li>d’adresses,</li>
+<li>de liens,</li>
+<li>de relations,</li>
+<li>de clusters.</li>
+</ul>
+<p>Puis :
+des millions.</p>
+<p>Et là, un nouveau problème est apparu :</p>
+<blockquote>
+<p>comment maintenir les clusters à jour sans rescanner toute la blockchain ?</p>
+</blockquote>
+<hr>
+<h1 id="10-le-scanner-incrémental-devient-obligatoire"><a class="header" href="#10-le-scanner-incrémental-devient-obligatoire">10. Le scanner incrémental devient obligatoire</a></h1>
+<p>Au début :
+le scanner rescannait énormément de données.</p>
+<p>Mais cette approche devenait rapidement impossible.</p>
+<p>Bitcoin Monitor a alors commencé à introduire :</p>
+<ul>
+<li>des curseurs,</li>
+<li>des best heights,</li>
+<li>des scans incrémentaux,</li>
+<li>des reprises,</li>
+<li>des backfills.</li>
+</ul>
+<p>Le système devenait progressivement :</p>
+<blockquote>
+<p>vivant.</p>
+</blockquote>
+<hr>
+<h1 id="11-le-moment-où-le-scanner-devient-trop-gros"><a class="header" href="#11-le-moment-où-le-scanner-devient-trop-gros">11. Le moment où le scanner devient trop gros</a></h1>
+<p>Au départ :
+tout était contenu dans :</p>
+<pre><code class="language-ruby">ClusterScanner
+</code></pre>
+<p>Le service :</p>
+<ul>
+<li>extrayait les inputs,</li>
+<li>groupait les adresses,</li>
+<li>écrivait les données,</li>
+<li>fusionnait les clusters,</li>
+<li>créait les liens,</li>
+<li>gérait les stats.</li>
+</ul>
+<p>Petit à petit :
+le fichier devenait énorme.</p>
+<p>Et surtout :
+de plus en plus difficile à comprendre.</p>
+<hr>
+<h1 id="12-le-vrai-problème-nétait-plus-le-code"><a class="header" href="#12-le-vrai-problème-nétait-plus-le-code">12. Le vrai problème n’était plus le code</a></h1>
+<p>Le vrai problème devenait :</p>
+<blockquote>
+<p>la responsabilité.</p>
+</blockquote>
+<p>Le scanner connaissait :</p>
+<ul>
+<li>trop de détails,</li>
+<li>trop de règles métier,</li>
+<li>trop de structures internes.</li>
+</ul>
+<p>Et là, un changement important a commencé.</p>
+<hr>
+<h1 id="13-le-grand-refactor"><a class="header" href="#13-le-grand-refactor">13. Le grand refactor</a></h1>
+<p>Progressivement, plusieurs composants spécialisés sont apparus.</p>
+<p>Par exemple :</p>
+<pre><code class="language-ruby">Clusters::InputExtractor
+Clusters::AddressWriter
+Clusters::ClusterMerger
+Clusters::LinkWriter
+Clusters::DirtyClusterRefresher
+</code></pre>
+<p>C’est une étape extrêmement importante.</p>
+<p>Pourquoi ?</p>
+<p>Parce que le scanner cessait progressivement de :</p>
+<pre><code class="language-text">tout faire lui-même.
+</code></pre>
+<p>Il devenait :</p>
+<pre><code class="language-text">un orchestrateur.
+</code></pre>
+<hr>
+<h1 id="14-le-système-commence-à-respirer"><a class="header" href="#14-le-système-commence-à-respirer">14. Le système commence à respirer</a></h1>
+<p>Le nouveau pipeline ressemblait davantage à ceci :</p>
+<pre><code class="language-text">RPC
+ ↓
+InputExtractor
+ ↓
+AddressWriter
+ ↓
+ClusterMerger
+ ↓
+LinkWriter
+ ↓
+DirtyClusterRefresher
+</code></pre>
+<p>Et soudain :
+le système devenait beaucoup plus lisible.</p>
+<hr>
+<h1 id="15-les-structures-implicites-deviennent-dangereuses"><a class="header" href="#15-les-structures-implicites-deviennent-dangereuses">15. Les structures implicites deviennent dangereuses</a></h1>
+<p>Un autre problème est apparu pendant le refactor.</p>
+<p>Au départ :
+les données voyageaient sous forme de Hash implicites.</p>
+<p>Par exemple :</p>
+<pre><code class="language-ruby">{
+  "bc1..." =&gt; 123_000
+}
+</code></pre>
+<p>Cela semblait pratique.</p>
+<p>Mais progressivement :
+les erreurs devenaient difficiles à suivre.</p>
+<hr>
+<h1 id="16-le-passage-aux-objets-métier-implicites"><a class="header" href="#16-le-passage-aux-objets-métier-implicites">16. Le passage aux objets métier implicites</a></h1>
+<p>Le système a alors commencé à utiliser des structures plus explicites :</p>
+<pre><code class="language-ruby">{
+  address: "...",
+  total_inputs: 2,
+  total_value_sats: 123456
+}
+</code></pre>
+<p>Ce changement semble petit.</p>
+<p>En réalité :
+il transforme complètement la lisibilité du pipeline.</p>
+<p>Pourquoi ?</p>
+<p>Parce que les données commencent à porter :</p>
+<blockquote>
+<p>du sens métier.</p>
+</blockquote>
+<hr>
+<h1 id="17-les-statistiques-deviennent-vitales"><a class="header" href="#17-les-statistiques-deviennent-vitales">17. Les statistiques deviennent vitales</a></h1>
+<p>Puis un autre problème est apparu.</p>
+<p>Le scanner tournait parfois pendant :</p>
+<ul>
+<li>plusieurs minutes,</li>
+<li>parfois des heures.</li>
+</ul>
+<p>Mais impossible de savoir :</p>
+<ul>
+<li>ce qu’il faisait réellement,</li>
+<li>s’il avançait,</li>
+<li>ou s’il était bloqué.</li>
+</ul>
+<p>Des métriques sont alors apparues :</p>
+<pre><code class="language-ruby">@stats
+</code></pre>
+<p>Avec :</p>
+<ul>
+<li>blocs scannés,</li>
+<li>transactions,</li>
+<li>liens créés,</li>
+<li>clusters fusionnés,</li>
+<li>erreurs,</li>
+<li>progression.</li>
+</ul>
+<p>Et là :
+le pipeline devenait observable.</p>
+<hr>
+<h1 id="18-runtime--progression-1"><a class="header" href="#18-runtime--progression-1">18. Runtime ≠ progression</a></h1>
+<p>C’est une distinction extrêmement importante.</p>
+<p>Avant :</p>
+<pre><code class="language-text">job running = job vivant
+</code></pre>
+<p>Mais ce n’était pas vrai.</p>
+<p>Un job pouvait :</p>
+<ul>
+<li>tourner,</li>
+<li>consommer du CPU,</li>
+<li>sans réellement avancer.</li>
+</ul>
+<p>Le système a commencé à comprendre qu’il fallait afficher :</p>
+<ul>
+<li>la progression réelle,</li>
+<li>le curseur,</li>
+<li>les blocs traités,</li>
+<li>les étapes internes.</li>
+</ul>
+<hr>
+<h1 id="19-les-tensions-futures-deviennent-visibles"><a class="header" href="#19-les-tensions-futures-deviennent-visibles">19. Les tensions futures deviennent visibles</a></h1>
+<p>À ce stade, plusieurs futurs problèmes étaient déjà perceptibles :</p>
+<ul>
+<li>parallélisation,</li>
+<li>mémoire,</li>
+<li>queues,</li>
+<li>Redis,</li>
+<li>batch processing,</li>
+<li>contention PostgreSQL,</li>
+<li>refresh coûteux.</li>
+</ul>
+<p>Mais cette fois :</p>
+<blockquote>
+<p>les problèmes étaient compris.</p>
+</blockquote>
+<p>Et cela change énormément la manière de développer.</p>
+<hr>
+<h1 id="20-cluster-devient-une-fondation-du-système"><a class="header" href="#20-cluster-devient-une-fondation-du-système">20. Cluster devient une fondation du système</a></h1>
+<p>Progressivement, d’autres modules ont commencé à dépendre de Cluster :</p>
+<pre><code class="language-text">Whales
+   ↓
+Exchange Like
+   ↓
+Clusters
+   ↓
+Signals
+   ↓
+Behavior analysis
+</code></pre>
+<p>Cluster devenait progressivement :</p>
+<blockquote>
+<p>une couche d’intelligence transverse.</p>
+</blockquote>
+<hr>
+<h1 id="21-le-système-commence-à-interpréter-les-comportements"><a class="header" href="#21-le-système-commence-à-interpréter-les-comportements">21. Le système commence à interpréter les comportements</a></h1>
+<p>Avant :
+Bitcoin Monitor observait :</p>
+<ul>
+<li>des transactions.</li>
+</ul>
+<p>Maintenant :
+le système commençait à observer :</p>
+<ul>
+<li>des comportements agrégés,</li>
+<li>des groupes cohérents,</li>
+<li>des changements d’activité,</li>
+<li>des signaux.</li>
+</ul>
+<p>Le projet ne lisait plus seulement :</p>
+<pre><code class="language-text">la blockchain.
+</code></pre>
+<p>Il commençait à :</p>
+<pre><code class="language-text">interpréter des comportements probabilistes.
+</code></pre>
+<hr>
+<h1 id="22-le-vrai-changement"><a class="header" href="#22-le-vrai-changement">22. Le vrai changement</a></h1>
+<p>Le vrai changement introduit par Cluster n’était pas uniquement technique.</p>
+<p>Le vrai changement était conceptuel.</p>
+<p>Avant :</p>
+<pre><code class="language-text">adresse = entité
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">adresse ≠ acteur réel
+</code></pre>
+<p>Et cette nuance transforme complètement :</p>
+<ul>
+<li>l’analyse,</li>
+<li>les dashboards,</li>
+<li>les signaux,</li>
+<li>les interprétations marché.</li>
+</ul>
+<hr>
+<h1 id="23-les-leçons-apprises"><a class="header" href="#23-les-leçons-apprises">23. Les leçons apprises</a></h1>
+<h2 id="les-scanners-deviennent-rapidement-des-systèmes-complexes"><a class="header" href="#les-scanners-deviennent-rapidement-des-systèmes-complexes">Les scanners deviennent rapidement des systèmes complexes</a></h2>
+<p>Même lorsqu’ils semblent simples au départ.</p>
+<hr>
+<h2 id="les-responsabilités-doivent-être-découpées-tôt"><a class="header" href="#les-responsabilités-doivent-être-découpées-tôt">Les responsabilités doivent être découpées tôt</a></h2>
+<p>Sinon :
+les services deviennent incontrôlables.</p>
+<hr>
+<h2 id="les-structures-implicites-deviennent-dangereuses-avec-le-temps"><a class="header" href="#les-structures-implicites-deviennent-dangereuses-avec-le-temps">Les structures implicites deviennent dangereuses avec le temps</a></h2>
+<p>Les pipelines massifs ont besoin :</p>
+<ul>
+<li>de structures claires,</li>
+<li>de données explicites,</li>
+<li>de sens métier.</li>
+</ul>
+<hr>
+<h2 id="lobservabilité-devient-obligatoire"><a class="header" href="#lobservabilité-devient-obligatoire">L’observabilité devient obligatoire</a></h2>
+<p>Les jobs longs nécessitent :</p>
+<ul>
+<li>progression,</li>
+<li>métriques,</li>
+<li>heartbeat,</li>
+<li>visibilité réelle.</li>
+</ul>
+<hr>
+<h2 id="les-clusters-sont-probabilistes"><a class="header" href="#les-clusters-sont-probabilistes">Les clusters sont probabilistes</a></h2>
+<p>Bitcoin ne fournit jamais :</p>
+<pre><code class="language-text">owner_id
+</code></pre>
+<p>Tout repose sur :</p>
+<ul>
+<li>des heuristiques,</li>
+<li>des hypothèses,</li>
+<li>des probabilités.</li>
+</ul>
+<hr>
+<h1 id="24-conclusion"><a class="header" href="#24-conclusion">24. Conclusion</a></h1>
+<p>Le module Cluster a profondément changé Bitcoin Monitor.</p>
+<p>Avant lui :</p>
+<ul>
+<li>l’application observait des transactions.</li>
+</ul>
+<p>Après lui :</p>
+<ul>
+<li>elle commençait à reconstruire des comportements d’acteurs blockchain.</li>
+</ul>
+<p>Et ce changement a transformé :</p>
+<ul>
+<li>l’architecture,</li>
+<li>les pipelines,</li>
+<li>les datasets,</li>
+<li>les scanners,</li>
+<li>et même la manière de penser le système.</li>
+</ul>
+<p>Parce qu’au final :</p>
+<blockquote>
+<p>construire des clusters revient à essayer de lire la blockchain comme un organisme vivant.</p>
+</blockquote>
 
                     </main>
 
@@ -1617,22 +2118,6 @@ last scanned block
         <template id=fa-play><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 384 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M73 39c-14.8-9.1-33.4-9.4-48.5-.9S0 62.6 0 80V432c0 17.4 9.4 33.4 24.5 41.9s33.7 8.1 48.5-.9L361 297c14.3-8.7 23-24.2 23-41s-8.7-32.2-23-41L73 39z"/></svg></span></template>
         <template id=fa-clock-rotate-left><span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M75 75L41 41C25.9 25.9 0 36.6 0 57.9V168c0 13.3 10.7 24 24 24H134.1c21.4 0 32.1-25.9 17-41l-30.8-30.8C155 85.5 203 64 256 64c106 0 192 86 192 192s-86 192-192 192c-40.8 0-78.6-12.7-109.7-34.4c-14.5-10.1-34.4-6.6-44.6 7.9s-6.6 34.4 7.9 44.6C151.2 495 201.7 512 256 512c141.4 0 256-114.6 256-256S397.4 0 256 0C185.3 0 121.3 28.7 75 75zm181 53c-13.3 0-24 10.7-24 24V256c0 6.4 2.5 12.5 7 17l72 72c9.4 9.4 24.6 9.4 33.9 0s9.4-24.6 0-33.9l-65-65V152c0-13.3-10.7-24-24-24z"/></svg></span></template>
 
-        <!-- Livereload script (if served using the cli tool) -->
-        <script>
-            const wsProtocol = location.protocol === 'https:' ? 'wss:' : 'ws:';
-            const wsAddress = wsProtocol + "//" + location.host + "/" + "__livereload";
-            const socket = new WebSocket(wsAddress);
-            socket.onmessage = function (event) {
-                if (event.data === "reload") {
-                    socket.close();
-                    location.reload();
-                }
-            };
-
-            window.onbeforeunload = function() {
-                socket.close();
-            }
-        </script>
 
 
         <script>
