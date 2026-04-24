@@ -1,4 +1,4 @@
-# Chapitre — Cluster : le jour où Bitcoin Monitor a commencé à relier les adresses entre elles
+# Cluster : le jour où Bitcoin Monitor a commencé à relier les adresses entre elles
 
 > *Au début, Bitcoin Monitor observait des transactions.*
 >
@@ -20,7 +20,7 @@ Et cette question allait transformer :
 
 ---
 
-# 1. Le problème invisible
+## 1. Le problème invisible
 
 Pendant longtemps, Bitcoin Monitor observait :
 
@@ -49,7 +49,7 @@ Et c’est là qu’un nouveau besoin est apparu :
 
 ---
 
-# 2. Le déclic
+## 2. Le déclic
 
 Un jour, une évidence est apparue.
 
@@ -80,7 +80,7 @@ Mais elle ouvre quelque chose d’énorme :
 
 ---
 
-# 3. Le système commence à penser en entités
+## 3. Le système commence à penser en entités
 
 Avant Cluster :
 
@@ -114,7 +114,7 @@ des acteurs blockchain.
 
 ---
 
-# 4. La première version du scanner
+## 4. La première version du scanner
 
 La première implémentation semblait relativement simple.
 
@@ -150,7 +150,7 @@ ce n’était que le début.
 
 ---
 
-# 5. Le premier vrai problème : les prevouts
+## 5. Le premier vrai problème : les prevouts
 
 Très vite, une difficulté importante est apparue.
 
@@ -172,7 +172,7 @@ Et là, Bitcoin Monitor a commencé à découvrir une réalité importante :
 
 ---
 
-# 6. Les performances commencent à souffrir
+## 6. Les performances commencent à souffrir
 
 Le scanner devait maintenant :
 
@@ -200,7 +200,7 @@ Mais :
 
 ---
 
-# 7. Cluster cesse d’être une simple feature
+## 7. Cluster cesse d’être une simple feature
 
 C’est un moment important dans la vie d’une application.
 
@@ -220,7 +220,7 @@ Et cela change tout.
 
 ---
 
-# 8. Les premières tables apparaissent
+## 8. Les premières tables apparaissent
 
 Pour stocker les relations, plusieurs modèles sont apparus.
 
@@ -253,7 +253,7 @@ une interprétation structurée de comportements.
 
 ---
 
-# 9. Les datasets explosent
+## 9. Les datasets explosent
 
 Très vite :
 les volumes sont devenus gigantesques.
@@ -274,7 +274,7 @@ Et là, un nouveau problème est apparu :
 
 ---
 
-# 10. Le scanner incrémental devient obligatoire
+## 10. Le scanner incrémental devient obligatoire
 
 Au début :
 le scanner rescannait énormément de données.
@@ -295,7 +295,7 @@ Le système devenait progressivement :
 
 ---
 
-# 11. Le moment où le scanner devient trop gros
+## 11. Le moment où le scanner devient trop gros
 
 Au départ :
 tout était contenu dans :
@@ -321,7 +321,7 @@ de plus en plus difficile à comprendre.
 
 ---
 
-# 12. Le vrai problème n’était plus le code
+## 12. Le vrai problème n’était plus le code
 
 Le vrai problème devenait :
 
@@ -337,7 +337,7 @@ Et là, un changement important a commencé.
 
 ---
 
-# 13. Le grand refactor
+## 13. Le grand refactor
 
 Progressivement, plusieurs composants spécialisés sont apparus.
 
@@ -369,7 +369,7 @@ un orchestrateur.
 
 ---
 
-# 14. Le système commence à respirer
+## 14. Le système commence à respirer
 
 Le nouveau pipeline ressemblait davantage à ceci :
 
@@ -392,7 +392,7 @@ le système devenait beaucoup plus lisible.
 
 ---
 
-# 15. Les structures implicites deviennent dangereuses
+## 15. Les structures implicites deviennent dangereuses
 
 Un autre problème est apparu pendant le refactor.
 
@@ -414,7 +414,7 @@ les erreurs devenaient difficiles à suivre.
 
 ---
 
-# 16. Le passage aux objets métier implicites
+## 16. Le passage aux objets métier implicites
 
 Le système a alors commencé à utiliser des structures plus explicites :
 
@@ -439,7 +439,7 @@ Parce que les données commencent à porter :
 
 ---
 
-# 17. Les statistiques deviennent vitales
+## 17. Les statistiques deviennent vitales
 
 Puis un autre problème est apparu.
 
@@ -474,7 +474,7 @@ le pipeline devenait observable.
 
 ---
 
-# 18. Runtime ≠ progression
+## 18. Runtime ≠ progression
 
 C’est une distinction extrêmement importante.
 
@@ -501,7 +501,7 @@ Le système a commencé à comprendre qu’il fallait afficher :
 
 ---
 
-# 19. Les tensions futures deviennent visibles
+## 19. Les tensions futures deviennent visibles
 
 À ce stade, plusieurs futurs problèmes étaient déjà perceptibles :
 
@@ -521,7 +521,7 @@ Et cela change énormément la manière de développer.
 
 ---
 
-# 20. Cluster devient une fondation du système
+## 20. Cluster devient une fondation du système
 
 Progressivement, d’autres modules ont commencé à dépendre de Cluster :
 
@@ -543,7 +543,7 @@ Cluster devenait progressivement :
 
 ---
 
-# 21. Le système commence à interpréter les comportements
+## 21. Le système commence à interpréter les comportements
 
 Avant :
 Bitcoin Monitor observait :
@@ -572,7 +572,7 @@ interpréter des comportements probabilistes.
 
 ---
 
-# 22. Le vrai changement
+## 22. Le vrai changement
 
 Le vrai changement introduit par Cluster n’était pas uniquement technique.
 
@@ -599,22 +599,22 @@ Et cette nuance transforme complètement :
 
 ---
 
-# 23. Les leçons apprises
+## 23. Les leçons apprises
 
-## Les scanners deviennent rapidement des systèmes complexes
+### Les scanners deviennent rapidement des systèmes complexes
 
 Même lorsqu’ils semblent simples au départ.
 
 ---
 
-## Les responsabilités doivent être découpées tôt
+### Les responsabilités doivent être découpées tôt
 
 Sinon :
 les services deviennent incontrôlables.
 
 ---
 
-## Les structures implicites deviennent dangereuses avec le temps
+### Les structures implicites deviennent dangereuses avec le temps
 
 Les pipelines massifs ont besoin :
 
@@ -624,7 +624,7 @@ Les pipelines massifs ont besoin :
 
 ---
 
-## L’observabilité devient obligatoire
+### L’observabilité devient obligatoire
 
 Les jobs longs nécessitent :
 
@@ -635,7 +635,7 @@ Les jobs longs nécessitent :
 
 ---
 
-## Les clusters sont probabilistes
+### Les clusters sont probabilistes
 
 Bitcoin ne fournit jamais :
 
@@ -651,7 +651,7 @@ Tout repose sur :
 
 ---
 
-# 24. Conclusion
+## 24. Conclusion
 
 Le module Cluster a profondément changé Bitcoin Monitor.
 

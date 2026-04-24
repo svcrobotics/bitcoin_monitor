@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-d0d2a529.js";
+            window.path_to_searchindex_js = "searchindex-605d6412.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-692c3d96.js"></script>
@@ -174,7 +174,7 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="chapitre--cluster--le-jour-où-bitcoin-monitor-a-commencé-à-relier-les-adresses-entre-elles"><a class="header" href="#chapitre--cluster--le-jour-où-bitcoin-monitor-a-commencé-à-relier-les-adresses-entre-elles">Chapitre — Cluster : le jour où Bitcoin Monitor a commencé à relier les adresses entre elles</a></h1>
+                        <h1 id="cluster--le-jour-où-bitcoin-monitor-a-commencé-à-relier-les-adresses-entre-elles"><a class="header" href="#cluster--le-jour-où-bitcoin-monitor-a-commencé-à-relier-les-adresses-entre-elles">Cluster : le jour où Bitcoin Monitor a commencé à relier les adresses entre elles</a></h1>
 <blockquote>
 <p><em>Au début, Bitcoin Monitor observait des transactions.</em></p>
 <p>Puis un nouveau problème est apparu :</p>
@@ -195,7 +195,7 @@
 <li>et même la manière de penser le système.</li>
 </ul>
 <hr>
-<h1 id="1-le-problème-invisible"><a class="header" href="#1-le-problème-invisible">1. Le problème invisible</a></h1>
+<h2 id="1-le-problème-invisible"><a class="header" href="#1-le-problème-invisible">1. Le problème invisible</a></h2>
 <p>Pendant longtemps, Bitcoin Monitor observait :</p>
 <ul>
 <li>des blocs,</li>
@@ -215,7 +215,7 @@
 <p>relier les adresses entre elles.</p>
 </blockquote>
 <hr>
-<h1 id="2-le-déclic"><a class="header" href="#2-le-déclic">2. Le déclic</a></h1>
+<h2 id="2-le-déclic"><a class="header" href="#2-le-déclic">2. Le déclic</a></h2>
 <p>Un jour, une évidence est apparue.</p>
 <p>Sur Bitcoin, lorsqu’une transaction possède plusieurs inputs :</p>
 <pre><code class="language-text">input A
@@ -238,7 +238,7 @@ input C
 <p>construire des clusters d’adresses.</p>
 </blockquote>
 <hr>
-<h1 id="3-le-système-commence-à-penser-en-entités"><a class="header" href="#3-le-système-commence-à-penser-en-entités">3. Le système commence à penser en entités</a></h1>
+<h2 id="3-le-système-commence-à-penser-en-entités"><a class="header" href="#3-le-système-commence-à-penser-en-entités">3. Le système commence à penser en entités</a></h2>
 <p>Avant Cluster :</p>
 <p>Bitcoin Monitor observait :</p>
 <ul>
@@ -261,7 +261,7 @@ input C
 <pre><code class="language-text">des acteurs blockchain.
 </code></pre>
 <hr>
-<h1 id="4-la-première-version-du-scanner"><a class="header" href="#4-la-première-version-du-scanner">4. La première version du scanner</a></h1>
+<h2 id="4-la-première-version-du-scanner"><a class="header" href="#4-la-première-version-du-scanner">4. La première version du scanner</a></h2>
 <p>La première implémentation semblait relativement simple.</p>
 <p>Le scanner :</p>
 <ul>
@@ -289,7 +289,7 @@ cela semblait suffisant.</p>
 <p>En réalité :
 ce n’était que le début.</p>
 <hr>
-<h1 id="5-le-premier-vrai-problème--les-prevouts"><a class="header" href="#5-le-premier-vrai-problème--les-prevouts">5. Le premier vrai problème : les prevouts</a></h1>
+<h2 id="5-le-premier-vrai-problème--les-prevouts"><a class="header" href="#5-le-premier-vrai-problème--les-prevouts">5. Le premier vrai problème : les prevouts</a></h2>
 <p>Très vite, une difficulté importante est apparue.</p>
 <p>Dans Bitcoin :</p>
 <ul>
@@ -308,7 +308,7 @@ ce n’était que le début.</p>
 <p>analyser Bitcoin coûte cher.</p>
 </blockquote>
 <hr>
-<h1 id="6-les-performances-commencent-à-souffrir"><a class="header" href="#6-les-performances-commencent-à-souffrir">6. Les performances commencent à souffrir</a></h1>
+<h2 id="6-les-performances-commencent-à-souffrir"><a class="header" href="#6-les-performances-commencent-à-souffrir">6. Les performances commencent à souffrir</a></h2>
 <p>Le scanner devait maintenant :</p>
 <ul>
 <li>lire énormément de blocs,</li>
@@ -334,7 +334,7 @@ ce n’était que le début.</p>
 <p>“le système peut-il tenir dans le temps ?”</p>
 </blockquote>
 <hr>
-<h1 id="7-cluster-cesse-dêtre-une-simple-feature"><a class="header" href="#7-cluster-cesse-dêtre-une-simple-feature">7. Cluster cesse d’être une simple feature</a></h1>
+<h2 id="7-cluster-cesse-dêtre-une-simple-feature"><a class="header" href="#7-cluster-cesse-dêtre-une-simple-feature">7. Cluster cesse d’être une simple feature</a></h2>
 <p>C’est un moment important dans la vie d’une application.</p>
 <p>Le module Cluster n’était plus :</p>
 <pre><code class="language-text">une fonctionnalité.
@@ -344,7 +344,7 @@ ce n’était que le début.</p>
 </code></pre>
 <p>Et cela change tout.</p>
 <hr>
-<h1 id="8-les-premières-tables-apparaissent"><a class="header" href="#8-les-premières-tables-apparaissent">8. Les premières tables apparaissent</a></h1>
+<h2 id="8-les-premières-tables-apparaissent"><a class="header" href="#8-les-premières-tables-apparaissent">8. Les premières tables apparaissent</a></h2>
 <p>Pour stocker les relations, plusieurs modèles sont apparus.</p>
 <p>Par exemple :</p>
 <pre><code class="language-ruby">Cluster
@@ -365,7 +365,7 @@ ClusterLink
 <pre><code class="language-text">une interprétation structurée de comportements.
 </code></pre>
 <hr>
-<h1 id="9-les-datasets-explosent"><a class="header" href="#9-les-datasets-explosent">9. Les datasets explosent</a></h1>
+<h2 id="9-les-datasets-explosent"><a class="header" href="#9-les-datasets-explosent">9. Les datasets explosent</a></h2>
 <p>Très vite :
 les volumes sont devenus gigantesques.</p>
 <p>Des centaines de milliers :</p>
@@ -382,7 +382,7 @@ des millions.</p>
 <p>comment maintenir les clusters à jour sans rescanner toute la blockchain ?</p>
 </blockquote>
 <hr>
-<h1 id="10-le-scanner-incrémental-devient-obligatoire"><a class="header" href="#10-le-scanner-incrémental-devient-obligatoire">10. Le scanner incrémental devient obligatoire</a></h1>
+<h2 id="10-le-scanner-incrémental-devient-obligatoire"><a class="header" href="#10-le-scanner-incrémental-devient-obligatoire">10. Le scanner incrémental devient obligatoire</a></h2>
 <p>Au début :
 le scanner rescannait énormément de données.</p>
 <p>Mais cette approche devenait rapidement impossible.</p>
@@ -399,7 +399,7 @@ le scanner rescannait énormément de données.</p>
 <p>vivant.</p>
 </blockquote>
 <hr>
-<h1 id="11-le-moment-où-le-scanner-devient-trop-gros"><a class="header" href="#11-le-moment-où-le-scanner-devient-trop-gros">11. Le moment où le scanner devient trop gros</a></h1>
+<h2 id="11-le-moment-où-le-scanner-devient-trop-gros"><a class="header" href="#11-le-moment-où-le-scanner-devient-trop-gros">11. Le moment où le scanner devient trop gros</a></h2>
 <p>Au départ :
 tout était contenu dans :</p>
 <pre><code class="language-ruby">ClusterScanner
@@ -418,7 +418,7 @@ le fichier devenait énorme.</p>
 <p>Et surtout :
 de plus en plus difficile à comprendre.</p>
 <hr>
-<h1 id="12-le-vrai-problème-nétait-plus-le-code"><a class="header" href="#12-le-vrai-problème-nétait-plus-le-code">12. Le vrai problème n’était plus le code</a></h1>
+<h2 id="12-le-vrai-problème-nétait-plus-le-code"><a class="header" href="#12-le-vrai-problème-nétait-plus-le-code">12. Le vrai problème n’était plus le code</a></h2>
 <p>Le vrai problème devenait :</p>
 <blockquote>
 <p>la responsabilité.</p>
@@ -431,7 +431,7 @@ de plus en plus difficile à comprendre.</p>
 </ul>
 <p>Et là, un changement important a commencé.</p>
 <hr>
-<h1 id="13-le-grand-refactor"><a class="header" href="#13-le-grand-refactor">13. Le grand refactor</a></h1>
+<h2 id="13-le-grand-refactor"><a class="header" href="#13-le-grand-refactor">13. Le grand refactor</a></h2>
 <p>Progressivement, plusieurs composants spécialisés sont apparus.</p>
 <p>Par exemple :</p>
 <pre><code class="language-ruby">Clusters::InputExtractor
@@ -449,7 +449,7 @@ Clusters::DirtyClusterRefresher
 <pre><code class="language-text">un orchestrateur.
 </code></pre>
 <hr>
-<h1 id="14-le-système-commence-à-respirer"><a class="header" href="#14-le-système-commence-à-respirer">14. Le système commence à respirer</a></h1>
+<h2 id="14-le-système-commence-à-respirer"><a class="header" href="#14-le-système-commence-à-respirer">14. Le système commence à respirer</a></h2>
 <p>Le nouveau pipeline ressemblait davantage à ceci :</p>
 <pre><code class="language-text">RPC
  ↓
@@ -466,7 +466,7 @@ DirtyClusterRefresher
 <p>Et soudain :
 le système devenait beaucoup plus lisible.</p>
 <hr>
-<h1 id="15-les-structures-implicites-deviennent-dangereuses"><a class="header" href="#15-les-structures-implicites-deviennent-dangereuses">15. Les structures implicites deviennent dangereuses</a></h1>
+<h2 id="15-les-structures-implicites-deviennent-dangereuses"><a class="header" href="#15-les-structures-implicites-deviennent-dangereuses">15. Les structures implicites deviennent dangereuses</a></h2>
 <p>Un autre problème est apparu pendant le refactor.</p>
 <p>Au départ :
 les données voyageaient sous forme de Hash implicites.</p>
@@ -479,7 +479,7 @@ les données voyageaient sous forme de Hash implicites.</p>
 <p>Mais progressivement :
 les erreurs devenaient difficiles à suivre.</p>
 <hr>
-<h1 id="16-le-passage-aux-objets-métier-implicites"><a class="header" href="#16-le-passage-aux-objets-métier-implicites">16. Le passage aux objets métier implicites</a></h1>
+<h2 id="16-le-passage-aux-objets-métier-implicites"><a class="header" href="#16-le-passage-aux-objets-métier-implicites">16. Le passage aux objets métier implicites</a></h2>
 <p>Le système a alors commencé à utiliser des structures plus explicites :</p>
 <pre><code class="language-ruby">{
   address: "...",
@@ -496,7 +496,7 @@ il transforme complètement la lisibilité du pipeline.</p>
 <p>du sens métier.</p>
 </blockquote>
 <hr>
-<h1 id="17-les-statistiques-deviennent-vitales"><a class="header" href="#17-les-statistiques-deviennent-vitales">17. Les statistiques deviennent vitales</a></h1>
+<h2 id="17-les-statistiques-deviennent-vitales"><a class="header" href="#17-les-statistiques-deviennent-vitales">17. Les statistiques deviennent vitales</a></h2>
 <p>Puis un autre problème est apparu.</p>
 <p>Le scanner tournait parfois pendant :</p>
 <ul>
@@ -524,7 +524,7 @@ il transforme complètement la lisibilité du pipeline.</p>
 <p>Et là :
 le pipeline devenait observable.</p>
 <hr>
-<h1 id="18-runtime--progression"><a class="header" href="#18-runtime--progression">18. Runtime ≠ progression</a></h1>
+<h2 id="18-runtime--progression"><a class="header" href="#18-runtime--progression">18. Runtime ≠ progression</a></h2>
 <p>C’est une distinction extrêmement importante.</p>
 <p>Avant :</p>
 <pre><code class="language-text">job running = job vivant
@@ -544,7 +544,7 @@ le pipeline devenait observable.</p>
 <li>les étapes internes.</li>
 </ul>
 <hr>
-<h1 id="19-les-tensions-futures-deviennent-visibles"><a class="header" href="#19-les-tensions-futures-deviennent-visibles">19. Les tensions futures deviennent visibles</a></h1>
+<h2 id="19-les-tensions-futures-deviennent-visibles"><a class="header" href="#19-les-tensions-futures-deviennent-visibles">19. Les tensions futures deviennent visibles</a></h2>
 <p>À ce stade, plusieurs futurs problèmes étaient déjà perceptibles :</p>
 <ul>
 <li>parallélisation,</li>
@@ -561,7 +561,7 @@ le pipeline devenait observable.</p>
 </blockquote>
 <p>Et cela change énormément la manière de développer.</p>
 <hr>
-<h1 id="20-cluster-devient-une-fondation-du-système"><a class="header" href="#20-cluster-devient-une-fondation-du-système">20. Cluster devient une fondation du système</a></h1>
+<h2 id="20-cluster-devient-une-fondation-du-système"><a class="header" href="#20-cluster-devient-une-fondation-du-système">20. Cluster devient une fondation du système</a></h2>
 <p>Progressivement, d’autres modules ont commencé à dépendre de Cluster :</p>
 <pre><code class="language-text">Whales
    ↓
@@ -578,7 +578,7 @@ Behavior analysis
 <p>une couche d’intelligence transverse.</p>
 </blockquote>
 <hr>
-<h1 id="21-le-système-commence-à-interpréter-les-comportements"><a class="header" href="#21-le-système-commence-à-interpréter-les-comportements">21. Le système commence à interpréter les comportements</a></h1>
+<h2 id="21-le-système-commence-à-interpréter-les-comportements"><a class="header" href="#21-le-système-commence-à-interpréter-les-comportements">21. Le système commence à interpréter les comportements</a></h2>
 <p>Avant :
 Bitcoin Monitor observait :</p>
 <ul>
@@ -599,7 +599,7 @@ le système commençait à observer :</p>
 <pre><code class="language-text">interpréter des comportements probabilistes.
 </code></pre>
 <hr>
-<h1 id="22-le-vrai-changement"><a class="header" href="#22-le-vrai-changement">22. Le vrai changement</a></h1>
+<h2 id="22-le-vrai-changement"><a class="header" href="#22-le-vrai-changement">22. Le vrai changement</a></h2>
 <p>Le vrai changement introduit par Cluster n’était pas uniquement technique.</p>
 <p>Le vrai changement était conceptuel.</p>
 <p>Avant :</p>
@@ -616,15 +616,15 @@ le système commençait à observer :</p>
 <li>les interprétations marché.</li>
 </ul>
 <hr>
-<h1 id="23-les-leçons-apprises"><a class="header" href="#23-les-leçons-apprises">23. Les leçons apprises</a></h1>
-<h2 id="les-scanners-deviennent-rapidement-des-systèmes-complexes"><a class="header" href="#les-scanners-deviennent-rapidement-des-systèmes-complexes">Les scanners deviennent rapidement des systèmes complexes</a></h2>
+<h2 id="23-les-leçons-apprises"><a class="header" href="#23-les-leçons-apprises">23. Les leçons apprises</a></h2>
+<h3 id="les-scanners-deviennent-rapidement-des-systèmes-complexes"><a class="header" href="#les-scanners-deviennent-rapidement-des-systèmes-complexes">Les scanners deviennent rapidement des systèmes complexes</a></h3>
 <p>Même lorsqu’ils semblent simples au départ.</p>
 <hr>
-<h2 id="les-responsabilités-doivent-être-découpées-tôt"><a class="header" href="#les-responsabilités-doivent-être-découpées-tôt">Les responsabilités doivent être découpées tôt</a></h2>
+<h3 id="les-responsabilités-doivent-être-découpées-tôt"><a class="header" href="#les-responsabilités-doivent-être-découpées-tôt">Les responsabilités doivent être découpées tôt</a></h3>
 <p>Sinon :
 les services deviennent incontrôlables.</p>
 <hr>
-<h2 id="les-structures-implicites-deviennent-dangereuses-avec-le-temps"><a class="header" href="#les-structures-implicites-deviennent-dangereuses-avec-le-temps">Les structures implicites deviennent dangereuses avec le temps</a></h2>
+<h3 id="les-structures-implicites-deviennent-dangereuses-avec-le-temps"><a class="header" href="#les-structures-implicites-deviennent-dangereuses-avec-le-temps">Les structures implicites deviennent dangereuses avec le temps</a></h3>
 <p>Les pipelines massifs ont besoin :</p>
 <ul>
 <li>de structures claires,</li>
@@ -632,7 +632,7 @@ les services deviennent incontrôlables.</p>
 <li>de sens métier.</li>
 </ul>
 <hr>
-<h2 id="lobservabilité-devient-obligatoire"><a class="header" href="#lobservabilité-devient-obligatoire">L’observabilité devient obligatoire</a></h2>
+<h3 id="lobservabilité-devient-obligatoire"><a class="header" href="#lobservabilité-devient-obligatoire">L’observabilité devient obligatoire</a></h3>
 <p>Les jobs longs nécessitent :</p>
 <ul>
 <li>progression,</li>
@@ -641,7 +641,7 @@ les services deviennent incontrôlables.</p>
 <li>visibilité réelle.</li>
 </ul>
 <hr>
-<h2 id="les-clusters-sont-probabilistes"><a class="header" href="#les-clusters-sont-probabilistes">Les clusters sont probabilistes</a></h2>
+<h3 id="les-clusters-sont-probabilistes"><a class="header" href="#les-clusters-sont-probabilistes">Les clusters sont probabilistes</a></h3>
 <p>Bitcoin ne fournit jamais :</p>
 <pre><code class="language-text">owner_id
 </code></pre>
@@ -652,7 +652,7 @@ les services deviennent incontrôlables.</p>
 <li>des probabilités.</li>
 </ul>
 <hr>
-<h1 id="24-conclusion"><a class="header" href="#24-conclusion">24. Conclusion</a></h1>
+<h2 id="24-conclusion"><a class="header" href="#24-conclusion">24. Conclusion</a></h2>
 <p>Le module Cluster a profondément changé Bitcoin Monitor.</p>
 <p>Avant lui :</p>
 <ul>
