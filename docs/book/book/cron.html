@@ -3,8 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Page not found - Construire une application Rails professionnelle</title>
-        <base href="/">
+        <title>Cron - Construire une application Rails professionnelle</title>
 
 
         <!-- Custom HTML head -->
@@ -175,13 +174,444 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="document-not-found-404"><a class="header" href="#document-not-found-404">Document not found (404)</a></h1>
-<p>This URL is invalid, sorry. Please use the navigation bar or search to continue.</p>
+                        <h1 id="cron-vers-sidekiq--le-moment-où-bitcoin-monitor-a-cessé-dêtre-une-simple-application-rails"><a class="header" href="#cron-vers-sidekiq--le-moment-où-bitcoin-monitor-a-cessé-dêtre-une-simple-application-rails">Cron vers Sidekiq : le moment où Bitcoin Monitor a cessé d’être une simple application Rails</a></h1>
+<blockquote>
+<p><em>Au début, les jobs de Bitcoin Monitor étaient simples.</em></p>
+<p>Quelques scripts cron.</p>
+<p>Quelques tâches Rails.</p>
+<p>Quelques scanners lancés périodiquement.</p>
+<p>Et honnêtement :</p>
+<p>cela fonctionnait plutôt bien.</p>
+<p>Mais progressivement, quelque chose a changé.</p>
+<p>Les modules devenaient plus lourds.</p>
+<p>Les scans plus longs.</p>
+<p>Les datasets plus massifs.</p>
+<p>Les dépendances entre pipelines plus complexes.</p>
+<p>Et un jour, une question est apparue :</p>
+<blockquote>
+<p>“Est-ce que cron est encore suffisant pour faire tourner Bitcoin Monitor ?”</p>
+</blockquote>
+</blockquote>
+<hr>
+<h2 id="1-les-débuts--cron-partout"><a class="header" href="#1-les-débuts--cron-partout">1. Les débuts : cron partout</a></h2>
+<p>Comme beaucoup d’applications Rails orientées backend, Bitcoin Monitor utilisait au départ :</p>
+<pre><code class="language-text">cron
++
+rake tasks
++
+scripts shell
+</code></pre>
+<p>Le modèle était simple :</p>
+<pre><code class="language-text">*/10 * * * * scan_exchange.sh
+0 * * * * whales_scan.sh
+15 * * * * market_snapshot.sh
+</code></pre>
+<p>Chaque tâche :</p>
+<ul>
+<li>démarrait,</li>
+<li>exécutait un scan,</li>
+<li>écrivait dans PostgreSQL,</li>
+<li>puis quittait.</li>
+</ul>
+<p>Simple.</p>
+<p>Prévisible.</p>
+<p>Facile à comprendre.</p>
+<hr>
+<h2 id="2-pourquoi-cron-fonctionnait-au-début"><a class="header" href="#2-pourquoi-cron-fonctionnait-au-début">2. Pourquoi cron fonctionnait au début</a></h2>
+<p>Au départ :
+les volumes étaient modestes.</p>
+<p>Les jobs :</p>
+<ul>
+<li>terminaient rapidement,</li>
+<li>ne dépendaient pas fortement les uns des autres,</li>
+<li>ne nécessitaient pas de coordination avancée.</li>
+</ul>
+<p>Et surtout :</p>
+<blockquote>
+<p>le système n’était pas encore “vivant”.</p>
+</blockquote>
+<hr>
+<h2 id="3-le-changement-progressif"><a class="header" href="#3-le-changement-progressif">3. Le changement progressif</a></h2>
+<p>Puis les modules ont commencé à grossir.</p>
+<p>D’abord :</p>
+<ul>
+<li>Whale Scan,</li>
+<li>puis Exchange Like,</li>
+<li>puis Cluster.</li>
+</ul>
+<p>Et progressivement :
+les scanners sont devenus :</p>
+<ul>
+<li>plus longs,</li>
+<li>plus lourds,</li>
+<li>plus dépendants les uns des autres.</li>
+</ul>
+<hr>
+<h2 id="4-le-premier-symptôme"><a class="header" href="#4-le-premier-symptôme">4. Le premier symptôme</a></h2>
+<p>Un jour, quelque chose d’important est apparu dans <code>/system</code> :</p>
+<pre><code class="language-text">late
+stuck
+delay
+runtime élevé
+</code></pre>
+<p>Au début :
+cela semblait ponctuel.</p>
+<p>Mais progressivement :
+les retards s’accumulaient.</p>
+<hr>
+<h2 id="5-le-vrai-problème-nétait-pas-le-code"><a class="header" href="#5-le-vrai-problème-nétait-pas-le-code">5. Le vrai problème n’était pas le code</a></h2>
+<p>Le vrai problème était :</p>
+<blockquote>
+<p>l’orchestration.</p>
+</blockquote>
+<p>Cron ne sait pas :</p>
+<ul>
+<li>gérer les dépendances métier,</li>
+<li>coordonner des pipelines,</li>
+<li>suivre précisément les jobs,</li>
+<li>relancer intelligemment,</li>
+<li>distribuer les tâches,</li>
+<li>gérer des queues.</li>
+</ul>
+<hr>
+<h2 id="6-les-scanners-deviennent-des-pipelines"><a class="header" href="#6-les-scanners-deviennent-des-pipelines">6. Les scanners deviennent des pipelines</a></h2>
+<p>C’est une transition fondamentale.</p>
+<p>Avant :</p>
+<pre><code class="language-text">job = script
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">job = pipeline vivant
+</code></pre>
+<p>Et cela change tout.</p>
+<hr>
+<h2 id="7-cluster-a-révélé-les-limites"><a class="header" href="#7-cluster-a-révélé-les-limites">7. Cluster a révélé les limites</a></h2>
+<p>Le module Cluster a été l’un des premiers vrais signaux d’alerte.</p>
+<p>Pourquoi ?</p>
+<p>Parce qu’il combinait :</p>
+<ul>
+<li>scans massifs,</li>
+<li>merges,</li>
+<li>recalculs,</li>
+<li>métriques,</li>
+<li>signaux,</li>
+<li>refreshs.</li>
+</ul>
+<p>Le runtime explosait.</p>
+<p>Et surtout :
+les jobs devenaient difficiles à superviser.</p>
+<hr>
+<h2 id="8-le-problème-des-jobs-longs"><a class="header" href="#8-le-problème-des-jobs-longs">8. Le problème des jobs longs</a></h2>
+<p>Avec cron :
+un job long pose plusieurs problèmes.</p>
+<h3 id="exemple"><a class="header" href="#exemple">Exemple</a></h3>
+<pre><code class="language-text">*/10 * * * * cluster_scan
+</code></pre>
+<p>Mais si :</p>
+<pre><code class="language-text">cluster_scan
+</code></pre>
+<p>dure :</p>
+<pre><code class="language-text">18 minutes
+</code></pre>
+<p>alors :</p>
+<ul>
+<li>les exécutions se chevauchent,</li>
+<li>les locks deviennent critiques,</li>
+<li>les retards s’accumulent,</li>
+<li>le système dérive progressivement.</li>
+</ul>
+<hr>
+<h2 id="9-les-locks-shell-deviennent-partout"><a class="header" href="#9-les-locks-shell-deviennent-partout">9. Les locks shell deviennent partout</a></h2>
+<p>Pour éviter les doubles exécutions :</p>
+<p>des mécanismes comme :</p>
+<pre><code class="language-bash">flock
+</code></pre>
+<p>ont commencé à apparaître.</p>
+<p>Par exemple :</p>
+<pre><code class="language-bash">flock -n /tmp/cluster_scan.lock ...
+</code></pre>
+<p>Cela fonctionnait.</p>
+<p>Mais quelque chose devenait évident :</p>
+<blockquote>
+<p>le système essayait déjà de se comporter comme un orchestrateur de jobs.</p>
+</blockquote>
+<hr>
+<h2 id="10-le-dashboard-system-devient-central"><a class="header" href="#10-le-dashboard-system-devient-central">10. Le dashboard <code>/system</code> devient central</a></h2>
+<p>À ce moment-là :
+Bitcoin Monitor commence à développer une vraie supervision.</p>
+<p>Le dashboard système affiche :</p>
+<ul>
+<li>runtimes,</li>
+<li>delays,</li>
+<li>jobs critiques,</li>
+<li>jobs en retard,</li>
+<li>freshness,</li>
+<li>recovery readiness.</li>
+</ul>
+<p>Le système commence à vouloir répondre à une question :</p>
+<blockquote>
+<p>“Le pipeline est-il réellement sain ?”</p>
+</blockquote>
+<hr>
+<h2 id="11-runtime--progression"><a class="header" href="#11-runtime--progression">11. Runtime ≠ progression</a></h2>
+<p>Un autre problème majeur apparaît.</p>
+<p>Cron sait uniquement :</p>
+<pre><code class="language-text">le job tourne
+</code></pre>
+<p>Mais il ne sait pas :</p>
+<ul>
+<li>où le job en est,</li>
+<li>s’il progresse,</li>
+<li>ou s’il est bloqué.</li>
+</ul>
+<p>Et cette nuance devient extrêmement importante.</p>
+<hr>
+<h2 id="12-les-jobs-deviennent-observables"><a class="header" href="#12-les-jobs-deviennent-observables">12. Les jobs deviennent observables</a></h2>
+<p>Des métriques apparaissent progressivement :</p>
+<pre><code class="language-text">Cursor
+Lag
+Heartbeat
+Delay
+Progression
+Capacity
+</code></pre>
+<p>Le système cesse progressivement d’être :</p>
+<pre><code class="language-text">des scripts shell.
+</code></pre>
+<p>Il devient :</p>
+<pre><code class="language-text">une plateforme observable.
+</code></pre>
+<hr>
+<h2 id="13-les-dépendances-entre-modules-explosent"><a class="header" href="#13-les-dépendances-entre-modules-explosent">13. Les dépendances entre modules explosent</a></h2>
+<p>Un autre problème apparaît rapidement.</p>
+<p>Les modules commencent à dépendre les uns des autres :</p>
+<pre><code class="language-text">Whale Scan
+   ↓
+Exchange Like
+   ↓
+Observed UTXO
+   ↓
+Inflow / Outflow
+   ↓
+Signals
+</code></pre>
+<p>Avec cron :
+la coordination devient fragile.</p>
+<hr>
+<h2 id="14-les-backfills-deviennent-dangereux"><a class="header" href="#14-les-backfills-deviennent-dangereux">14. Les backfills deviennent dangereux</a></h2>
+<p>Les backfills massifs révèlent un autre problème.</p>
+<p>Lorsqu’un scanner doit retraiter :</p>
+<ul>
+<li>des milliers de blocs,</li>
+<li>des millions d’UTXO,</li>
+<li>des datasets énormes,</li>
+</ul>
+<p>cron devient difficile à piloter.</p>
+<p>Pourquoi ?</p>
+<p>Parce qu’il ne possède pas :</p>
+<ul>
+<li>de queue,</li>
+<li>de priorités,</li>
+<li>de retry intelligent,</li>
+<li>de contrôle distribué.</li>
+</ul>
+<hr>
+<h2 id="15-redis-apparaît-naturellement"><a class="header" href="#15-redis-apparaît-naturellement">15. Redis apparaît naturellement</a></h2>
+<p>Progressivement :
+un autre composant commence à devenir logique :</p>
+<p>Redis</p>
+<p>Pourquoi ?</p>
+<p>Parce que Bitcoin Monitor commence à avoir besoin :</p>
+<ul>
+<li>de queues,</li>
+<li>de cache RAM,</li>
+<li>de coordination,</li>
+<li>de pipelines plus réactifs.</li>
+</ul>
+<hr>
+<h2 id="16-le-déclic-sidekiq"><a class="header" href="#16-le-déclic-sidekiq">16. Le déclic Sidekiq</a></h2>
+<p>Puis un moment important arrive.</p>
+<p>L’équipe réalise que :</p>
+<blockquote>
+<p>les jobs ne sont plus “secondaires”.</p>
+</blockquote>
+<p>Ils sont devenus :</p>
+<ul>
+<li>le cœur du système,</li>
+<li>le moteur des pipelines,</li>
+<li>la colonne vertébrale de l’application.</li>
+</ul>
+<p>Et à ce moment-là :
+Sidekiq devient une évidence.</p>
+<hr>
+<h2 id="17-pourquoi-sidekiq-change-tout"><a class="header" href="#17-pourquoi-sidekiq-change-tout">17. Pourquoi Sidekiq change tout</a></h2>
+<p>Avec Sidekiq :
+les jobs deviennent :</p>
+<ul>
+<li>distribués,</li>
+<li>supervisables,</li>
+<li>retryables,</li>
+<li>parallélisables,</li>
+<li>priorisables.</li>
+</ul>
+<p>Le modèle mental change complètement.</p>
+<p>Avant :</p>
+<pre><code class="language-text">cron lance des scripts
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">le système orchestre des pipelines
+</code></pre>
+<hr>
+<h2 id="18-la-transition-mentale-la-plus-importante"><a class="header" href="#18-la-transition-mentale-la-plus-importante">18. La transition mentale la plus importante</a></h2>
+<p>Le vrai changement n’était pas technique.</p>
+<p>Le vrai changement était conceptuel.</p>
+<p>Avant :</p>
+<pre><code class="language-text">Rails application
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">data platform
+</code></pre>
+<p>Et cette différence change :</p>
+<ul>
+<li>l’architecture,</li>
+<li>le monitoring,</li>
+<li>les performances,</li>
+<li>les choix techniques.</li>
+</ul>
+<hr>
+<h2 id="19-les-futurs-pipelines-deviennent-possibles"><a class="header" href="#19-les-futurs-pipelines-deviennent-possibles">19. Les futurs pipelines deviennent possibles</a></h2>
+<p>Grâce à Sidekiq :
+plusieurs évolutions deviennent réalistes :</p>
+<pre><code class="language-text">bitcoind ZMQ
+     ↓
+new block
+     ↓
+enqueue incremental jobs
+     ↓
+cluster updates
+     ↓
+signals
+     ↓
+live dashboard
+</code></pre>
+<p>Le temps réel commence à devenir envisageable.</p>
+<hr>
+<h2 id="20-les-jobs-cessent-dêtre-synchrones"><a class="header" href="#20-les-jobs-cessent-dêtre-synchrones">20. Les jobs cessent d’être synchrones</a></h2>
+<p>Une autre transformation importante apparaît.</p>
+<p>Avant :
+tout était relativement :</p>
+<pre><code class="language-text">séquentiel.
+</code></pre>
+<p>Après :
+le système commence à penser :</p>
+<pre><code class="language-text">queues
+workers
+pipelines
+events
+</code></pre>
+<p>C’est une énorme évolution d’architecture.</p>
+<hr>
+<h2 id="21-redis-ne-sert-plus-seulement-au-cache"><a class="header" href="#21-redis-ne-sert-plus-seulement-au-cache">21. Redis ne sert plus seulement au cache</a></h2>
+<p>Au départ :
+Redis semblait surtout utile pour :</p>
+<ul>
+<li>accélérer des lectures,</li>
+<li>stocker des datasets chauds.</li>
+</ul>
+<p>Mais progressivement :
+il devient aussi :</p>
+<ul>
+<li>coordinateur,</li>
+<li>broker,</li>
+<li>moteur de queues,</li>
+<li>infrastructure pipeline.</li>
+</ul>
+<hr>
+<h2 id="22-les-scanners-deviennent-distribuables"><a class="header" href="#22-les-scanners-deviennent-distribuables">22. Les scanners deviennent distribuables</a></h2>
+<p>Avec Sidekiq :
+un futur devient possible :</p>
+<pre><code class="language-text">ClusterScanWorker
+ClusterMetricsWorker
+ClusterSignalsWorker
+</code></pre>
+<p>potentiellement répartis :</p>
+<ul>
+<li>sur plusieurs processus,</li>
+<li>plusieurs machines,</li>
+<li>plusieurs queues spécialisées.</li>
+</ul>
+<p>Le système devient scalable.</p>
+<hr>
+<h2 id="23-le-vrai-objectif"><a class="header" href="#23-le-vrai-objectif">23. Le vrai objectif</a></h2>
+<p>L’objectif n’était pas :</p>
+<pre><code class="language-text">“utiliser Sidekiq parce que c’est moderne”
+</code></pre>
+<p>L’objectif était :</p>
+<blockquote>
+<p>permettre à Bitcoin Monitor de survivre à sa propre croissance.</p>
+</blockquote>
+<hr>
+<h2 id="24-les-leçons-apprises"><a class="header" href="#24-les-leçons-apprises">24. Les leçons apprises</a></h2>
+<h3 id="cron-est-excellent-au-début"><a class="header" href="#cron-est-excellent-au-début">Cron est excellent au début</a></h3>
+<p>Simple.
+Fiable.
+Parfait pour les petits pipelines.</p>
+<hr>
+<h3 id="les-pipelines-blockchain-grossissent-très-vite"><a class="header" href="#les-pipelines-blockchain-grossissent-très-vite">Les pipelines blockchain grossissent très vite</a></h3>
+<p>Beaucoup plus vite qu’on l’imagine.</p>
+<hr>
+<h3 id="les-jobs-longs-changent-complètement-larchitecture"><a class="header" href="#les-jobs-longs-changent-complètement-larchitecture">Les jobs longs changent complètement l’architecture</a></h3>
+<p>Ils nécessitent :</p>
+<ul>
+<li>supervision,</li>
+<li>progression,</li>
+<li>queues,</li>
+<li>orchestration.</li>
+</ul>
+<hr>
+<h3 id="runtime--santé-du-système"><a class="header" href="#runtime--santé-du-système">Runtime ≠ santé du système</a></h3>
+<p>Un job qui tourne n’est pas forcément :</p>
+<pre><code class="language-text">un job utile.
+</code></pre>
+<hr>
+<h3 id="redis-devient-naturel-dans-les-pipelines-data"><a class="header" href="#redis-devient-naturel-dans-les-pipelines-data">Redis devient naturel dans les pipelines data</a></h3>
+<p>Pas uniquement pour le cache.</p>
+<hr>
+<h3 id="sidekiq-représente-souvent-un-changement-de-maturité"><a class="header" href="#sidekiq-représente-souvent-un-changement-de-maturité">Sidekiq représente souvent un changement de maturité</a></h3>
+<p>Passer à Sidekiq signifie souvent :</p>
+<blockquote>
+<p>que l’application devient un vrai système backend.</p>
+</blockquote>
+<hr>
+<h2 id="25-conclusion"><a class="header" href="#25-conclusion">25. Conclusion</a></h2>
+<p>Le passage de cron vers Sidekiq a profondément changé Bitcoin Monitor.</p>
+<p>Avant :</p>
+<ul>
+<li>l’application exécutait des scripts.</li>
+</ul>
+<p>Après :</p>
+<ul>
+<li>elle orchestrait des pipelines blockchain complexes.</li>
+</ul>
+<p>Et cette évolution a transformé :</p>
+<ul>
+<li>les scanners,</li>
+<li>la supervision,</li>
+<li>la résilience,</li>
+<li>les performances,</li>
+<li>et la manière même de penser le projet.</li>
+</ul>
+<p>Parce qu’au final :</p>
+<blockquote>
+<p>une application blockchain sérieuse finit presque toujours par devenir un système distribué miniature.</p>
+</blockquote>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
+                            <a rel="prev" href="whale.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                            </a>
 
 
                         <div style="clear: both"></div>
@@ -190,6 +620,9 @@
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
+                    <a rel="prev" href="whale.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
+                    </a>
 
             </nav>
 
