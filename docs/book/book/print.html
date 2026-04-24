@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-605d6412.js";
+            window.path_to_searchindex_js = "searchindex-0567627f.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-692c3d96.js"></script>
+        <script src="toc-92ea2539.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -2093,6 +2093,454 @@ les services deviennent incontrôlables.</p>
 <p>Parce qu’au final :</p>
 <blockquote>
 <p>construire des clusters revient à essayer de lire la blockchain comme un organisme vivant.</p>
+</blockquote>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="whale-scan--le-moment-où-bitcoin-monitor-a-commencé-à-surveiller-les-gros-mouvements-du-réseau"><a class="header" href="#whale-scan--le-moment-où-bitcoin-monitor-a-commencé-à-surveiller-les-gros-mouvements-du-réseau">Whale Scan : le moment où Bitcoin Monitor a commencé à surveiller les gros mouvements du réseau</a></h1>
+<blockquote>
+<p><em>Au départ, Bitcoin Monitor observait surtout le marché.</em></p>
+<p>Les prix.</p>
+<p>Les variations.</p>
+<p>Les indicateurs classiques.</p>
+<p>Puis une question est apparue :</p>
+<blockquote>
+<p>que se passe-t-il réellement sur la blockchain lorsqu’une énorme quantité de Bitcoin bouge ?</p>
+</blockquote>
+<p>Ce chapitre raconte comment un simple besoin de détection de “grosses transactions” a progressivement conduit à :</p>
+<ul>
+<li>des heuristiques comportementales,</li>
+<li>des classifications probabilistes,</li>
+<li>des scanners blockchain massifs,</li>
+<li>des problèmes de performance,</li>
+<li>des datasets historiques,</li>
+<li>et une nouvelle manière d’interpréter le marché.</li>
+</ul>
+</blockquote>
+<hr>
+<h2 id="1-le-problème-initial"><a class="header" href="#1-le-problème-initial">1. Le problème initial</a></h2>
+<p>Au début, Bitcoin Monitor savait déjà :</p>
+<ul>
+<li>lire des blocs,</li>
+<li>récupérer des transactions,</li>
+<li>afficher des données marché.</li>
+</ul>
+<p>Mais quelque chose manquait.</p>
+<p>Le système observait :</p>
+<pre><code class="language-text id=&quot;x8srlq&quot;">le prix
+</code></pre>
+<p>sans réellement observer :</p>
+<pre><code class="language-text id=&quot;8h1s9o&quot;">les acteurs qui déplacent le capital.
+</code></pre>
+<p>Et dans Bitcoin :
+les très gros mouvements sont rarement anodins.</p>
+<hr>
+<h2 id="2-le-mot-whale"><a class="header" href="#2-le-mot-whale">2. Le mot “whale”</a></h2>
+<p>Dans l’écosystème crypto, un terme revient constamment :</p>
+<pre><code class="language-text id=&quot;cru79m&quot;">whale
+</code></pre>
+<p>Une whale représente généralement :</p>
+<ul>
+<li>une entité,</li>
+<li>un fonds,</li>
+<li>un exchange,</li>
+<li>une institution,</li>
+<li>ou un très gros détenteur.</li>
+</ul>
+<p>L’idée semblait simple :</p>
+<blockquote>
+<p>détecter les transactions énormes.</p>
+</blockquote>
+<p>Mais très vite, la réalité est devenue beaucoup plus complexe.</p>
+<hr>
+<h2 id="3-le-premier-scanner"><a class="header" href="#3-le-premier-scanner">3. Le premier scanner</a></h2>
+<p>La première version du système faisait quelque chose de relativement basique.</p>
+<p>Le scanner :</p>
+<ul>
+<li>lisait les blocs récents,</li>
+<li>parcourait les transactions,</li>
+<li>calculait les montants déplacés,</li>
+<li>puis déclenchait des alertes.</li>
+</ul>
+<p>Le pipeline ressemblait à ceci :</p>
+<pre><code class="language-text id=&quot;efhl8r&quot;">Bitcoin Core RPC
+      ↓
+scan blocks
+      ↓
+parse transactions
+      ↓
+calculate outputs
+      ↓
+threshold detection
+      ↓
+alert
+</code></pre>
+<p>Le seuil initial ressemblait à :</p>
+<pre><code class="language-ruby id=&quot;prhny5&quot;">MIN_BTC = 100
+</code></pre>
+<p>Si une transaction dépassait :</p>
+<pre><code class="language-text id=&quot;wyov6z&quot;">100 BTC
+</code></pre>
+<p>elle devenait intéressante.</p>
+<hr>
+<h2 id="4-le-premier-faux-sentiment-de-simplicité"><a class="header" href="#4-le-premier-faux-sentiment-de-simplicité">4. Le premier faux sentiment de simplicité</a></h2>
+<p>Au départ :
+cela semblait suffisant.</p>
+<p>Mais rapidement :
+un problème important est apparu.</p>
+<p>Une transaction énorme ne signifie pas forcément :</p>
+<ul>
+<li>achat,</li>
+<li>vente,</li>
+<li>panique,</li>
+<li>accumulation,</li>
+<li>ou mouvement institutionnel.</li>
+</ul>
+<p>Parfois :
+c’est juste un reshuffle interne.</p>
+<hr>
+<h2 id="5-les-premières-classifications-apparaissent"><a class="header" href="#5-les-premières-classifications-apparaissent">5. Les premières classifications apparaissent</a></h2>
+<p>Le système a alors commencé à chercher :</p>
+<blockquote>
+<p>des comportements.</p>
+</blockquote>
+<p>Pas seulement :</p>
+<pre><code class="language-text id=&quot;h7mdgc&quot;">des montants.
+</code></pre>
+<p>Les premières heuristiques sont apparues.</p>
+<p>Par exemple :</p>
+<pre><code class="language-ruby id=&quot;7tb7an&quot;">outputs_nonzero_count &gt;= 80
+</code></pre>
+<p>→ probable batching.</p>
+<p>Ou :</p>
+<pre><code class="language-ruby id=&quot;9dskso&quot;">largest_output_ratio &gt;= 0.95
+</code></pre>
+<p>→ probable transfert unique.</p>
+<hr>
+<h2 id="6-whale-scan-cesse-dêtre-un-simple-détecteur"><a class="header" href="#6-whale-scan-cesse-dêtre-un-simple-détecteur">6. Whale Scan cesse d’être un simple détecteur</a></h2>
+<p>C’est un moment important.</p>
+<p>Le module ne cherchait plus seulement :</p>
+<pre><code class="language-text id=&quot;8av9sm&quot;">de grosses transactions.
+</code></pre>
+<p>Il cherchait désormais :</p>
+<pre><code class="language-text id=&quot;2d7gzc&quot;">des comportements blockchain.
+</code></pre>
+<p>Et cela change complètement la nature du système.</p>
+<hr>
+<h2 id="7-les-catégories-apparaissent"><a class="header" href="#7-les-catégories-apparaissent">7. Les catégories apparaissent</a></h2>
+<p>Progressivement, plusieurs types sont apparus :</p>
+<pre><code class="language-ruby id=&quot;4n2k9o&quot;">consolidation
+distribution
+batching
+single_destination
+other
+</code></pre>
+<p>Ces catégories semblent simples.</p>
+<p>Mais elles représentent en réalité :</p>
+<blockquote>
+<p>une tentative d’interprétation probabiliste de comportements réels.</p>
+</blockquote>
+<hr>
+<h2 id="8-le-problème-des-exchanges"><a class="header" href="#8-le-problème-des-exchanges">8. Le problème des exchanges</a></h2>
+<p>Très vite, une autre difficulté est apparue.</p>
+<p>Certaines transactions ressemblaient énormément à :</p>
+<ul>
+<li>des dépôts exchange,</li>
+<li>des retraits,</li>
+<li>des reshuffles internes,</li>
+<li>des cold wallets.</li>
+</ul>
+<p>Mais Bitcoin ne fournit jamais :</p>
+<pre><code class="language-text id=&quot;79a4ta&quot;">type = exchange
+</code></pre>
+<p>Tout devait être inféré.</p>
+<hr>
+<h2 id="9-les-scores-apparaissent"><a class="header" href="#9-les-scores-apparaissent">9. Les scores apparaissent</a></h2>
+<p>Le système a commencé à produire :</p>
+<ul>
+<li>des scores,</li>
+<li>des probabilités,</li>
+<li>des hints.</li>
+</ul>
+<p>Par exemple :</p>
+<pre><code class="language-ruby id=&quot;3g9e4y&quot;">exchange_likelihood
+exchange_hint
+score
+</code></pre>
+<p>Et là, un changement important est apparu :</p>
+<blockquote>
+<p>Bitcoin Monitor cessait progressivement d’être déterministe.</p>
+</blockquote>
+<hr>
+<h2 id="10-le-système-devient-probabiliste"><a class="header" href="#10-le-système-devient-probabiliste">10. Le système devient probabiliste</a></h2>
+<p>C’est une évolution très importante dans une application d’analyse.</p>
+<p>Avant :</p>
+<pre><code class="language-text id=&quot;gdn5ff&quot;">true / false
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text id=&quot;hxtm4v&quot;">probablement
+possiblement
+fortement suspect
+</code></pre>
+<p>Le système commençait à accepter :</p>
+<blockquote>
+<p>l’incertitude.</p>
+</blockquote>
+<hr>
+<h2 id="11-les-datasets-commencent-à-exploser"><a class="header" href="#11-les-datasets-commencent-à-exploser">11. Les datasets commencent à exploser</a></h2>
+<p>Au départ :
+quelques alertes suffisaient.</p>
+<p>Mais progressivement :</p>
+<ul>
+<li>les scans deviennent continus,</li>
+<li>les blocs s’accumulent,</li>
+<li>les transactions grossissent,</li>
+<li>les historiques deviennent énormes.</li>
+</ul>
+<p>Le système devait maintenant stocker :</p>
+<ul>
+<li>les scores,</li>
+<li>les catégories,</li>
+<li>les timestamps,</li>
+<li>les comportements,</li>
+<li>les métadonnées.</li>
+</ul>
+<hr>
+<h2 id="12-la-table-whalealert-devient-centrale"><a class="header" href="#12-la-table-whalealert-devient-centrale">12. La table WhaleAlert devient centrale</a></h2>
+<p>Une nouvelle structure devient progressivement critique :</p>
+<pre><code class="language-ruby id=&quot;t6kgnt&quot;">WhaleAlert
+</code></pre>
+<p>Avec des colonnes comme :</p>
+<ul>
+<li>txid,</li>
+<li>block_height,</li>
+<li>total_out_btc,</li>
+<li>outputs_nonzero_count,</li>
+<li>largest_output_ratio,</li>
+<li>exchange_likelihood,</li>
+<li>alert_type,</li>
+<li>meta.</li>
+</ul>
+<p>Le module cessait progressivement d’être :</p>
+<pre><code class="language-text id=&quot;a3nny7&quot;">un scanner temporaire.
+</code></pre>
+<p>Il devenait :</p>
+<pre><code class="language-text id=&quot;5fcf9g&quot;">une base comportementale historique.
+</code></pre>
+<hr>
+<h2 id="13-les-performances-deviennent-un-sujet"><a class="header" href="#13-les-performances-deviennent-un-sujet">13. Les performances deviennent un sujet</a></h2>
+<p>Puis un autre problème est apparu.</p>
+<p>Le scanner devait maintenant :</p>
+<ul>
+<li>lire énormément de blocs,</li>
+<li>parser énormément de transactions,</li>
+<li>calculer énormément d’heuristiques.</li>
+</ul>
+<p>Et surtout :</p>
+<pre><code class="language-text id=&quot;u9msaq&quot;">faire cela continuellement.
+</code></pre>
+<p>Les premiers symptômes sont apparus :</p>
+<ul>
+<li>scans longs,</li>
+<li>CPU élevé,</li>
+<li>jobs qui dérivent,</li>
+<li>requêtes SQL lourdes.</li>
+</ul>
+<hr>
+<h2 id="14-le-mode-pruned-change-les-règles"><a class="header" href="#14-le-mode-pruned-change-les-règles">14. Le mode pruned change les règles</a></h2>
+<p>Bitcoin Monitor utilisait un nœud Bitcoin Core en mode pruned.</p>
+<p>Et cela change énormément de choses.</p>
+<p>Pourquoi ?</p>
+<p>Parce que :</p>
+<ul>
+<li>certaines données anciennes disparaissent,</li>
+<li>certains prevouts ne sont plus accessibles,</li>
+<li>certaines stratégies deviennent impossibles.</li>
+</ul>
+<p>Le scanner devait donc devenir :</p>
+<blockquote>
+<p>pruned-safe.</p>
+</blockquote>
+<hr>
+<h2 id="15-les-blocs-deviennent-des-ressources-coûteuses"><a class="header" href="#15-les-blocs-deviennent-des-ressources-coûteuses">15. Les blocs deviennent des ressources coûteuses</a></h2>
+<p>Le système a commencé à comprendre quelque chose d’important :</p>
+<blockquote>
+<p>chaque appel RPC a un coût.</p>
+</blockquote>
+<p>Lire :</p>
+<ul>
+<li>des blocs,</li>
+<li>des transactions,</li>
+<li>des prevouts,</li>
+<li>des scripts,</li>
+<li>en boucle,
+peut rapidement devenir très cher.</li>
+</ul>
+<hr>
+<h2 id="16-le-scanner-devient-incrémental"><a class="header" href="#16-le-scanner-devient-incrémental">16. Le scanner devient incrémental</a></h2>
+<p>Au début :
+le système rescannait énormément.</p>
+<p>Mais cela devenait impossible.</p>
+<p>Bitcoin Monitor a alors introduit :</p>
+<ul>
+<li>des curseurs,</li>
+<li>des last scanned blocks,</li>
+<li>des scans incrémentaux,</li>
+<li>des safety cutoffs,</li>
+<li>des confirmations minimales.</li>
+</ul>
+<p>Le scanner devenait :</p>
+<pre><code class="language-text id=&quot;5gx9k2&quot;">un pipeline vivant.
+</code></pre>
+<hr>
+<h2 id="17-le-système-commence-à-apprendre-des-comportements"><a class="header" href="#17-le-système-commence-à-apprendre-des-comportements">17. Le système commence à apprendre des comportements</a></h2>
+<p>Puis un autre déclic est apparu.</p>
+<p>Whale Scan pouvait servir à :</p>
+<ul>
+<li>enrichir Exchange Like,</li>
+<li>alimenter Inflow / Outflow,</li>
+<li>détecter des signaux,</li>
+<li>apprendre des comportements exchange.</li>
+</ul>
+<p>Le module cessait d’être isolé.</p>
+<hr>
+<h2 id="18-whale-scan-devient-une-fondation"><a class="header" href="#18-whale-scan-devient-une-fondation">18. Whale Scan devient une fondation</a></h2>
+<p>Progressivement :</p>
+<pre><code class="language-text id=&quot;crltc6&quot;">Whale Scan
+     ↓
+Exchange Like
+     ↓
+Observed UTXO
+     ↓
+Inflow / Outflow
+     ↓
+Market interpretation
+</code></pre>
+<p>Le système devenait :</p>
+<blockquote>
+<p>interconnecté.</p>
+</blockquote>
+<hr>
+<h2 id="19-le-vrai-problème-nétait-plus-la-détection"><a class="header" href="#19-le-vrai-problème-nétait-plus-la-détection">19. Le vrai problème n’était plus la détection</a></h2>
+<p>Le vrai problème devenait :</p>
+<blockquote>
+<p>comment interpréter correctement les mouvements ?</p>
+</blockquote>
+<p>Parce qu’un énorme transfert peut représenter :</p>
+<ul>
+<li>une vente,</li>
+<li>une accumulation,</li>
+<li>une consolidation,</li>
+<li>un transfert interne,</li>
+<li>un mouvement OTC,</li>
+<li>un simple déplacement de cold wallet.</li>
+</ul>
+<p>Le contexte devenait plus important que :</p>
+<pre><code class="language-text id=&quot;c6of7m&quot;">la taille brute.
+</code></pre>
+<hr>
+<h2 id="20-les-scanners-deviennent-des-systèmes"><a class="header" href="#20-les-scanners-deviennent-des-systèmes">20. Les scanners deviennent des systèmes</a></h2>
+<p>À ce stade :
+Whale Scan n’était plus :</p>
+<pre><code class="language-text id=&quot;mjtyrm&quot;">un job cron.
+</code></pre>
+<p>Il devenait :</p>
+<ul>
+<li>un pipeline,</li>
+<li>un dataset,</li>
+<li>un moteur comportemental,</li>
+<li>une source transverse d’intelligence.</li>
+</ul>
+<p>Et cela change complètement la manière de concevoir l’architecture.</p>
+<hr>
+<h2 id="21-les-futurs-problèmes-deviennent-visibles"><a class="header" href="#21-les-futurs-problèmes-deviennent-visibles">21. Les futurs problèmes deviennent visibles</a></h2>
+<p>À ce moment-là :
+plusieurs tensions futures apparaissaient déjà :</p>
+<ul>
+<li>Redis,</li>
+<li>batch processing,</li>
+<li>parallélisation,</li>
+<li>queues,</li>
+<li>observabilité,</li>
+<li>backfills,</li>
+<li>stockage massif.</li>
+</ul>
+<p>Mais cette fois :</p>
+<blockquote>
+<p>les problèmes étaient compris.</p>
+</blockquote>
+<hr>
+<h2 id="22-le-système-commence-à-lire-le-marché-autrement"><a class="header" href="#22-le-système-commence-à-lire-le-marché-autrement">22. Le système commence à lire le marché autrement</a></h2>
+<p>Avant Whale Scan :
+Bitcoin Monitor observait surtout :</p>
+<ul>
+<li>le prix,</li>
+<li>les indicateurs,</li>
+<li>les chandeliers.</li>
+</ul>
+<p>Après Whale Scan :
+le système commençait à observer :</p>
+<ul>
+<li>les comportements,</li>
+<li>les acteurs,</li>
+<li>les flux massifs,</li>
+<li>les structures du marché.</li>
+</ul>
+<p>Et cette différence est énorme.</p>
+<hr>
+<h2 id="23-les-leçons-apprises-1"><a class="header" href="#23-les-leçons-apprises-1">23. Les leçons apprises</a></h2>
+<h3 id="les-gros-montants-seuls-ne-suffisent-pas"><a class="header" href="#les-gros-montants-seuls-ne-suffisent-pas">Les gros montants seuls ne suffisent pas</a></h3>
+<p>Le contexte comportemental est essentiel.</p>
+<hr>
+<h3 id="les-heuristiques-deviennent-inévitables"><a class="header" href="#les-heuristiques-deviennent-inévitables">Les heuristiques deviennent inévitables</a></h3>
+<p>Bitcoin ne fournit presque jamais :</p>
+<pre><code class="language-text id=&quot;c8wz9t&quot;">la vérité métier.
+</code></pre>
+<p>Tout doit être inféré.</p>
+<hr>
+<h3 id="les-systèmes-deviennent-rapidement-probabilistes"><a class="header" href="#les-systèmes-deviennent-rapidement-probabilistes">Les systèmes deviennent rapidement probabilistes</a></h3>
+<p>Les scores remplacent progressivement :</p>
+<pre><code class="language-text id=&quot;kr4cfr&quot;">les booléens simples.
+</code></pre>
+<hr>
+<h3 id="les-scanners-blockchain-deviennent-des-pipelines-vivants"><a class="header" href="#les-scanners-blockchain-deviennent-des-pipelines-vivants">Les scanners blockchain deviennent des pipelines vivants</a></h3>
+<p>Ils nécessitent :</p>
+<ul>
+<li>observabilité,</li>
+<li>progression,</li>
+<li>supervision,</li>
+<li>reprise,</li>
+<li>monitoring.</li>
+</ul>
+<hr>
+<h3 id="les-datasets-historiques-deviennent-précieux"><a class="header" href="#les-datasets-historiques-deviennent-précieux">Les datasets historiques deviennent précieux</a></h3>
+<p>Car ils permettent :</p>
+<ul>
+<li>l’apprentissage,</li>
+<li>les corrélations,</li>
+<li>les signaux,</li>
+<li>les comportements long terme.</li>
+</ul>
+<hr>
+<h2 id="24-conclusion-1"><a class="header" href="#24-conclusion-1">24. Conclusion</a></h2>
+<p>Le module Whale Scan a profondément changé Bitcoin Monitor.</p>
+<p>Avant lui :</p>
+<ul>
+<li>l’application observait principalement des données marché.</li>
+</ul>
+<p>Après lui :</p>
+<ul>
+<li>elle commençait à surveiller les comportements réels du capital sur la blockchain.</li>
+</ul>
+<p>Et ce changement a transformé :</p>
+<ul>
+<li>les pipelines,</li>
+<li>les datasets,</li>
+<li>les scanners,</li>
+<li>les heuristiques,</li>
+<li>et la manière même d’interpréter le marché.</li>
+</ul>
+<p>Parce qu’au final :</p>
+<blockquote>
+<p>observer les whales revient souvent à essayer de comprendre les mouvements invisibles du système financier Bitcoin.</p>
 </blockquote>
 
                     </main>
