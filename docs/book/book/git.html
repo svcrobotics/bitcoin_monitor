@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Introduction - Construire une application Rails professionnelle</title>
+        <title>Git - Construire une application Rails professionnelle</title>
 
 
         <!-- Custom HTML head -->
@@ -174,233 +174,333 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="introduction"><a class="header" href="#introduction">Introduction</a></h1>
-<h2 id="pourquoi-raconter-la-construction-de-bitcoin-monitor-"><a class="header" href="#pourquoi-raconter-la-construction-de-bitcoin-monitor-">Pourquoi raconter la construction de Bitcoin Monitor ?</a></h2>
-<p>Pendant longtemps, j’ai pensé que les applications professionnelles naissaient d’une architecture parfaitement pensée dès le départ.</p>
-<p>Je pensais qu’un développeur senior :</p>
-<ul>
-<li>savait immédiatement quoi construire,</li>
-<li>choisissait instantanément la bonne architecture,</li>
-<li>anticipait tous les problèmes,</li>
-<li>et écrivait naturellement du “bon code”.</li>
-</ul>
-<p>Puis Bitcoin Monitor est arrivé.</p>
-<p>Et progressivement, j’ai compris quelque chose d’important :</p>
+                        <h1 id="git--loutil-invisible-qui-protège-bitcoin-monitor"><a class="header" href="#git--loutil-invisible-qui-protège-bitcoin-monitor">Git : l’outil invisible qui protège Bitcoin Monitor</a></h1>
 <blockquote>
-<p>les vraies applications professionnelles ne naissent pas parfaites.</p>
+<p>Dans un projet complexe, le danger ne vient pas uniquement des bugs.</p>
+<p>Le vrai danger vient souvent :</p>
+<ul>
+<li>des changements non suivis,</li>
+<li>des expérimentations perdues,</li>
+<li>des refactors incontrôlés,</li>
+<li>des retours arrière impossibles.</li>
+</ul>
+<p>Et progressivement, une réalité devient évidente :</p>
+<blockquote>
+<p>sans discipline Git, un projet finit par devenir ingérable.</p>
 </blockquote>
-<p>Elles évoluent.</p>
-<hr>
-<h1 id="le-début-du-projet"><a class="header" href="#le-début-du-projet">Le début du projet</a></h1>
-<p>À l’origine, Bitcoin Monitor était un projet relativement simple.</p>
-<p>L’objectif principal était de construire :</p>
-<ul>
-<li>un dashboard Bitcoin,</li>
-<li>quelques indicateurs,</li>
-<li>des analyses de marché,</li>
-<li>et une lecture plus rationnelle des comportements blockchain.</li>
-</ul>
-<p>Le projet ne devait pas devenir :</p>
-<ul>
-<li>une plateforme complexe,</li>
-<li>un moteur d’intelligence blockchain,</li>
-<li>ni une architecture orientée pipelines massifs.</li>
-</ul>
-<p>Et pourtant…</p>
-<p>C’est exactement ce qu’il a commencé à devenir.</p>
-<hr>
-<h1 id="pourquoi-ce-livre-existe"><a class="header" href="#pourquoi-ce-livre-existe">Pourquoi ce livre existe</a></h1>
-<p>Ce livre n’est pas :</p>
-<ul>
-<li>un tutoriel Rails classique,</li>
-<li>une suite de CRUD,</li>
-<li>ni une collection de “best practices” théoriques.</li>
-</ul>
-<p>Ce livre raconte :</p>
-<blockquote>
-<p>l’évolution réelle d’une application Rails qui grandit.</p>
-</blockquote>
-<p>Avec :</p>
-<ul>
-<li>ses erreurs,</li>
-<li>ses hésitations,</li>
-<li>ses refactorings,</li>
-<li>ses problèmes de performance,</li>
-<li>ses mauvaises idées,</li>
-<li>ses découvertes,</li>
-<li>et ses moments de déclic.</li>
-</ul>
-<hr>
-<h1 id="le-vrai-sujet-du-livre"><a class="header" href="#le-vrai-sujet-du-livre">Le vrai sujet du livre</a></h1>
-<p>Au fil du développement, un changement important est apparu.</p>
-<p>Le vrai problème n’était plus :</p>
-<blockquote>
-<p>“comment coder une fonctionnalité ?”</p>
-</blockquote>
-<p>Mais :</p>
-<blockquote>
-<p>“comment faire évoluer une application sans qu’elle devienne incontrôlable ?”</p>
-</blockquote>
-<p>Et cette question change complètement la manière de développer.</p>
-<hr>
-<h1 id="ce-que-bitcoin-monitor-a-progressivement-révélé"><a class="header" href="#ce-que-bitcoin-monitor-a-progressivement-révélé">Ce que Bitcoin Monitor a progressivement révélé</a></h1>
-<p>Chaque module du projet a introduit de nouveaux problèmes :</p>
-<p>Le module BTC a révélé :</p>
-<ul>
-<li>les problèmes de fraîcheur,</li>
-<li>la montée des responsabilités,</li>
-<li>la nécessité du cache,</li>
-<li>la supervision,</li>
-<li>la séparation des couches.</li>
-</ul>
-<p>Le module Exchange Like a révélé :</p>
-<ul>
-<li>les pipelines blockchain,</li>
-<li>les datasets massifs,</li>
-<li>les heuristiques probabilistes,</li>
-<li>les scanners incrémentaux,</li>
-<li>les jobs longs,</li>
-<li>l’observabilité système.</li>
-</ul>
-<p>Et chaque nouveau problème a forcé l’architecture à évoluer.</p>
-<hr>
-<h1 id="une-application-vivante"><a class="header" href="#une-application-vivante">Une application vivante</a></h1>
-<p>Très vite, Bitcoin Monitor a cessé d’être :</p>
-<blockquote>
-<p>“une application Rails”.</p>
-</blockquote>
-<p>Le projet est progressivement devenu :</p>
-<ul>
-<li>un ensemble de pipelines,</li>
-<li>des scanners blockchain,</li>
-<li>des datasets,</li>
-<li>des jobs distribués,</li>
-<li>des systèmes de supervision,</li>
-<li>des caches mémoire,</li>
-<li>des flux de données vivants.</li>
-</ul>
-<p>Et surtout :
-le projet a commencé à révéler quelque chose d’extrêmement important :</p>
-<blockquote>
-<p>une application professionnelle est un système vivant.</p>
 </blockquote>
 <hr>
-<h1 id="pourquoi-raconter-lhistoire-des-modules"><a class="header" href="#pourquoi-raconter-lhistoire-des-modules">Pourquoi raconter l’histoire des modules</a></h1>
-<p>La plupart des livres techniques montrent :</p>
+<h2 id="1-git-nest-pas-juste-un-outil-de-backup"><a class="header" href="#1-git-nest-pas-juste-un-outil-de-backup">1. Git n’est pas juste un outil de backup</a></h2>
+<p>Au début, beaucoup de développeurs utilisent Git comme :</p>
+<pre><code class="language-text">une sauvegarde améliorée.
+</code></pre>
+<p>Mais dans un projet comme Bitcoin Monitor :</p>
+<p>Git devient :</p>
 <ul>
-<li>le résultat final,</li>
-<li>une architecture propre,</li>
-<li>des exemples simplifiés.</li>
-</ul>
-<p>Mais ils montrent rarement :</p>
-<ul>
-<li>comment les problèmes apparaissent,</li>
-<li>pourquoi certaines décisions deviennent nécessaires,</li>
-<li>ou comment une architecture mûrit réellement.</li>
-</ul>
-<p>C’est précisément ce que ce livre veut raconter.</p>
-<p>Chaque chapitre correspond à :</p>
-<ul>
-<li>un module,</li>
-<li>un problème réel,</li>
-<li>une tension d’architecture,</li>
-<li>un moment d’évolution du système.</li>
+<li>un système de traçabilité,</li>
+<li>une protection,</li>
+<li>un historique architectural,</li>
+<li>un filet de sécurité.</li>
 </ul>
 <hr>
-<h1 id="le-vrai-objectif-pédagogique"><a class="header" href="#le-vrai-objectif-pédagogique">Le vrai objectif pédagogique</a></h1>
-<p>Le but de ce livre n’est pas seulement d’apprendre :</p>
+<h2 id="2-pourquoi-git-devient-critique-dans-bitcoin-monitor"><a class="header" href="#2-pourquoi-git-devient-critique-dans-bitcoin-monitor">2. Pourquoi Git devient critique dans Bitcoin Monitor</a></h2>
+<p>Bitcoin Monitor évolue rapidement.</p>
+<p>Les modules changent constamment :</p>
 <ul>
-<li>Ruby on Rails,</li>
-<li>Redis,</li>
-<li>PostgreSQL,</li>
+<li>Cluster,</li>
+<li>Exchange Like,</li>
+<li>Temps réel,</li>
 <li>Sidekiq,</li>
-<li>Bitcoin Core,</li>
-<li>ou les pipelines blockchain.</li>
+<li>pipelines,</li>
+<li>monitoring,</li>
+<li>dashboards.</li>
 </ul>
-<p>Le vrai objectif est plus profond.</p>
-<p>Le livre cherche à montrer :</p>
-<blockquote>
-<p>comment un développeur commence progressivement à penser comme un ingénieur logiciel senior.</p>
-</blockquote>
+<p>Sans historique clair :
+le projet deviendrait rapidement dangereux.</p>
 <hr>
-<h1 id="ce-que-vous-allez-voir-dans-ce-livre"><a class="header" href="#ce-que-vous-allez-voir-dans-ce-livre">Ce que vous allez voir dans ce livre</a></h1>
-<p>Au fil des chapitres, nous allons voir apparaître :</p>
+<h2 id="3-le-premier-vrai-besoin--expérimenter-sans-peur"><a class="header" href="#3-le-premier-vrai-besoin--expérimenter-sans-peur">3. Le premier vrai besoin : expérimenter sans peur</a></h2>
+<p>Beaucoup d’évolutions du projet sont expérimentales :</p>
 <ul>
-<li>des dashboards qui deviennent des pipelines,</li>
-<li>des jobs qui deviennent des systèmes vivants,</li>
-<li>des heuristiques qui deviennent des moteurs probabilistes,</li>
-<li>des datasets qui explosent,</li>
-<li>des problèmes de performance,</li>
-<li>des besoins de cache,</li>
-<li>des architectures qui doivent devenir observables.</li>
+<li>pipelines temps réel,</li>
+<li>scanners,</li>
+<li>heuristiques,</li>
+<li>Redis,</li>
+<li>Sidekiq,</li>
+<li>refactors architecture.</li>
 </ul>
-<p>Mais surtout :
-nous allons voir comment chaque problème pousse naturellement l’application vers une architecture plus mature.</p>
+<p>Git permet :</p>
+<pre><code class="language-text">tester
+↓
+revenir en arrière
+↓
+comparer
+↓
+refactoriser
+</code></pre>
+<p>Sans peur de casser définitivement le système.</p>
 <hr>
-<h1 id="une-chronique-dingénierie"><a class="header" href="#une-chronique-dingénierie">Une chronique d’ingénierie</a></h1>
-<p>Bitcoin Monitor n’est pas présenté ici comme :</p>
-<blockquote>
-<p>“un projet parfait”.</p>
-</blockquote>
-<p>Au contraire.</p>
-<p>Le livre montre :</p>
+<h2 id="4-les-commits-deviennent-de-la-documentation"><a class="header" href="#4-les-commits-deviennent-de-la-documentation">4. Les commits deviennent de la documentation</a></h2>
+<p>Un bon commit raconte :</p>
+<pre><code class="language-text">pourquoi le système a changé.
+</code></pre>
+<p>Exemple mauvais :</p>
+<pre><code class="language-text">fix
+</code></pre>
+<p>Exemple utile :</p>
+<pre><code class="language-text">cluster: add realtime incremental scanner
+</code></pre>
+<p>Des mois plus tard :
+cela devient une documentation historique.</p>
+<hr>
+<h2 id="5-le-vrai-rôle-des-branches"><a class="header" href="#5-le-vrai-rôle-des-branches">5. Le vrai rôle des branches</a></h2>
+<p>Les branches permettent :</p>
 <ul>
-<li>les erreurs,</li>
-<li>les refactorings,</li>
-<li>les hésitations,</li>
-<li>les moments où certaines idées semblaient bonnes,</li>
-<li>puis se sont révélées dangereuses.</li>
+<li>d’isoler des expérimentations,</li>
+<li>de tester des idées risquées,</li>
+<li>de préparer des refactors massifs.</li>
 </ul>
-<p>Et c’est précisément ce qui rend le projet intéressant.</p>
-<p>Parce qu’en ingénierie réelle :</p>
-<blockquote>
-<p>les systèmes évoluent rarement de manière linéaire.</p>
-</blockquote>
+<p>Exemple :</p>
+<pre><code class="language-text">feature/realtime-cluster
+feature/exchange-flow-v2
+refactor/system-dashboard
+</code></pre>
+<p>Le projet devient beaucoup plus sûr.</p>
 <hr>
-<h1 id="pour-qui-est-ce-livre-"><a class="header" href="#pour-qui-est-ce-livre-">Pour qui est ce livre ?</a></h1>
-<p>Ce livre s’adresse :</p>
+<h2 id="6-pourquoi-les-petits-commits-sont-importants"><a class="header" href="#6-pourquoi-les-petits-commits-sont-importants">6. Pourquoi les petits commits sont importants</a></h2>
+<p>Un énorme commit :</p>
+<pre><code class="language-text">500 fichiers modifiés
+</code></pre>
+<p>devient presque impossible à relire.</p>
+<p>À l’inverse :</p>
+<pre><code class="language-text">add realtime watcher
+add cursor protection
+add system realtime card
+</code></pre>
+<p>permet :</p>
 <ul>
-<li>aux développeurs Rails,</li>
-<li>aux backend engineers,</li>
-<li>aux développeurs blockchain,</li>
-<li>aux personnes qui construisent des systèmes orientés données,</li>
-<li>et surtout :</li>
-<li>à ceux qui veulent comprendre comment une application devient progressivement professionnelle.</li>
+<li>de comprendre,</li>
+<li>de review,</li>
+<li>de rollback précisément.</li>
 </ul>
 <hr>
-<h1 id="le-principe-du-livre"><a class="header" href="#le-principe-du-livre">Le principe du livre</a></h1>
-<p>Chaque chapitre est écrit :</p>
+<h2 id="7-git-protège-contre-les-refactors-dangereux"><a class="header" href="#7-git-protège-contre-les-refactors-dangereux">7. Git protège contre les refactors dangereux</a></h2>
+<p>Bitcoin Monitor effectue régulièrement :</p>
 <ul>
-<li>après le développement réel du module,</li>
-<li>en se basant sur les vrais fichiers,</li>
-<li>les vrais services,</li>
-<li>les vrais jobs,</li>
-<li>les vrais problèmes rencontrés.</li>
+<li>des réorganisations,</li>
+<li>des découpages service,</li>
+<li>des changements de pipeline.</li>
 </ul>
-<p>L’objectif est simple :</p>
-<blockquote>
-<p>raconter l’évolution réelle de Bitcoin Monitor pendant qu’elle se produit.</p>
-</blockquote>
-<hr>
-<h1 id="bienvenue-dans-bitcoin-monitor"><a class="header" href="#bienvenue-dans-bitcoin-monitor">Bienvenue dans Bitcoin Monitor</a></h1>
-<p>Ce livre raconte :</p>
+<p>Sans Git :
+un refactor massif devient extrêmement risqué.</p>
+<p>Avec Git :
+on peut :</p>
 <ul>
-<li>la construction d’une application,</li>
-<li>mais aussi la transformation progressive de la manière de penser de ses développeurs.</li>
+<li>comparer,</li>
+<li>revenir,</li>
+<li>cherry-pick,</li>
+<li>tester progressivement.</li>
+</ul>
+<hr>
+<h2 id="8-le-gitignore-devient-stratégique"><a class="header" href="#8-le-gitignore-devient-stratégique">8. Le <code>.gitignore</code> devient stratégique</a></h2>
+<p>Très vite, certains fichiers ne doivent jamais être versionnés :</p>
+<ul>
+<li><code>.env</code>,</li>
+<li>logs,</li>
+<li>storage,</li>
+<li>clés,</li>
+<li>Redis dumps,</li>
+<li>builds temporaires.</li>
+</ul>
+<p>Un <code>.gitignore</code> propre protège :</p>
+<ul>
+<li>la sécurité,</li>
+<li>les performances,</li>
+<li>la confidentialité.</li>
+</ul>
+<hr>
+<h2 id="9-pourquoi-il-ne-faut-jamais-commit-les-secrets"><a class="header" href="#9-pourquoi-il-ne-faut-jamais-commit-les-secrets">9. Pourquoi il ne faut jamais commit les secrets</a></h2>
+<p>Dans un projet blockchain :
+c’est encore plus critique.</p>
+<p>Jamais :</p>
+<ul>
+<li>clés privées,</li>
+<li>wallets,</li>
+<li>credentials,</li>
+<li>tokens API,</li>
+<li><code>master.key</code>.</li>
+</ul>
+<p>Une fuite Git peut devenir irréversible.</p>
+<hr>
+<h2 id="10-git-comme-outil-de-compréhension"><a class="header" href="#10-git-comme-outil-de-compréhension">10. Git comme outil de compréhension</a></h2>
+<p>Avec le temps :</p>
+<pre><code class="language-bash">git log
+git blame
+git diff
+</code></pre>
+<p>deviennent des outils d’analyse.</p>
+<p>Ils permettent de répondre :</p>
+<ul>
+<li>quand un comportement est apparu,</li>
+<li>pourquoi un module a changé,</li>
+<li>qui a modifié une logique critique.</li>
+</ul>
+<hr>
+<h2 id="11-git-aide-à-comprendre-larchitecture"><a class="header" href="#11-git-aide-à-comprendre-larchitecture">11. Git aide à comprendre l’architecture</a></h2>
+<p>Un historique propre montre :</p>
+<ul>
+<li>les grandes phases du projet,</li>
+<li>les transitions d’architecture,</li>
+<li>les décisions techniques importantes.</li>
+</ul>
+<p>Exemple :</p>
+<pre><code class="language-text">cron
+→ Sidekiq
+→ temps réel
+→ pipeline event-driven
+</code></pre>
+<p>L’historique Git raconte cette évolution.</p>
+<hr>
+<h2 id="12-les-tags-deviennent-importants"><a class="header" href="#12-les-tags-deviennent-importants">12. Les tags deviennent importants</a></h2>
+<p>Quand un système devient plus mature :
+les tags deviennent utiles :</p>
+<pre><code class="language-text">v1.0
+v2-cluster
+v3-realtime
+</code></pre>
+<p>Ils permettent :</p>
+<ul>
+<li>de figer des états stables,</li>
+<li>de revenir rapidement,</li>
+<li>de documenter les grandes versions.</li>
+</ul>
+<hr>
+<h2 id="13-pourquoi-les-messages-de-commit-comptent"><a class="header" href="#13-pourquoi-les-messages-de-commit-comptent">13. Pourquoi les messages de commit comptent</a></h2>
+<p>Un commit n’est pas seulement :</p>
+<pre><code class="language-text">du code.
+</code></pre>
+<p>C’est aussi :</p>
+<pre><code class="language-text">une décision.
+</code></pre>
+<p>Les meilleurs messages expliquent :</p>
+<ul>
+<li>le problème,</li>
+<li>la raison du changement,</li>
+<li>l’impact.</li>
+</ul>
+<hr>
+<h2 id="14-les-refactors-doivent-être-séparés"><a class="header" href="#14-les-refactors-doivent-être-séparés">14. Les refactors doivent être séparés</a></h2>
+<p>Très important :</p>
+<p>Ne jamais mélanger :</p>
+<ul>
+<li>refactor,</li>
+<li>nouvelles features,</li>
+<li>corrections métier.</li>
+</ul>
+<p>Exemple mauvais :</p>
+<pre><code class="language-text">refactor + realtime + fixes + ui
+</code></pre>
+<p>Impossible à relire.</p>
+<hr>
+<h2 id="15-les-commits-doivent-rester-lisibles"><a class="header" href="#15-les-commits-doivent-rester-lisibles">15. Les commits doivent rester lisibles</a></h2>
+<p>Un bon historique Git ressemble à :</p>
+<pre><code class="language-text">une histoire logique.
+</code></pre>
+<p>Pas à :</p>
+<pre><code class="language-text">une explosion chaotique.
+</code></pre>
+<hr>
+<h2 id="16-git-protège-la-production"><a class="header" href="#16-git-protège-la-production">16. Git protège la production</a></h2>
+<p>Quand un pipeline critique casse :</p>
+<pre><code class="language-bash">git diff
+git revert
+git checkout
+</code></pre>
+<p>deviennent des outils de survie.</p>
+<p>Dans un système blockchain :
+cela peut éviter des heures de downtime.</p>
+<hr>
+<h2 id="17-git-devient-encore-plus-important-avec-sidekiq"><a class="header" href="#17-git-devient-encore-plus-important-avec-sidekiq">17. Git devient encore plus important avec Sidekiq</a></h2>
+<p>Les systèmes async :</p>
+<ul>
+<li>sont plus complexes,</li>
+<li>plus distribués,</li>
+<li>plus difficiles à débugger.</li>
+</ul>
+<p>Git permet :</p>
+<ul>
+<li>de suivre les workers,</li>
+<li>comprendre les changements pipeline,</li>
+<li>comparer les comportements.</li>
+</ul>
+<hr>
+<h2 id="18-les-reviews-deviennent-possibles"><a class="header" href="#18-les-reviews-deviennent-possibles">18. Les reviews deviennent possibles</a></h2>
+<p>Avec une bonne discipline Git :
+les pull requests deviennent lisibles.</p>
+<p>Cela permet :</p>
+<ul>
+<li>audit,</li>
+<li>review,</li>
+<li>discussion architecture,</li>
+<li>validation sécurité.</li>
+</ul>
+<hr>
+<h2 id="19-git-comme-mémoire-technique"><a class="header" href="#19-git-comme-mémoire-technique">19. Git comme mémoire technique</a></h2>
+<p>Après plusieurs mois :
+personne ne se souvient exactement :</p>
+<ul>
+<li>pourquoi une heuristique existe,</li>
+<li>pourquoi un lock Redis a été ajouté,</li>
+<li>pourquoi un cron a disparu.</li>
+</ul>
+<p>Git devient alors :</p>
+<pre><code class="language-text">la mémoire technique du projet.
+</code></pre>
+<hr>
+<h2 id="20-les-leçons-apprises"><a class="header" href="#20-les-leçons-apprises">20. Les leçons apprises</a></h2>
+<h3 id="commit-souvent"><a class="header" href="#commit-souvent">Commit souvent</a></h3>
+<p>Pas une fois par semaine.</p>
+<hr>
+<h3 id="commit-petit"><a class="header" href="#commit-petit">Commit petit</a></h3>
+<p>Chaque commit doit être compréhensible seul.</p>
+<hr>
+<h3 id="nommer-clairement"><a class="header" href="#nommer-clairement">Nommer clairement</a></h3>
+<p>Les messages flous détruisent l’historique.</p>
+<hr>
+<h3 id="ne-jamais-commit-les-secrets"><a class="header" href="#ne-jamais-commit-les-secrets">Ne jamais commit les secrets</a></h3>
+<p>Jamais.</p>
+<hr>
+<h3 id="utiliser-les-branches"><a class="header" href="#utiliser-les-branches">Utiliser les branches</a></h3>
+<p>Les expérimentations doivent être isolées.</p>
+<hr>
+<h3 id="git-est-un-outil-darchitecture"><a class="header" href="#git-est-un-outil-darchitecture">Git est un outil d’architecture</a></h3>
+<p>Pas seulement un backup.</p>
+<hr>
+<h2 id="21-conclusion"><a class="header" href="#21-conclusion">21. Conclusion</a></h2>
+<p>Dans Bitcoin Monitor, Git est devenu bien plus qu’un système de versionning.</p>
+<p>Il est :</p>
+<ul>
+<li>un système de protection,</li>
+<li>un historique architectural,</li>
+<li>une mémoire technique,</li>
+<li>un outil de survie,</li>
+<li>un accélérateur de refactor.</li>
 </ul>
 <p>Parce qu’au final :</p>
 <blockquote>
-<p>construire une application professionnelle change aussi la façon de réfléchir à l’ingénierie logicielle.</p>
+<p>plus un projet devient complexe,
+plus son historique devient précieux.</p>
 </blockquote>
+<p>Et dans une plateforme blockchain temps réel :
+un bon Git finit par devenir aussi important que le code lui-même.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-
-                            <a rel="next prefetch" href="btc.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                            <a rel="prev" href="real-time.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
+
 
                         <div style="clear: both"></div>
                     </nav>
@@ -408,10 +508,10 @@ nous allons voir comment chaque problème pousse naturellement l’application v
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-
-                    <a rel="next prefetch" href="btc.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
+                    <a rel="prev" href="real-time.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
+
             </nav>
 
         </div>

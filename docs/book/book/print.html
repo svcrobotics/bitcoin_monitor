@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-f2a74e70.js";
+            window.path_to_searchindex_js = "searchindex-1a9a0f96.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-37f6dd08.js"></script>
+        <script src="toc-83902cba.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -2973,6 +2973,691 @@ Parfait pour les petits pipelines.</p>
 <blockquote>
 <p>une application blockchain sérieuse finit presque toujours par devenir un système distribué miniature.</p>
 </blockquote>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="le-passage-au-temps-réel-dans-bitcoin-monitor"><a class="header" href="#le-passage-au-temps-réel-dans-bitcoin-monitor">Le passage au temps réel dans Bitcoin Monitor</a></h1>
+<blockquote>
+<p>Pendant longtemps, Bitcoin Monitor fonctionnait selon un modèle classique :</p>
+<p>des scans périodiques,</p>
+<p>des cron,</p>
+<p>des traitements batch.</p>
+<p>Puis une question est apparue :</p>
+<blockquote>
+<p>“Pourquoi attendre plusieurs minutes alors que la blockchain évolue en permanence ?”</p>
+</blockquote>
+</blockquote>
+<hr>
+<h2 id="1-le-problème-du-modèle-batch"><a class="header" href="#1-le-problème-du-modèle-batch">1. Le problème du modèle batch</a></h2>
+<p>Au départ, les modules fonctionnaient avec des tâches planifiées :</p>
+<pre><code class="language-text">cron
+↓
+scan
+↓
+mise à jour base
+↓
+dashboard
+</code></pre>
+<p>Ce modèle fonctionne bien :</p>
+<ul>
+<li>pour des volumes modestes,</li>
+<li>des analyses lentes,</li>
+<li>des dashboards non critiques.</li>
+</ul>
+<p>Mais progressivement, les limites sont apparues.</p>
+<hr>
+<h2 id="2-bitcoin-ne-dort-jamais"><a class="header" href="#2-bitcoin-ne-dort-jamais">2. Bitcoin ne dort jamais</a></h2>
+<p>La blockchain Bitcoin produit un nouveau bloc environ toutes les 10 minutes.</p>
+<p>Chaque bloc peut :</p>
+<ul>
+<li>créer de nouveaux clusters,</li>
+<li>modifier des signaux,</li>
+<li>déplacer des milliers d’UTXO,</li>
+<li>changer les flux exchange-like,</li>
+<li>invalider certaines hypothèses de marché.</li>
+</ul>
+<p>Attendre un cron de 15 minutes devenait incohérent.</p>
+<hr>
+<h2 id="3-le-vrai-problème--la-fraîcheur-des-données"><a class="header" href="#3-le-vrai-problème--la-fraîcheur-des-données">3. Le vrai problème : la fraîcheur des données</a></h2>
+<p>Le problème n’était pas seulement :</p>
+<pre><code class="language-text">la vitesse.
+</code></pre>
+<p>Le problème était :</p>
+<pre><code class="language-text">la fraîcheur analytique.
+</code></pre>
+<p>Un système d’intelligence blockchain doit être capable de répondre :</p>
+<blockquote>
+<p>“Que vient-il de se passer ?”</p>
+</blockquote>
+<p>Pas uniquement :</p>
+<blockquote>
+<p>“Que s’est-il passé il y a 20 minutes ?”</p>
+</blockquote>
+<hr>
+<h2 id="4-la-réflexion-darchitecture"><a class="header" href="#4-la-réflexion-darchitecture">4. La réflexion d’architecture</a></h2>
+<p>Le premier réflexe aurait pu être :</p>
+<pre><code class="language-text">mettre tout en temps réel.
+</code></pre>
+<p>Mais cela aurait été une erreur.</p>
+<p>La vraie réflexion a été :</p>
+<blockquote>
+<p>Quel module mérite réellement le temps réel maintenant ?</p>
+</blockquote>
+<p>La réponse :</p>
+<pre><code class="language-text">Blockchain Event Stream
+</code></pre>
+<hr>
+<h2 id="5-le-choix-du-module-temps-réel"><a class="header" href="#5-le-choix-du-module-temps-réel">5. Le choix du module temps réel</a></h2>
+<p>Le système retenu :</p>
+<pre><code class="language-text">bitcoind
+↓
+nouveau bloc détecté
+↓
+Realtime::BlockWatcher
+↓
+Sidekiq
+↓
+ClusterScanner incrémental
+↓
+refresh async
+↓
+signals
+↓
+dashboard
+</code></pre>
+<p>L’idée était fondamentale :</p>
+<blockquote>
+<p>le temps réel ne devait pas remplacer le système existant,
+mais devenir une couche d’accélération.</p>
+</blockquote>
+<hr>
+<h2 id="6-pourquoi-cluster-a-été-choisi"><a class="header" href="#6-pourquoi-cluster-a-été-choisi">6. Pourquoi Cluster a été choisi</a></h2>
+<p>Le module Cluster était déjà :</p>
+<ul>
+<li>découpé,</li>
+<li>parallélisé,</li>
+<li>compatible Sidekiq,</li>
+<li>basé sur Redis,</li>
+<li>structuré en pipeline.</li>
+</ul>
+<p>Il était donc le candidat idéal.</p>
+<hr>
+<h2 id="7-lapproche-progressive"><a class="header" href="#7-lapproche-progressive">7. L’approche progressive</a></h2>
+<p>Le système n’a pas été basculé brutalement.</p>
+<p>La stratégie retenue :</p>
+<h3 id="étape-1"><a class="header" href="#étape-1">Étape 1</a></h3>
+<p>Détecter un nouveau bloc.</p>
+<h3 id="étape-2"><a class="header" href="#étape-2">Étape 2</a></h3>
+<p>Lancer un job Sidekiq.</p>
+<h3 id="étape-3"><a class="header" href="#étape-3">Étape 3</a></h3>
+<p>Scanner uniquement le dernier bloc.</p>
+<h3 id="étape-4"><a class="header" href="#étape-4">Étape 4</a></h3>
+<p>Mettre à jour les clusters touchés.</p>
+<h3 id="étape-5"><a class="header" href="#étape-5">Étape 5</a></h3>
+<p>Conserver les cron comme sécurité.</p>
+<p>Cette approche limitait les risques.</p>
+<hr>
+<h2 id="8-le-premier-watcher-temps-réel"><a class="header" href="#8-le-premier-watcher-temps-réel">8. Le premier watcher temps réel</a></h2>
+<p>Le premier composant fut :</p>
+<pre><code class="language-text">bin/realtime_block_watcher
+</code></pre>
+<p>Son rôle :</p>
+<pre><code class="language-text">boucle infinie
+↓
+lecture du height Bitcoin
+↓
+détection nouveau bloc
+↓
+enqueue Sidekiq
+</code></pre>
+<p>Simple.</p>
+<p>Mais extrêmement puissant.</p>
+<hr>
+<h2 id="9-le-premier-job-temps-réel"><a class="header" href="#9-le-premier-job-temps-réel">9. Le premier job temps réel</a></h2>
+<p>Le premier worker :</p>
+<pre><code class="language-text">Realtime::ProcessLatestBlockJob
+</code></pre>
+<p>Responsabilité :</p>
+<ul>
+<li>récupérer le dernier bloc,</li>
+<li>lancer ClusterScanner,</li>
+<li>déclencher le refresh async.</li>
+</ul>
+<hr>
+<h2 id="10-le-premier-vrai-pipeline-event-driven"><a class="header" href="#10-le-premier-vrai-pipeline-event-driven">10. Le premier vrai pipeline event-driven</a></h2>
+<p>Pour la première fois :</p>
+<pre><code class="language-text">nouveau bloc
+→ événement
+→ job async
+→ pipeline distribué
+</code></pre>
+<p>Bitcoin Monitor cessait progressivement d’être :</p>
+<pre><code class="language-text">une application Rails classique.
+</code></pre>
+<hr>
+<h2 id="11-le-problème-découvert-immédiatement"><a class="header" href="#11-le-problème-découvert-immédiatement">11. Le problème découvert immédiatement</a></h2>
+<p>Très vite, un problème apparaît.</p>
+<p>Le même bloc pouvait être traité plusieurs fois.</p>
+<p>Exemple observé :</p>
+<pre><code class="language-text">height=946547 traité 2 fois
+</code></pre>
+<p>Premier passage :</p>
+<ul>
+<li>clusters créés,</li>
+<li>liens générés,</li>
+<li>dirty clusters.</li>
+</ul>
+<p>Second passage :</p>
+<ul>
+<li>aucun changement,</li>
+<li>déjà traité.</li>
+</ul>
+<hr>
+<h2 id="12-le-verrou-blockchain"><a class="header" href="#12-le-verrou-blockchain">12. Le verrou blockchain</a></h2>
+<p>Une protection devient nécessaire :</p>
+<pre><code class="language-text">ScannerCursor
+</code></pre>
+<p>Le système enregistre :</p>
+<ul>
+<li>dernier height,</li>
+<li>dernier hash,</li>
+<li>timestamp.</li>
+</ul>
+<p>Avant chaque traitement :</p>
+<pre><code class="language-text">déjà traité ?
+→ skip
+</code></pre>
+<p>Le pipeline devient idempotent.</p>
+<hr>
+<h2 id="13-pourquoi-lidempotence-est-critique"><a class="header" href="#13-pourquoi-lidempotence-est-critique">13. Pourquoi l’idempotence est critique</a></h2>
+<p>En blockchain :</p>
+<ul>
+<li>les redémarrages arrivent,</li>
+<li>les retries arrivent,</li>
+<li>les jobs doublons arrivent.</li>
+</ul>
+<p>Un pipeline temps réel doit être capable de :</p>
+<pre><code class="language-text">rejouer sans casser les données.
+</code></pre>
+<p>C’est une règle fondamentale.</p>
+<hr>
+<h2 id="14-le-rôle-central-de-sidekiq"><a class="header" href="#14-le-rôle-central-de-sidekiq">14. Le rôle central de Sidekiq</a></h2>
+<p>Le temps réel n’aurait pas été viable sans :
+Sidekiq</p>
+<p>Pourquoi ?</p>
+<p>Parce que les événements blockchain :</p>
+<ul>
+<li>ne doivent pas bloquer Rails,</li>
+<li>doivent être parallélisés,</li>
+<li>doivent être retryables,</li>
+<li>doivent être supervisables.</li>
+</ul>
+<hr>
+<h2 id="15-redis-devient-le-cœur-du-pipeline"><a class="header" href="#15-redis-devient-le-cœur-du-pipeline">15. Redis devient le cœur du pipeline</a></h2>
+<p>Avec :
+Redis</p>
+<p>Bitcoin Monitor obtient :</p>
+<ul>
+<li>des queues,</li>
+<li>des workers,</li>
+<li>de la coordination,</li>
+<li>de la réactivité.</li>
+</ul>
+<p>Le système devient réellement événementiel.</p>
+<hr>
+<h2 id="16-le-watcher-devient-observable"><a class="header" href="#16-le-watcher-devient-observable">16. Le watcher devient observable</a></h2>
+<p>Un autre changement majeur apparaît :
+la supervision.</p>
+<p>Le watcher écrit désormais son état dans :</p>
+<pre><code class="language-text">ScannerCursor
+</code></pre>
+<p>Le système connaît :</p>
+<ul>
+<li>le dernier bloc vu,</li>
+<li>le dernier bloc traité,</li>
+<li>le hash,</li>
+<li>l’âge des données.</li>
+</ul>
+<hr>
+<h2 id="17-naissance-dun-vrai-monitoring-temps-réel"><a class="header" href="#17-naissance-dun-vrai-monitoring-temps-réel">17. Naissance d’un vrai monitoring temps réel</a></h2>
+<p>Une nouvelle section apparaît dans <code>/system</code> :</p>
+<pre><code class="language-text">Realtime block stream
+</code></pre>
+<p>Avec :</p>
+<ul>
+<li>Watcher,</li>
+<li>Processor,</li>
+<li>Last height,</li>
+<li>Age,</li>
+<li>Hash,</li>
+<li>Status OK / STALE.</li>
+</ul>
+<p>Le temps réel devient visible.</p>
+<hr>
+<h2 id="18-le-système-commence-à-vivre"><a class="header" href="#18-le-système-commence-à-vivre">18. Le système commence à “vivre”</a></h2>
+<p>Avant :</p>
+<pre><code class="language-text">cron → attente → refresh
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">nouveau bloc
+↓
+réaction immédiate
+↓
+pipeline incrémental
+↓
+dashboard mis à jour
+</code></pre>
+<p>La plateforme devient vivante.</p>
+<hr>
+<h2 id="19-le-rôle-conservé-des-cron"><a class="header" href="#19-le-rôle-conservé-des-cron">19. Le rôle conservé des cron</a></h2>
+<p>Les cron n’ont pas disparu.</p>
+<p>Ils restent :</p>
+<ul>
+<li>le filet de sécurité,</li>
+<li>le système de rattrapage,</li>
+<li>la garantie de cohérence.</li>
+</ul>
+<p>Le temps réel accélère.
+Les cron sécurisent.</p>
+<p>C’est une architecture hybride.</p>
+<hr>
+<h2 id="20-pourquoi-cette-approche-est-importante"><a class="header" href="#20-pourquoi-cette-approche-est-importante">20. Pourquoi cette approche est importante</a></h2>
+<p>Beaucoup de systèmes blockchain tentent :</p>
+<pre><code class="language-text">100% temps réel immédiatement.
+</code></pre>
+<p>C’est souvent une erreur.</p>
+<p>Bitcoin Monitor a choisi :</p>
+<pre><code class="language-text">temps réel incrémental
++
+batch de sécurité
++
+supervision forte
+</code></pre>
+<p>Architecture beaucoup plus robuste.</p>
+<hr>
+<h2 id="21-le-vrai-changement"><a class="header" href="#21-le-vrai-changement">21. Le vrai changement</a></h2>
+<p>Le vrai changement n’était pas :</p>
+<pre><code class="language-text">technique.
+</code></pre>
+<p>Le vrai changement était :</p>
+<pre><code class="language-text">architectural.
+</code></pre>
+<p>Avant :</p>
+<pre><code class="language-text">application Rails
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">plateforme événementielle blockchain
+</code></pre>
+<hr>
+<h1 id="22-ce-que-cela-rend-possible"><a class="header" href="#22-ce-que-cela-rend-possible">22. Ce que cela rend possible</a></h1>
+<p>Ce pipeline ouvre la porte à :</p>
+<ul>
+<li>alertes live,</li>
+<li>exchange flow live,</li>
+<li>clusters live,</li>
+<li>dashboards temps réel,</li>
+<li>Turbo Streams,</li>
+<li>WebSockets,</li>
+<li>ZMQ Bitcoin,</li>
+<li>pipelines distribués multi-workers.</li>
+</ul>
+<hr>
+<h2 id="23-leçons-apprises"><a class="header" href="#23-leçons-apprises">23. Leçons apprises</a></h2>
+<h3 id="le-temps-réel-doit-être-progressif"><a class="header" href="#le-temps-réel-doit-être-progressif">Le temps réel doit être progressif</a></h3>
+<p>Pas brutal.</p>
+<hr>
+<h3 id="les-cron-restent-utiles"><a class="header" href="#les-cron-restent-utiles">Les cron restent utiles</a></h3>
+<p>Ils sécurisent le système.</p>
+<hr>
+<h3 id="lidempotence-est-obligatoire"><a class="header" href="#lidempotence-est-obligatoire">L’idempotence est obligatoire</a></h3>
+<p>Sans elle :
+le pipeline devient dangereux.</p>
+<hr>
+<h3 id="redis--sidekiq-changent-larchitecture"><a class="header" href="#redis--sidekiq-changent-larchitecture">Redis + Sidekiq changent l’architecture</a></h3>
+<p>Les jobs deviennent :</p>
+<ul>
+<li>distribués,</li>
+<li>observables,</li>
+<li>résilients.</li>
+</ul>
+<hr>
+<h3 id="la-supervision-est-aussi-importante-que-le-code"><a class="header" href="#la-supervision-est-aussi-importante-que-le-code">La supervision est aussi importante que le code</a></h3>
+<p>Un pipeline invisible est un pipeline dangereux.</p>
+<hr>
+<h2 id="24-conclusion-2"><a class="header" href="#24-conclusion-2">24. Conclusion</a></h2>
+<p>Le passage au temps réel a marqué un tournant majeur dans Bitcoin Monitor.</p>
+<p>L’application ne se contente plus :</p>
+<ul>
+<li>d’analyser la blockchain.</li>
+</ul>
+<p>Elle commence désormais :</p>
+<ul>
+<li>à réagir à la blockchain.</li>
+</ul>
+<p>Et cette différence change profondément :</p>
+<ul>
+<li>l’architecture,</li>
+<li>les performances,</li>
+<li>la supervision,</li>
+<li>et la philosophie même du projet.</li>
+</ul>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="git--loutil-invisible-qui-protège-bitcoin-monitor"><a class="header" href="#git--loutil-invisible-qui-protège-bitcoin-monitor">Git : l’outil invisible qui protège Bitcoin Monitor</a></h1>
+<blockquote>
+<p>Dans un projet complexe, le danger ne vient pas uniquement des bugs.</p>
+<p>Le vrai danger vient souvent :</p>
+<ul>
+<li>des changements non suivis,</li>
+<li>des expérimentations perdues,</li>
+<li>des refactors incontrôlés,</li>
+<li>des retours arrière impossibles.</li>
+</ul>
+<p>Et progressivement, une réalité devient évidente :</p>
+<blockquote>
+<p>sans discipline Git, un projet finit par devenir ingérable.</p>
+</blockquote>
+</blockquote>
+<hr>
+<h2 id="1-git-nest-pas-juste-un-outil-de-backup"><a class="header" href="#1-git-nest-pas-juste-un-outil-de-backup">1. Git n’est pas juste un outil de backup</a></h2>
+<p>Au début, beaucoup de développeurs utilisent Git comme :</p>
+<pre><code class="language-text">une sauvegarde améliorée.
+</code></pre>
+<p>Mais dans un projet comme Bitcoin Monitor :</p>
+<p>Git devient :</p>
+<ul>
+<li>un système de traçabilité,</li>
+<li>une protection,</li>
+<li>un historique architectural,</li>
+<li>un filet de sécurité.</li>
+</ul>
+<hr>
+<h2 id="2-pourquoi-git-devient-critique-dans-bitcoin-monitor"><a class="header" href="#2-pourquoi-git-devient-critique-dans-bitcoin-monitor">2. Pourquoi Git devient critique dans Bitcoin Monitor</a></h2>
+<p>Bitcoin Monitor évolue rapidement.</p>
+<p>Les modules changent constamment :</p>
+<ul>
+<li>Cluster,</li>
+<li>Exchange Like,</li>
+<li>Temps réel,</li>
+<li>Sidekiq,</li>
+<li>pipelines,</li>
+<li>monitoring,</li>
+<li>dashboards.</li>
+</ul>
+<p>Sans historique clair :
+le projet deviendrait rapidement dangereux.</p>
+<hr>
+<h2 id="3-le-premier-vrai-besoin--expérimenter-sans-peur"><a class="header" href="#3-le-premier-vrai-besoin--expérimenter-sans-peur">3. Le premier vrai besoin : expérimenter sans peur</a></h2>
+<p>Beaucoup d’évolutions du projet sont expérimentales :</p>
+<ul>
+<li>pipelines temps réel,</li>
+<li>scanners,</li>
+<li>heuristiques,</li>
+<li>Redis,</li>
+<li>Sidekiq,</li>
+<li>refactors architecture.</li>
+</ul>
+<p>Git permet :</p>
+<pre><code class="language-text">tester
+↓
+revenir en arrière
+↓
+comparer
+↓
+refactoriser
+</code></pre>
+<p>Sans peur de casser définitivement le système.</p>
+<hr>
+<h2 id="4-les-commits-deviennent-de-la-documentation"><a class="header" href="#4-les-commits-deviennent-de-la-documentation">4. Les commits deviennent de la documentation</a></h2>
+<p>Un bon commit raconte :</p>
+<pre><code class="language-text">pourquoi le système a changé.
+</code></pre>
+<p>Exemple mauvais :</p>
+<pre><code class="language-text">fix
+</code></pre>
+<p>Exemple utile :</p>
+<pre><code class="language-text">cluster: add realtime incremental scanner
+</code></pre>
+<p>Des mois plus tard :
+cela devient une documentation historique.</p>
+<hr>
+<h2 id="5-le-vrai-rôle-des-branches"><a class="header" href="#5-le-vrai-rôle-des-branches">5. Le vrai rôle des branches</a></h2>
+<p>Les branches permettent :</p>
+<ul>
+<li>d’isoler des expérimentations,</li>
+<li>de tester des idées risquées,</li>
+<li>de préparer des refactors massifs.</li>
+</ul>
+<p>Exemple :</p>
+<pre><code class="language-text">feature/realtime-cluster
+feature/exchange-flow-v2
+refactor/system-dashboard
+</code></pre>
+<p>Le projet devient beaucoup plus sûr.</p>
+<hr>
+<h2 id="6-pourquoi-les-petits-commits-sont-importants"><a class="header" href="#6-pourquoi-les-petits-commits-sont-importants">6. Pourquoi les petits commits sont importants</a></h2>
+<p>Un énorme commit :</p>
+<pre><code class="language-text">500 fichiers modifiés
+</code></pre>
+<p>devient presque impossible à relire.</p>
+<p>À l’inverse :</p>
+<pre><code class="language-text">add realtime watcher
+add cursor protection
+add system realtime card
+</code></pre>
+<p>permet :</p>
+<ul>
+<li>de comprendre,</li>
+<li>de review,</li>
+<li>de rollback précisément.</li>
+</ul>
+<hr>
+<h2 id="7-git-protège-contre-les-refactors-dangereux"><a class="header" href="#7-git-protège-contre-les-refactors-dangereux">7. Git protège contre les refactors dangereux</a></h2>
+<p>Bitcoin Monitor effectue régulièrement :</p>
+<ul>
+<li>des réorganisations,</li>
+<li>des découpages service,</li>
+<li>des changements de pipeline.</li>
+</ul>
+<p>Sans Git :
+un refactor massif devient extrêmement risqué.</p>
+<p>Avec Git :
+on peut :</p>
+<ul>
+<li>comparer,</li>
+<li>revenir,</li>
+<li>cherry-pick,</li>
+<li>tester progressivement.</li>
+</ul>
+<hr>
+<h2 id="8-le-gitignore-devient-stratégique"><a class="header" href="#8-le-gitignore-devient-stratégique">8. Le <code>.gitignore</code> devient stratégique</a></h2>
+<p>Très vite, certains fichiers ne doivent jamais être versionnés :</p>
+<ul>
+<li><code>.env</code>,</li>
+<li>logs,</li>
+<li>storage,</li>
+<li>clés,</li>
+<li>Redis dumps,</li>
+<li>builds temporaires.</li>
+</ul>
+<p>Un <code>.gitignore</code> propre protège :</p>
+<ul>
+<li>la sécurité,</li>
+<li>les performances,</li>
+<li>la confidentialité.</li>
+</ul>
+<hr>
+<h2 id="9-pourquoi-il-ne-faut-jamais-commit-les-secrets"><a class="header" href="#9-pourquoi-il-ne-faut-jamais-commit-les-secrets">9. Pourquoi il ne faut jamais commit les secrets</a></h2>
+<p>Dans un projet blockchain :
+c’est encore plus critique.</p>
+<p>Jamais :</p>
+<ul>
+<li>clés privées,</li>
+<li>wallets,</li>
+<li>credentials,</li>
+<li>tokens API,</li>
+<li><code>master.key</code>.</li>
+</ul>
+<p>Une fuite Git peut devenir irréversible.</p>
+<hr>
+<h2 id="10-git-comme-outil-de-compréhension"><a class="header" href="#10-git-comme-outil-de-compréhension">10. Git comme outil de compréhension</a></h2>
+<p>Avec le temps :</p>
+<pre><code class="language-bash">git log
+git blame
+git diff
+</code></pre>
+<p>deviennent des outils d’analyse.</p>
+<p>Ils permettent de répondre :</p>
+<ul>
+<li>quand un comportement est apparu,</li>
+<li>pourquoi un module a changé,</li>
+<li>qui a modifié une logique critique.</li>
+</ul>
+<hr>
+<h2 id="11-git-aide-à-comprendre-larchitecture"><a class="header" href="#11-git-aide-à-comprendre-larchitecture">11. Git aide à comprendre l’architecture</a></h2>
+<p>Un historique propre montre :</p>
+<ul>
+<li>les grandes phases du projet,</li>
+<li>les transitions d’architecture,</li>
+<li>les décisions techniques importantes.</li>
+</ul>
+<p>Exemple :</p>
+<pre><code class="language-text">cron
+→ Sidekiq
+→ temps réel
+→ pipeline event-driven
+</code></pre>
+<p>L’historique Git raconte cette évolution.</p>
+<hr>
+<h2 id="12-les-tags-deviennent-importants"><a class="header" href="#12-les-tags-deviennent-importants">12. Les tags deviennent importants</a></h2>
+<p>Quand un système devient plus mature :
+les tags deviennent utiles :</p>
+<pre><code class="language-text">v1.0
+v2-cluster
+v3-realtime
+</code></pre>
+<p>Ils permettent :</p>
+<ul>
+<li>de figer des états stables,</li>
+<li>de revenir rapidement,</li>
+<li>de documenter les grandes versions.</li>
+</ul>
+<hr>
+<h2 id="13-pourquoi-les-messages-de-commit-comptent"><a class="header" href="#13-pourquoi-les-messages-de-commit-comptent">13. Pourquoi les messages de commit comptent</a></h2>
+<p>Un commit n’est pas seulement :</p>
+<pre><code class="language-text">du code.
+</code></pre>
+<p>C’est aussi :</p>
+<pre><code class="language-text">une décision.
+</code></pre>
+<p>Les meilleurs messages expliquent :</p>
+<ul>
+<li>le problème,</li>
+<li>la raison du changement,</li>
+<li>l’impact.</li>
+</ul>
+<hr>
+<h2 id="14-les-refactors-doivent-être-séparés"><a class="header" href="#14-les-refactors-doivent-être-séparés">14. Les refactors doivent être séparés</a></h2>
+<p>Très important :</p>
+<p>Ne jamais mélanger :</p>
+<ul>
+<li>refactor,</li>
+<li>nouvelles features,</li>
+<li>corrections métier.</li>
+</ul>
+<p>Exemple mauvais :</p>
+<pre><code class="language-text">refactor + realtime + fixes + ui
+</code></pre>
+<p>Impossible à relire.</p>
+<hr>
+<h2 id="15-les-commits-doivent-rester-lisibles"><a class="header" href="#15-les-commits-doivent-rester-lisibles">15. Les commits doivent rester lisibles</a></h2>
+<p>Un bon historique Git ressemble à :</p>
+<pre><code class="language-text">une histoire logique.
+</code></pre>
+<p>Pas à :</p>
+<pre><code class="language-text">une explosion chaotique.
+</code></pre>
+<hr>
+<h2 id="16-git-protège-la-production"><a class="header" href="#16-git-protège-la-production">16. Git protège la production</a></h2>
+<p>Quand un pipeline critique casse :</p>
+<pre><code class="language-bash">git diff
+git revert
+git checkout
+</code></pre>
+<p>deviennent des outils de survie.</p>
+<p>Dans un système blockchain :
+cela peut éviter des heures de downtime.</p>
+<hr>
+<h2 id="17-git-devient-encore-plus-important-avec-sidekiq"><a class="header" href="#17-git-devient-encore-plus-important-avec-sidekiq">17. Git devient encore plus important avec Sidekiq</a></h2>
+<p>Les systèmes async :</p>
+<ul>
+<li>sont plus complexes,</li>
+<li>plus distribués,</li>
+<li>plus difficiles à débugger.</li>
+</ul>
+<p>Git permet :</p>
+<ul>
+<li>de suivre les workers,</li>
+<li>comprendre les changements pipeline,</li>
+<li>comparer les comportements.</li>
+</ul>
+<hr>
+<h2 id="18-les-reviews-deviennent-possibles"><a class="header" href="#18-les-reviews-deviennent-possibles">18. Les reviews deviennent possibles</a></h2>
+<p>Avec une bonne discipline Git :
+les pull requests deviennent lisibles.</p>
+<p>Cela permet :</p>
+<ul>
+<li>audit,</li>
+<li>review,</li>
+<li>discussion architecture,</li>
+<li>validation sécurité.</li>
+</ul>
+<hr>
+<h2 id="19-git-comme-mémoire-technique"><a class="header" href="#19-git-comme-mémoire-technique">19. Git comme mémoire technique</a></h2>
+<p>Après plusieurs mois :
+personne ne se souvient exactement :</p>
+<ul>
+<li>pourquoi une heuristique existe,</li>
+<li>pourquoi un lock Redis a été ajouté,</li>
+<li>pourquoi un cron a disparu.</li>
+</ul>
+<p>Git devient alors :</p>
+<pre><code class="language-text">la mémoire technique du projet.
+</code></pre>
+<hr>
+<h2 id="20-les-leçons-apprises"><a class="header" href="#20-les-leçons-apprises">20. Les leçons apprises</a></h2>
+<h3 id="commit-souvent"><a class="header" href="#commit-souvent">Commit souvent</a></h3>
+<p>Pas une fois par semaine.</p>
+<hr>
+<h3 id="commit-petit"><a class="header" href="#commit-petit">Commit petit</a></h3>
+<p>Chaque commit doit être compréhensible seul.</p>
+<hr>
+<h3 id="nommer-clairement"><a class="header" href="#nommer-clairement">Nommer clairement</a></h3>
+<p>Les messages flous détruisent l’historique.</p>
+<hr>
+<h3 id="ne-jamais-commit-les-secrets"><a class="header" href="#ne-jamais-commit-les-secrets">Ne jamais commit les secrets</a></h3>
+<p>Jamais.</p>
+<hr>
+<h3 id="utiliser-les-branches"><a class="header" href="#utiliser-les-branches">Utiliser les branches</a></h3>
+<p>Les expérimentations doivent être isolées.</p>
+<hr>
+<h3 id="git-est-un-outil-darchitecture"><a class="header" href="#git-est-un-outil-darchitecture">Git est un outil d’architecture</a></h3>
+<p>Pas seulement un backup.</p>
+<hr>
+<h2 id="21-conclusion"><a class="header" href="#21-conclusion">21. Conclusion</a></h2>
+<p>Dans Bitcoin Monitor, Git est devenu bien plus qu’un système de versionning.</p>
+<p>Il est :</p>
+<ul>
+<li>un système de protection,</li>
+<li>un historique architectural,</li>
+<li>une mémoire technique,</li>
+<li>un outil de survie,</li>
+<li>un accélérateur de refactor.</li>
+</ul>
+<p>Parce qu’au final :</p>
+<blockquote>
+<p>plus un projet devient complexe,
+plus son historique devient précieux.</p>
+</blockquote>
+<p>Et dans une plateforme blockchain temps réel :
+un bon Git finit par devenir aussi important que le code lui-même.</p>
 
                     </main>
 
