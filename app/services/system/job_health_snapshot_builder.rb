@@ -10,23 +10,42 @@ module System
     end
 
     def call
+      sidekiq_crons = System::SidekiqCronLookup.call
       ::SYSTEM_JOBS
         .sort_by { |_name, cfg| cfg[:order] || 999 }
-        .map { |name, cfg| build_one(name, cfg) }
+        .map { |name, cfg| build_one(name, cfg, sidekiq_crons) }
     end
 
     private
 
     attr_reader :now
 
-    def build_one(name, cfg)
+    def build_one(name, cfg, sidekiq_crons)
       runs = JobRun.where(name: name).order(started_at: :desc, created_at: :desc).limit(30).to_a
 
       last_run     = runs.first
       last_ok      = runs.find { |r| r.status == "ok" }
       last_fail    = runs.find { |r| r.status == "fail" }
       last_skipped = runs.find { |r| r.status == "skipped" }
-      running      = runs.find { |r| r.status == "running" && r.finished_at.nil? }
+
+      running_candidate = runs.find { |r| r.status == "running" && r.finished_at.nil? }
+      running =
+        if running_candidate.present? && last_run == running_candidate
+          running_candidate
+        else
+          nil
+        end
+
+      sidekiq_cron = sidekiq_crons[name.to_s]
+
+      display_cron =
+        sidekiq_cron.present? ? sidekiq_cron[:cron] : cfg[:cron]
+
+      display_command =
+        sidekiq_cron.present? ? sidekiq_cron[:klass] : cfg[:command]
+
+      display_triggered_by =
+        sidekiq_cron.present? ? "sidekiq_cron" : last_run&.triggered_by
 
       ok_runs = runs.select { |r| r.status == "ok" && r.duration_ms.present? }.first(10)
       durations = ok_runs.map(&:duration_ms)
@@ -82,16 +101,18 @@ module System
         heartbeat_age_seconds: heartbeat_age_seconds
       )
 
+      progress_source = running || last_run
+
       {
         name: name,
         label: cfg[:label],
         category: cfg[:category],
         active: cfg[:active],
         critical: cfg[:critical],
-        cron: cfg[:cron],
-        command: cfg[:command],
+        cron: display_cron,
+        command: display_command,
         lock_file: cfg[:lock_file],
-        lock_present: cfg[:lock_file].present? ? File.exist?(cfg[:lock_file]) : false,
+        lock_present: lock_active?(cfg[:lock_file]),
 
         expected_every: cfg[:expected_every],
         late_after: cfg[:late_after] || (cfg[:expected_every] * 2),
@@ -122,7 +143,7 @@ module System
             last_run.error
           end,
 
-        last_triggered_by: last_run&.triggered_by,
+        last_triggered_by: display_triggered_by,
 
         progress_pct: running&.progress_pct,
         progress_label: running&.progress_label,
@@ -193,6 +214,20 @@ module System
     def average(values)
       return nil if values.empty?
       (values.sum / values.size.to_f).round
+    end
+
+    def lock_active?(path)
+      return false if path.blank?
+      return false unless File.exist?(path)
+
+      File.open(path, "r") do |file|
+        locked = !file.flock(File::LOCK_EX | File::LOCK_NB)
+        file.flock(File::LOCK_UN) unless locked
+        locked
+      end
+    rescue => e
+      Rails.logger.warn("[system/job_health] lock check failed path=#{path}: #{e.class} #{e.message}")
+      false
     end
   end
 end

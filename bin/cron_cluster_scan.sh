@@ -10,6 +10,7 @@ cd "$APP"
 # rbenv bootstrap
 export RBENV_ROOT="${RBENV_ROOT:-/home/victor/.rbenv}"
 export PATH="$RBENV_ROOT/bin:$RBENV_ROOT/shims:$PATH"
+
 if command -v rbenv >/dev/null 2>&1; then
   eval "$(rbenv init - bash)"
 fi
@@ -24,9 +25,22 @@ JobRunner.run!(
   triggered_by: ENV.fetch("TRIGGERED_BY", "cron"),
   scheduled_for: ENV["SCHEDULED_FOR"].presence
 ) do |jr|
+
   JobRunner.heartbeat!(jr)
-  ClusterScanner.call(job_run: jr)
+
+  limit = ENV.fetch("LIMIT", "1").to_i
+  puts "[cluster_scan] limit=#{limit}"
+  result = Clusters::ScanAndDispatch.call(
+    limit: limit,
+    job_run: jr
+  )
+
   JobRunner.heartbeat!(jr)
+
+  puts "[cluster_scan] dirty_clusters=#{result[:dirty_clusters_count]}"
+  puts "[cluster_scan] scanned_blocks=#{result[:scanned_blocks]}"
+  puts "[cluster_scan] scanned_txs=#{result[:scanned_txs]}"
+  puts "[cluster_scan] multi_input_txs=#{result[:multi_input_txs]}"
 end
 '; then
   echo "[$(date '+%F %T')] [cluster_scan] done" >> "$LOG"

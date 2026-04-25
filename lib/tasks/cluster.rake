@@ -6,7 +6,7 @@ namespace :cluster do
     to    = ENV["TO"]&.to_i
     limit = ENV["LIMIT"]&.to_i
 
-    result = ClusterScanner.call(
+    result = Clusters::ScanAndDispatch.call(
       from_height: from,
       to_height: to,
       limit: limit
@@ -18,13 +18,14 @@ namespace :cluster do
   desc "Scan recent blocks only"
   task scan_recent: :environment do
     blocks_back = (ENV["BLOCKS"] || "20").to_i
-    rpc = BitcoinRpc.new(wallet: nil)
+
+    rpc  = BitcoinRpc.new(wallet: nil)
     best = rpc.getblockcount.to_i
 
     from = [0, best - blocks_back + 1].max
     to   = best
 
-    result = ClusterScanner.call(
+    result = Clusters::ScanAndDispatch.call(
       from_height: from,
       to_height: to
     )
@@ -78,6 +79,7 @@ namespace :cluster do
     puts
 
     puts "--- Sample addresses ---"
+
     cluster.addresses.limit(20).each do |addr|
       puts [
         addr.address,
@@ -88,6 +90,7 @@ namespace :cluster do
 
     puts
     puts "--- Sample links ---"
+
     address_ids = cluster.addresses.limit(200).pluck(:id)
 
     AddressLink
@@ -95,16 +98,16 @@ namespace :cluster do
       .or(AddressLink.where(address_b_id: address_ids))
       .limit(20)
       .each do |link|
-        puts [
-          "link_id=#{link.id}",
-          "a=#{link.address_a_id}",
-          "b=#{link.address_b_id}",
-          "txid=#{link.txid}",
-          "height=#{link.block_height}"
-        ].join(" | ")
-      end
+
+      puts [
+        "link_id=#{link.id}",
+        "a=#{link.address_a_id}",
+        "b=#{link.address_b_id}",
+        "txid=#{link.txid}",
+        "height=#{link.block_height}"
+      ].join(" | ")
+    end
 
     puts
   end
-  
 end

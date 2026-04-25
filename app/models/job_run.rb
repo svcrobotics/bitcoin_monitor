@@ -5,7 +5,7 @@ class JobRun < ApplicationRecord
 
   validates :name, presence: true
   validates :status, presence: true, inclusion: { in: STATUSES }
-  validates :triggered_by, inclusion: { in: TRIGGERS }, allow_blank: true
+  validates :triggered_by, inclusion: { in: %w[cron manual recovery sidekiq_cron] }, allow_blank: true
 
   scope :recent, -> { order(started_at: :desc, created_at: :desc) }
   scope :running, -> { where(status: "running") }

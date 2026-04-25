@@ -5,17 +5,39 @@ namespace :cluster do
     desc "Build cluster metrics"
     task build_metrics: :environment do
       date = Date.current
-      total = Cluster.count
 
-      JobRunner.run!("cluster_v3_build_metrics", meta: { date: date, total: total }, triggered_by: "cron") do |jr|
+      since =
+        if ENV["SINCE"].present?
+          Time.zone.parse(ENV["SINCE"])
+        else
+          2.days.ago
+        end
+
+      scope = Cluster
+        .joins(:cluster_profile)
+        .where("cluster_profiles.updated_at >= ?", since)
+
+      total = scope.count
+
+      JobRunner.run!(
+        "cluster_v3_build_metrics",
+        meta: {
+          date: date,
+          total: total,
+          since: since
+        },
+        triggered_by: ENV.fetch("TRIGGERED_BY", "cron")
+      ) do |jr|
+
         JobRunner.heartbeat!(jr)
 
-        puts "[cluster:v3_build_metrics] start date=#{date} total=#{total}"
+        puts "[cluster:v3_build_metrics] start date=#{date} since=#{since} total=#{total}"
 
         count = 0
 
-        Cluster.find_each.with_index(1) do |cluster, i|
+        scope.find_each.with_index(1) do |cluster, i|
           ClusterMetricsBuilder.call(cluster)
+
           count = i
 
           if (i % 100).zero?
@@ -25,10 +47,13 @@ namespace :cluster do
               label: "cluster #{i} / #{total}",
               meta: {
                 date: date,
+                since: since,
                 processed: i,
                 total: total
               }
             )
+
+            JobRunner.heartbeat!(jr)
 
             puts "[cluster:v3_build_metrics] processed=#{i}/#{total}"
           end
@@ -38,10 +63,18 @@ namespace :cluster do
 
         puts "[cluster:v3_build_metrics] done clusters=#{count}"
 
-        result = { clusters_processed: count }
+        result = {
+          clusters_processed: count,
+          since: since
+        }
 
         jr.update!(
-          meta: { date: date, total: total }.merge(result: result).to_json
+          meta: {
+            date: date,
+            total: total,
+            since: since,
+            result: result
+          }.to_json
         )
 
         result
