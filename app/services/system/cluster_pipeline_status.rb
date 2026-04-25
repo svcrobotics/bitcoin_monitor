@@ -9,7 +9,7 @@ module System
     end
 
     def call
-      cursor = ScannerCursor.find_by(name: "cluster_scan")
+      cursor = ScannerCursor.find_by(name: "realtime_block_stream")
       best = BitcoinRpc.new.getblockcount.to_i
 
       queue = Sidekiq::Queue.new

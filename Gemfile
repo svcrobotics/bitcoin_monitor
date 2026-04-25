@@ -94,3 +94,4 @@ gem "minitest", "~> 5.25"
 gem "redis"
 
 gem "sidekiq-cron"
+gem "ffi-rzmq", "~> 2.0"

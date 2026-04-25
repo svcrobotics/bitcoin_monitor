@@ -122,7 +122,7 @@ class SystemController < ApplicationController
     exchange_last_height = exchange_cursor&.last_blockheight
     exchange_lag = exchange_last_height ? (best_height - exchange_last_height) : nil
 
-    cluster_cursor = ScannerCursor.find_by(name: "cluster_scan")
+    cluster_cursor = ScannerCursor.find_by(name: "realtime_block_stream")
     cluster_last_height = cluster_cursor&.last_blockheight
     cluster_lag = cluster_last_height ? (best_height - cluster_last_height) : nil
 
@@ -146,7 +146,7 @@ class SystemController < ApplicationController
       },
 
       cluster_scan: {
-        label: "Cluster scan",
+        label: "Cluster realtime",
         last_blockheight: cluster_last_height,
         best_height: best_height,
         lag: cluster_lag,

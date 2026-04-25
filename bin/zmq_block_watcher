@@ -1,0 +1,45 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+$stdout.sync = true
+$stderr.sync = true
+
+require_relative "../config/environment"
+require "ffi-rzmq"
+
+context = ZMQ::Context.new
+socket  = context.socket(ZMQ::SUB)
+
+socket.connect("tcp://127.0.0.1:28332")
+socket.setsockopt(ZMQ::SUBSCRIBE, "hashblock")
+
+puts "[zmq] block watcher started"
+Rails.logger.info("[zmq] block watcher started")
+
+loop do
+  topic = String.new
+  payload = String.new
+  sequence = String.new
+
+  socket.recv_string(topic)
+  socket.recv_string(payload)
+  socket.recv_string(sequence)
+
+  next unless topic == "hashblock"
+
+  blockhash = payload.unpack1("H*")
+
+  puts "[zmq] new_block hash=#{blockhash}"
+  Rails.logger.info("[zmq] new_block hash=#{blockhash}")
+
+  cursor = ScannerCursor.find_or_create_by!(name: "zmq_block_watcher")
+  rpc = BitcoinRpc.new(wallet: nil)
+  height = rpc.getblockcount.to_i
+
+  cursor.update!(
+    last_blockheight: height,
+    last_blockhash: blockhash,
+    updated_at: Time.current
+  )
+
+  Realtime::ProcessLatestBlockJob.perform_later
+end

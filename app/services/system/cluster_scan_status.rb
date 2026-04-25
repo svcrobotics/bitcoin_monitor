@@ -2,8 +2,10 @@
 
 module System
   class ClusterScanStatus
-    WARNING_LAG = 12
-    CRITICAL_LAG = 48
+    WARNING_LAG = 3
+    CRITICAL_LAG = 12
+
+    CURSOR_NAME = "realtime_block_stream"
 
     def self.call
       new.call
@@ -11,11 +13,9 @@ module System
 
     def call
       rpc = BitcoinRpc.new(wallet: nil)
-
       best_height = rpc.getblockcount.to_i
 
-      cursor = ScannerCursor.find_by(name: "cluster_scan")
-
+      cursor = ScannerCursor.find_by(name: CURSOR_NAME)
       last_height = cursor&.last_blockheight.to_i
 
       lag =
@@ -26,16 +26,24 @@ module System
         end
 
       {
+        label: "Cluster realtime",
+        cursor_name: CURSOR_NAME,
         cursor_height: last_height,
         best_height: best_height,
         lag: lag,
+        updated_at: cursor&.updated_at,
+        last_blockhash: cursor&.last_blockhash,
         status: compute_status(lag)
       }
     rescue StandardError => e
       {
+        label: "Cluster realtime",
+        cursor_name: CURSOR_NAME,
         cursor_height: nil,
         best_height: nil,
         lag: nil,
+        updated_at: nil,
+        last_blockhash: nil,
         status: "error",
         error: "#{e.class}: #{e.message}"
       }

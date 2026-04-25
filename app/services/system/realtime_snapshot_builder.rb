@@ -13,7 +13,7 @@ module System
     end
 
     def call
-      watcher = ScannerCursor.find_by(name: "realtime_block_watcher")
+      watcher = ScannerCursor.find_by(name: "zmq_block_watcher")
       processor = ScannerCursor.find_by(name: "realtime_block_stream")
 
       {
