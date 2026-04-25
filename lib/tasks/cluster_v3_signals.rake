@@ -11,12 +11,7 @@ namespace :cluster do
           Date.current
         end
 
-      since =
-        if ENV["SINCE"].present?
-          Time.zone.parse(ENV["SINCE"])
-        else
-          2.days.ago
-        end
+      since = 2.days.ago
 
       scope = Cluster
         .joins(:cluster_profile)

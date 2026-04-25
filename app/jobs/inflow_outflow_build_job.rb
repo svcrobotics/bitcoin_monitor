@@ -6,12 +6,14 @@ class InflowOutflowBuildJob < ApplicationJob
   def perform
     JobRunner.run!(
       "inflow_outflow_build",
-      triggered_by: "sidekiq_cron",
+      triggered_by: ENV.fetch("TRIGGERED_BY", "sidekiq_cron"),
       scheduled_for: Time.current.strftime("%Y-%m-%d %H:%M:%S")
     ) do |jr|
       JobRunner.heartbeat!(jr)
 
-      result = InflowOutflowBuilder.call
+      days_back = Integer(ENV.fetch("DAYS_BACK", ENV.fetch("DAYS", "2")))
+
+      result = InflowOutflowBuilder.call(days_back: days_back)
 
       JobRunner.heartbeat!(jr)
 

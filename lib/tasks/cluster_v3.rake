@@ -6,12 +6,7 @@ namespace :cluster do
     task build_metrics: :environment do
       date = Date.current
 
-      since =
-        if ENV["SINCE"].present?
-          Time.zone.parse(ENV["SINCE"])
-        else
-          2.days.ago
-        end
+      since = 2.days.ago
 
       scope = Cluster
         .joins(:cluster_profile)
@@ -36,7 +31,7 @@ namespace :cluster do
         count = 0
 
         scope.find_each.with_index(1) do |cluster, i|
-          ClusterMetricsBuilder.call(cluster)
+          ClusterMetricsBuilder.call(cluster, snapshot_date: date)
 
           count = i
 
