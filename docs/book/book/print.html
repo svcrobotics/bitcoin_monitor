@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-c29d4102.js";
+            window.path_to_searchindex_js = "searchindex-9d85b68a.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-83902cba.js"></script>
+        <script src="toc-d428d19f.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -3803,6 +3803,326 @@ plus son historique devient précieux.</p>
 </blockquote>
 <p>Et dans une plateforme blockchain temps réel :
 un bon Git finit par devenir aussi important que le code lui-même.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="recovery"><a class="header" href="#recovery">Recovery</a></h1>
+<p>Bitcoin Monitor ne traite pas seulement des données blockchain.</p>
+<p>L’application doit aussi survivre :</p>
+<ul>
+<li>à un redémarrage serveur,</li>
+<li>à une coupure électrique,</li>
+<li>à un crash Sidekiq,</li>
+<li>à une désynchronisation de <code>bitcoind</code>,</li>
+<li>à une interruption réseau,</li>
+<li>à un arrêt prolongé des workers,</li>
+<li>ou à un backlog massif de jobs.</li>
+</ul>
+<p>À mesure que le projet est devenu plus temps réel et plus asynchrone, une nouvelle question est apparue :</p>
+<blockquote>
+<p>Comment garantir que le système puisse reprendre automatiquement sans corruption de données ?</p>
+</blockquote>
+<p>Ce problème est devenu central lorsque l’architecture Cluster est passée :</p>
+<pre><code class="language-text">cron simple
+↓
+scan massif
+↓
+temps réel
+↓
+Sidekiq
+↓
+pipeline incrémental
+↓
+watchers ZMQ
+↓
+refresh async
+</code></pre>
+<p>À partir de ce moment-là, le système ne pouvait plus simplement “redémarrer”.</p>
+<p>Il fallait concevoir une vraie stratégie de recovery.</p>
+<hr>
+<h2 id="pourquoi-le-recovery-est-devenu-critique"><a class="header" href="#pourquoi-le-recovery-est-devenu-critique">Pourquoi le recovery est devenu critique</a></h2>
+<p>Au début, Bitcoin Monitor fonctionnait principalement avec des cron jobs :</p>
+<pre><code class="language-text">cron
+↓
+scan blockchain
+↓
+mise à jour SQL
+</code></pre>
+<p>Le modèle était simple :</p>
+<ul>
+<li>un cron échoue,</li>
+<li>il sera relancé plus tard.</li>
+</ul>
+<p>Mais avec l’arrivée du temps réel, plusieurs composants sont devenus dépendants :</p>
+<pre><code class="language-text">bitcoind
+↓
+ZMQ watcher
+↓
+Realtime::ProcessLatestBlockJob
+↓
+Sidekiq
+↓
+ClusterScanner
+↓
+Cluster refresh
+↓
+Signals
+↓
+Dashboard
+</code></pre>
+<p>Un arrêt d’un seul maillon pouvait créer :</p>
+<ul>
+<li>du retard,</li>
+<li>des données incohérentes,</li>
+<li>un backlog Redis,</li>
+<li>des clusters non rafraîchis,</li>
+<li>des signaux obsolètes,</li>
+<li>une fausse impression de temps réel.</li>
+</ul>
+<p>Le recovery n’était plus un “bonus”.</p>
+<p>C’était devenu une nécessité d’architecture.</p>
+<hr>
+<h2 id="le-principe-fondamental"><a class="header" href="#le-principe-fondamental">Le principe fondamental</a></h2>
+<p>Le système devait devenir :</p>
+<pre><code class="language-text">résilient
+</code></pre>
+<p>C’est-à-dire capable de :</p>
+<ul>
+<li>détecter son état,</li>
+<li>détecter les retards,</li>
+<li>mesurer la fraîcheur,</li>
+<li>reprendre automatiquement,</li>
+<li>éviter les doubles traitements,</li>
+<li>continuer même après panne.</li>
+</ul>
+<hr>
+<h2 id="les-curseurs-comme-fondation-du-recovery"><a class="header" href="#les-curseurs-comme-fondation-du-recovery">Les curseurs comme fondation du recovery</a></h2>
+<p>La base du recovery dans Bitcoin Monitor repose sur un élément extrêmement simple :</p>
+<pre><code class="language-ruby">ScannerCursor
+</code></pre>
+<p>Chaque pipeline possède un curseur :</p>
+<pre><code class="language-text">cluster_scan
+exchange_observed_scan
+exchange_address_builder
+realtime_block_watcher
+realtime_block_stream
+</code></pre>
+<p>Chaque curseur stocke :</p>
+<pre><code class="language-text">last_blockheight
+last_blockhash
+updated_at
+</code></pre>
+<p>Cela permet au système de savoir :</p>
+<ul>
+<li>ce qui a déjà été traité,</li>
+<li>où reprendre,</li>
+<li>si un module est bloqué,</li>
+<li>si les données sont fraîches,</li>
+<li>si un service est en retard.</li>
+</ul>
+<hr>
+<h2 id="exemple--protection-contre-le-double-traitement"><a class="header" href="#exemple--protection-contre-le-double-traitement">Exemple : protection contre le double traitement</a></h2>
+<p>Le temps réel a rapidement révélé un problème :</p>
+<pre><code class="language-text">même bloc traité plusieurs fois
+</code></pre>
+<p>Les logs montraient :</p>
+<pre><code class="language-text">latest_block_processed height=946547
+</code></pre>
+<p>puis immédiatement :</p>
+<pre><code class="language-text">already_linked_txs=100
+links_created=0
+</code></pre>
+<p>Le système retraitait donc le même bloc.</p>
+<p>La solution a été d’ajouter un verrou basé sur le curseur :</p>
+<pre><code class="language-ruby">if cursor.last_blockheight.to_i &gt;= height &amp;&amp;
+   cursor.last_blockhash == blockhash
+
+  Rails.logger.info(
+    "[realtime] skip_already_processed"
+  )
+
+  return
+end
+</code></pre>
+<p>Ce mécanisme simple est devenu une brique majeure du recovery.</p>
+<hr>
+<h2 id="reprendre-après-interruption"><a class="header" href="#reprendre-après-interruption">Reprendre après interruption</a></h2>
+<p>Lorsqu’un watcher redémarre, il ne repart pas “à zéro”.</p>
+<p>Il lit son curseur :</p>
+<pre><code class="language-ruby">ScannerCursor.find_by(
+  name: "realtime_block_stream"
+)
+</code></pre>
+<p>Puis reprend automatiquement :</p>
+<pre><code class="language-text">dernier bloc connu
+↓
+nouveau best height
+↓
+scan incrémental
+↓
+rattrapage
+</code></pre>
+<p>Cela permet :</p>
+<ul>
+<li>de redémarrer après panne,</li>
+<li>de reprendre après maintenance,</li>
+<li>d’éviter les rescans complets,</li>
+<li>de limiter la charge CPU,</li>
+<li>de préserver Redis et PostgreSQL.</li>
+</ul>
+<hr>
+<h2 id="sidekiq-et-la-reprise-automatique"><a class="header" href="#sidekiq-et-la-reprise-automatique">Sidekiq et la reprise automatique</a></h2>
+<p>Le passage à Sidekiq a profondément changé la stratégie de recovery.</p>
+<p>Avant :</p>
+<pre><code class="language-text">cron
+↓
+traitement synchrone
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">watcher
+↓
+enqueue Sidekiq
+↓
+worker async
+↓
+retry
+↓
+dead queue
+</code></pre>
+<p>Cela a apporté plusieurs mécanismes essentiels :</p>
+<h3 id="retry-automatique"><a class="header" href="#retry-automatique">Retry automatique</a></h3>
+<p>Un job échoue :</p>
+<pre><code class="language-text">réessai automatique
+</code></pre>
+<p>sans intervention manuelle.</p>
+<hr>
+<h3 id="backlog-observable"><a class="header" href="#backlog-observable">Backlog observable</a></h3>
+<p>Le système peut mesurer :</p>
+<pre><code class="language-text">queue_size
+latency
+retry_size
+dead_size
+</code></pre>
+<p>et afficher cela dans <code>/system</code>.</p>
+<hr>
+<h3 id="reprise-après-reboot"><a class="header" href="#reprise-après-reboot">Reprise après reboot</a></h3>
+<p>Si Redis et Sidekiq redémarrent :</p>
+<pre><code class="language-text">les jobs reprennent
+</code></pre>
+<p>au lieu d’être perdus.</p>
+<hr>
+<h2 id="le-rôle-de-systemd"><a class="header" href="#le-rôle-de-systemd">Le rôle de systemd</a></h2>
+<p>Les watchers temps réel ne pouvaient pas dépendre d’un terminal ouvert.</p>
+<p>Ils ont donc été transformés en services systemd user :</p>
+<pre><code class="language-text">zmq-block-watcher.service
+sidekiq-bitcoin-monitor.service
+</code></pre>
+<p>Exemple :</p>
+<pre><code class="language-text">systemctl --user status zmq-block-watcher
+</code></pre>
+<p>Le watcher devient alors :</p>
+<ul>
+<li>supervisé,</li>
+<li>relancé automatiquement,</li>
+<li>observable,</li>
+<li>intégré au système Linux.</li>
+</ul>
+<hr>
+<h2 id="la-supervision-dans-system"><a class="header" href="#la-supervision-dans-system">La supervision dans <code>/system</code></a></h2>
+<p>Une étape importante a été la création d’un vrai dashboard de recovery.</p>
+<p>Le système expose maintenant :</p>
+<pre><code class="language-text">watcher status
+processor status
+lag
+freshness
+queues
+retry
+dead jobs
+disk usage
+bitcoind RPC
+</code></pre>
+<p>Exemple :</p>
+<pre><code class="language-text">Watcher
+OK
+
+Processor
+OK
+
+Last height
+946567
+</code></pre>
+<p>ou :</p>
+<pre><code class="language-text">STALE
+</code></pre>
+<p>si un composant ne bouge plus.</p>
+<p>Le dashboard <code>/system</code> est devenu un outil opérationnel central.</p>
+<hr>
+<h2 id="recovery-readiness"><a class="header" href="#recovery-readiness">Recovery readiness</a></h2>
+<p>Une idée importante est apparue progressivement :</p>
+<pre><code class="language-text">le système doit expliquer lui-même
+comment il peut redémarrer
+</code></pre>
+<p>C’est la naissance du concept :</p>
+<pre><code class="language-text">Recovery readiness
+</code></pre>
+<p>Le système affiche :</p>
+<ul>
+<li>les problèmes critiques,</li>
+<li>les jobs bloqués,</li>
+<li>l’ordre de reprise,</li>
+<li>les modules en retard,</li>
+<li>les dépendances critiques.</li>
+</ul>
+<p>Exemple :</p>
+<pre><code class="language-text">btc_price_daily
+↓
+market_snapshot
+↓
+exchange_observed_scan
+↓
+cluster_scan
+↓
+cluster_signals
+</code></pre>
+<p>Cela transforme le dashboard en véritable centre de supervision.</p>
+<hr>
+<h2 id="le-temps-réel-a-changé-la-philosophie-du-projet"><a class="header" href="#le-temps-réel-a-changé-la-philosophie-du-projet">Le temps réel a changé la philosophie du projet</a></h2>
+<p>Le passage au temps réel a obligé Bitcoin Monitor à évoluer :</p>
+<p>Avant :</p>
+<pre><code class="language-text">application Rails
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">système distribué de traitement blockchain
+</code></pre>
+<p>Le recovery n’est plus une fonctionnalité secondaire.</p>
+<p>C’est devenu :</p>
+<ul>
+<li>une discipline,</li>
+<li>une architecture,</li>
+<li>une philosophie de conception.</li>
+</ul>
+<hr>
+<h2 id="ce-que-cette-évolution-a-apporté"><a class="header" href="#ce-que-cette-évolution-a-apporté">Ce que cette évolution a apporté</a></h2>
+<p>Le système est maintenant capable de :</p>
+<ul>
+<li>reprendre automatiquement après panne,</li>
+<li>éviter les doubles traitements,</li>
+<li>détecter les retards,</li>
+<li>mesurer la fraîcheur,</li>
+<li>superviser Sidekiq,</li>
+<li>superviser Redis,</li>
+<li>superviser bitcoind,</li>
+<li>surveiller les pipelines,</li>
+<li>afficher l’état réel de la plateforme.</li>
+</ul>
+<hr>
+<h2 id="une-leçon-importante"><a class="header" href="#une-leçon-importante">Une leçon importante</a></h2>
+<p>Le vrai défi n’était pas :</p>
+<pre><code class="language-text">traiter les blocs
+</code></pre>
+<p>Le vrai défi était :</p>
+<pre><code class="language-text">continuer à traiter correctement
+même après interruption
+</code></pre>
+<p>C’est cette réflexion qui a progressivement transformé Bitcoin Monitor en une architecture beaucoup plus professionnelle.</p>
 
                     </main>
 
