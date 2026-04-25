@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Git - Construire une application Rails professionnelle</title>
+        <title>Recovery - Construire une application Rails professionnelle</title>
 
 
         <!-- Custom HTML head -->
@@ -174,336 +174,334 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="git--loutil-invisible-qui-protège-bitcoin-monitor"><a class="header" href="#git--loutil-invisible-qui-protège-bitcoin-monitor">Git : l’outil invisible qui protège Bitcoin Monitor</a></h1>
+                        <h1 id="recovery"><a class="header" href="#recovery">Recovery</a></h1>
+<p>Bitcoin Monitor ne traite pas seulement des données blockchain.</p>
+<p>L’application doit aussi survivre :</p>
+<ul>
+<li>à un redémarrage serveur,</li>
+<li>à une coupure électrique,</li>
+<li>à un crash Sidekiq,</li>
+<li>à une désynchronisation de <code>bitcoind</code>,</li>
+<li>à une interruption réseau,</li>
+<li>à un arrêt prolongé des workers,</li>
+<li>ou à un backlog massif de jobs.</li>
+</ul>
+<p>À mesure que le projet est devenu plus temps réel et plus asynchrone, une nouvelle question est apparue :</p>
 <blockquote>
-<p>Dans un projet complexe, le danger ne vient pas uniquement des bugs.</p>
-<p>Le vrai danger vient souvent :</p>
-<ul>
-<li>des changements non suivis,</li>
-<li>des expérimentations perdues,</li>
-<li>des refactors incontrôlés,</li>
-<li>des retours arrière impossibles.</li>
-</ul>
-<p>Et progressivement, une réalité devient évidente :</p>
-<blockquote>
-<p>sans discipline Git, un projet finit par devenir ingérable.</p>
+<p>Comment garantir que le système puisse reprendre automatiquement sans corruption de données ?</p>
 </blockquote>
-</blockquote>
-<hr>
-<h2 id="1-git-nest-pas-juste-un-outil-de-backup"><a class="header" href="#1-git-nest-pas-juste-un-outil-de-backup">1. Git n’est pas juste un outil de backup</a></h2>
-<p>Au début, beaucoup de développeurs utilisent Git comme :</p>
-<pre><code class="language-text">une sauvegarde améliorée.
-</code></pre>
-<p>Mais dans un projet comme Bitcoin Monitor :</p>
-<p>Git devient :</p>
-<ul>
-<li>un système de traçabilité,</li>
-<li>une protection,</li>
-<li>un historique architectural,</li>
-<li>un filet de sécurité.</li>
-</ul>
-<hr>
-<h2 id="2-pourquoi-git-devient-critique-dans-bitcoin-monitor"><a class="header" href="#2-pourquoi-git-devient-critique-dans-bitcoin-monitor">2. Pourquoi Git devient critique dans Bitcoin Monitor</a></h2>
-<p>Bitcoin Monitor évolue rapidement.</p>
-<p>Les modules changent constamment :</p>
-<ul>
-<li>Cluster,</li>
-<li>Exchange Like,</li>
-<li>Temps réel,</li>
-<li>Sidekiq,</li>
-<li>pipelines,</li>
-<li>monitoring,</li>
-<li>dashboards.</li>
-</ul>
-<p>Sans historique clair :
-le projet deviendrait rapidement dangereux.</p>
-<hr>
-<h2 id="3-le-premier-vrai-besoin--expérimenter-sans-peur"><a class="header" href="#3-le-premier-vrai-besoin--expérimenter-sans-peur">3. Le premier vrai besoin : expérimenter sans peur</a></h2>
-<p>Beaucoup d’évolutions du projet sont expérimentales :</p>
-<ul>
-<li>pipelines temps réel,</li>
-<li>scanners,</li>
-<li>heuristiques,</li>
-<li>Redis,</li>
-<li>Sidekiq,</li>
-<li>refactors architecture.</li>
-</ul>
-<p>Git permet :</p>
-<pre><code class="language-text">tester
+<p>Ce problème est devenu central lorsque l’architecture Cluster est passée :</p>
+<pre><code class="language-text">cron simple
 ↓
-revenir en arrière
+scan massif
 ↓
-comparer
+temps réel
 ↓
-refactoriser
+Sidekiq
+↓
+pipeline incrémental
+↓
+watchers ZMQ
+↓
+refresh async
 </code></pre>
-<p>Sans peur de casser définitivement le système.</p>
+<p>À partir de ce moment-là, le système ne pouvait plus simplement “redémarrer”.</p>
+<p>Il fallait concevoir une vraie stratégie de recovery.</p>
 <hr>
-<h2 id="4-les-commits-deviennent-de-la-documentation"><a class="header" href="#4-les-commits-deviennent-de-la-documentation">4. Les commits deviennent de la documentation</a></h2>
-<p>Un bon commit raconte :</p>
-<pre><code class="language-text">pourquoi le système a changé.
-</code></pre>
-<p>Exemple mauvais :</p>
-<pre><code class="language-text">fix
-</code></pre>
-<p>Exemple utile :</p>
-<pre><code class="language-text">cluster: add realtime incremental scanner
-</code></pre>
-<p>Des mois plus tard :
-cela devient une documentation historique.</p>
-<hr>
-<h2 id="5-le-vrai-rôle-des-branches"><a class="header" href="#5-le-vrai-rôle-des-branches">5. Le vrai rôle des branches</a></h2>
-<p>Les branches permettent :</p>
-<ul>
-<li>d’isoler des expérimentations,</li>
-<li>de tester des idées risquées,</li>
-<li>de préparer des refactors massifs.</li>
-</ul>
-<p>Exemple :</p>
-<pre><code class="language-text">feature/realtime-cluster
-feature/exchange-flow-v2
-refactor/system-dashboard
-</code></pre>
-<p>Le projet devient beaucoup plus sûr.</p>
-<hr>
-<h2 id="6-pourquoi-les-petits-commits-sont-importants"><a class="header" href="#6-pourquoi-les-petits-commits-sont-importants">6. Pourquoi les petits commits sont importants</a></h2>
-<p>Un énorme commit :</p>
-<pre><code class="language-text">500 fichiers modifiés
-</code></pre>
-<p>devient presque impossible à relire.</p>
-<p>À l’inverse :</p>
-<pre><code class="language-text">add realtime watcher
-add cursor protection
-add system realtime card
-</code></pre>
-<p>permet :</p>
-<ul>
-<li>de comprendre,</li>
-<li>de review,</li>
-<li>de rollback précisément.</li>
-</ul>
-<hr>
-<h2 id="7-git-protège-contre-les-refactors-dangereux"><a class="header" href="#7-git-protège-contre-les-refactors-dangereux">7. Git protège contre les refactors dangereux</a></h2>
-<p>Bitcoin Monitor effectue régulièrement :</p>
-<ul>
-<li>des réorganisations,</li>
-<li>des découpages service,</li>
-<li>des changements de pipeline.</li>
-</ul>
-<p>Sans Git :
-un refactor massif devient extrêmement risqué.</p>
-<p>Avec Git :
-on peut :</p>
-<ul>
-<li>comparer,</li>
-<li>revenir,</li>
-<li>cherry-pick,</li>
-<li>tester progressivement.</li>
-</ul>
-<hr>
-<h2 id="8-le-gitignore-devient-stratégique"><a class="header" href="#8-le-gitignore-devient-stratégique">8. Le <code>.gitignore</code> devient stratégique</a></h2>
-<p>Très vite, certains fichiers ne doivent jamais être versionnés :</p>
-<ul>
-<li><code>.env</code>,</li>
-<li>logs,</li>
-<li>storage,</li>
-<li>clés,</li>
-<li>Redis dumps,</li>
-<li>builds temporaires.</li>
-</ul>
-<p>Un <code>.gitignore</code> propre protège :</p>
-<ul>
-<li>la sécurité,</li>
-<li>les performances,</li>
-<li>la confidentialité.</li>
-</ul>
-<hr>
-<h2 id="9-pourquoi-il-ne-faut-jamais-commit-les-secrets"><a class="header" href="#9-pourquoi-il-ne-faut-jamais-commit-les-secrets">9. Pourquoi il ne faut jamais commit les secrets</a></h2>
-<p>Dans un projet blockchain :
-c’est encore plus critique.</p>
-<p>Jamais :</p>
-<ul>
-<li>clés privées,</li>
-<li>wallets,</li>
-<li>credentials,</li>
-<li>tokens API,</li>
-<li><code>master.key</code>.</li>
-</ul>
-<p>Une fuite Git peut devenir irréversible.</p>
-<hr>
-<h2 id="10-git-comme-outil-de-compréhension"><a class="header" href="#10-git-comme-outil-de-compréhension">10. Git comme outil de compréhension</a></h2>
-<p>Avec le temps :</p>
-<pre><code class="language-bash">git log
-git blame
-git diff
-</code></pre>
-<p>deviennent des outils d’analyse.</p>
-<p>Ils permettent de répondre :</p>
-<ul>
-<li>quand un comportement est apparu,</li>
-<li>pourquoi un module a changé,</li>
-<li>qui a modifié une logique critique.</li>
-</ul>
-<hr>
-<h2 id="11-git-aide-à-comprendre-larchitecture"><a class="header" href="#11-git-aide-à-comprendre-larchitecture">11. Git aide à comprendre l’architecture</a></h2>
-<p>Un historique propre montre :</p>
-<ul>
-<li>les grandes phases du projet,</li>
-<li>les transitions d’architecture,</li>
-<li>les décisions techniques importantes.</li>
-</ul>
-<p>Exemple :</p>
+<h2 id="pourquoi-le-recovery-est-devenu-critique"><a class="header" href="#pourquoi-le-recovery-est-devenu-critique">Pourquoi le recovery est devenu critique</a></h2>
+<p>Au début, Bitcoin Monitor fonctionnait principalement avec des cron jobs :</p>
 <pre><code class="language-text">cron
-→ Sidekiq
-→ temps réel
-→ pipeline event-driven
+↓
+scan blockchain
+↓
+mise à jour SQL
 </code></pre>
-<p>L’historique Git raconte cette évolution.</p>
-<hr>
-<h2 id="12-les-tags-deviennent-importants"><a class="header" href="#12-les-tags-deviennent-importants">12. Les tags deviennent importants</a></h2>
-<p>Quand un système devient plus mature :
-les tags deviennent utiles :</p>
-<pre><code class="language-text">v1.0
-v2-cluster
-v3-realtime
-</code></pre>
-<p>Ils permettent :</p>
+<p>Le modèle était simple :</p>
 <ul>
-<li>de figer des états stables,</li>
-<li>de revenir rapidement,</li>
-<li>de documenter les grandes versions.</li>
+<li>un cron échoue,</li>
+<li>il sera relancé plus tard.</li>
+</ul>
+<p>Mais avec l’arrivée du temps réel, plusieurs composants sont devenus dépendants :</p>
+<pre><code class="language-text">bitcoind
+↓
+ZMQ watcher
+↓
+Realtime::ProcessLatestBlockJob
+↓
+Sidekiq
+↓
+ClusterScanner
+↓
+Cluster refresh
+↓
+Signals
+↓
+Dashboard
+</code></pre>
+<p>Un arrêt d’un seul maillon pouvait créer :</p>
+<ul>
+<li>du retard,</li>
+<li>des données incohérentes,</li>
+<li>un backlog Redis,</li>
+<li>des clusters non rafraîchis,</li>
+<li>des signaux obsolètes,</li>
+<li>une fausse impression de temps réel.</li>
+</ul>
+<p>Le recovery n’était plus un “bonus”.</p>
+<p>C’était devenu une nécessité d’architecture.</p>
+<hr>
+<h2 id="le-principe-fondamental"><a class="header" href="#le-principe-fondamental">Le principe fondamental</a></h2>
+<p>Le système devait devenir :</p>
+<pre><code class="language-text">résilient
+</code></pre>
+<p>C’est-à-dire capable de :</p>
+<ul>
+<li>détecter son état,</li>
+<li>détecter les retards,</li>
+<li>mesurer la fraîcheur,</li>
+<li>reprendre automatiquement,</li>
+<li>éviter les doubles traitements,</li>
+<li>continuer même après panne.</li>
 </ul>
 <hr>
-<h2 id="13-pourquoi-les-messages-de-commit-comptent"><a class="header" href="#13-pourquoi-les-messages-de-commit-comptent">13. Pourquoi les messages de commit comptent</a></h2>
-<p>Un commit n’est pas seulement :</p>
-<pre><code class="language-text">du code.
+<h2 id="les-curseurs-comme-fondation-du-recovery"><a class="header" href="#les-curseurs-comme-fondation-du-recovery">Les curseurs comme fondation du recovery</a></h2>
+<p>La base du recovery dans Bitcoin Monitor repose sur un élément extrêmement simple :</p>
+<pre><code class="language-ruby">ScannerCursor
 </code></pre>
-<p>C’est aussi :</p>
-<pre><code class="language-text">une décision.
+<p>Chaque pipeline possède un curseur :</p>
+<pre><code class="language-text">cluster_scan
+exchange_observed_scan
+exchange_address_builder
+realtime_block_watcher
+realtime_block_stream
 </code></pre>
-<p>Les meilleurs messages expliquent :</p>
+<p>Chaque curseur stocke :</p>
+<pre><code class="language-text">last_blockheight
+last_blockhash
+updated_at
+</code></pre>
+<p>Cela permet au système de savoir :</p>
 <ul>
-<li>le problème,</li>
-<li>la raison du changement,</li>
-<li>l’impact.</li>
+<li>ce qui a déjà été traité,</li>
+<li>où reprendre,</li>
+<li>si un module est bloqué,</li>
+<li>si les données sont fraîches,</li>
+<li>si un service est en retard.</li>
 </ul>
 <hr>
-<h2 id="14-les-refactors-doivent-être-séparés"><a class="header" href="#14-les-refactors-doivent-être-séparés">14. Les refactors doivent être séparés</a></h2>
-<p>Très important :</p>
-<p>Ne jamais mélanger :</p>
-<ul>
-<li>refactor,</li>
-<li>nouvelles features,</li>
-<li>corrections métier.</li>
-</ul>
-<p>Exemple mauvais :</p>
-<pre><code class="language-text">refactor + realtime + fixes + ui
+<h2 id="exemple--protection-contre-le-double-traitement"><a class="header" href="#exemple--protection-contre-le-double-traitement">Exemple : protection contre le double traitement</a></h2>
+<p>Le temps réel a rapidement révélé un problème :</p>
+<pre><code class="language-text">même bloc traité plusieurs fois
 </code></pre>
-<p>Impossible à relire.</p>
-<hr>
-<h2 id="15-les-commits-doivent-rester-lisibles"><a class="header" href="#15-les-commits-doivent-rester-lisibles">15. Les commits doivent rester lisibles</a></h2>
-<p>Un bon historique Git ressemble à :</p>
-<pre><code class="language-text">une histoire logique.
+<p>Les logs montraient :</p>
+<pre><code class="language-text">latest_block_processed height=946547
 </code></pre>
-<p>Pas à :</p>
-<pre><code class="language-text">une explosion chaotique.
+<p>puis immédiatement :</p>
+<pre><code class="language-text">already_linked_txs=100
+links_created=0
 </code></pre>
-<hr>
-<h2 id="16-git-protège-la-production"><a class="header" href="#16-git-protège-la-production">16. Git protège la production</a></h2>
-<p>Quand un pipeline critique casse :</p>
-<pre><code class="language-bash">git diff
-git revert
-git checkout
+<p>Le système retraitait donc le même bloc.</p>
+<p>La solution a été d’ajouter un verrou basé sur le curseur :</p>
+<pre><code class="language-ruby">if cursor.last_blockheight.to_i &gt;= height &amp;&amp;
+   cursor.last_blockhash == blockhash
+
+  Rails.logger.info(
+    "[realtime] skip_already_processed"
+  )
+
+  return
+end
 </code></pre>
-<p>deviennent des outils de survie.</p>
-<p>Dans un système blockchain :
-cela peut éviter des heures de downtime.</p>
+<p>Ce mécanisme simple est devenu une brique majeure du recovery.</p>
 <hr>
-<h2 id="17-git-devient-encore-plus-important-avec-sidekiq"><a class="header" href="#17-git-devient-encore-plus-important-avec-sidekiq">17. Git devient encore plus important avec Sidekiq</a></h2>
-<p>Les systèmes async :</p>
-<ul>
-<li>sont plus complexes,</li>
-<li>plus distribués,</li>
-<li>plus difficiles à débugger.</li>
-</ul>
-<p>Git permet :</p>
-<ul>
-<li>de suivre les workers,</li>
-<li>comprendre les changements pipeline,</li>
-<li>comparer les comportements.</li>
-</ul>
-<hr>
-<h2 id="18-les-reviews-deviennent-possibles"><a class="header" href="#18-les-reviews-deviennent-possibles">18. Les reviews deviennent possibles</a></h2>
-<p>Avec une bonne discipline Git :
-les pull requests deviennent lisibles.</p>
+<h2 id="reprendre-après-interruption"><a class="header" href="#reprendre-après-interruption">Reprendre après interruption</a></h2>
+<p>Lorsqu’un watcher redémarre, il ne repart pas “à zéro”.</p>
+<p>Il lit son curseur :</p>
+<pre><code class="language-ruby">ScannerCursor.find_by(
+  name: "realtime_block_stream"
+)
+</code></pre>
+<p>Puis reprend automatiquement :</p>
+<pre><code class="language-text">dernier bloc connu
+↓
+nouveau best height
+↓
+scan incrémental
+↓
+rattrapage
+</code></pre>
 <p>Cela permet :</p>
 <ul>
-<li>audit,</li>
-<li>review,</li>
-<li>discussion architecture,</li>
-<li>validation sécurité.</li>
+<li>de redémarrer après panne,</li>
+<li>de reprendre après maintenance,</li>
+<li>d’éviter les rescans complets,</li>
+<li>de limiter la charge CPU,</li>
+<li>de préserver Redis et PostgreSQL.</li>
 </ul>
 <hr>
-<h2 id="19-git-comme-mémoire-technique"><a class="header" href="#19-git-comme-mémoire-technique">19. Git comme mémoire technique</a></h2>
-<p>Après plusieurs mois :
-personne ne se souvient exactement :</p>
-<ul>
-<li>pourquoi une heuristique existe,</li>
-<li>pourquoi un lock Redis a été ajouté,</li>
-<li>pourquoi un cron a disparu.</li>
-</ul>
-<p>Git devient alors :</p>
-<pre><code class="language-text">la mémoire technique du projet.
+<h2 id="sidekiq-et-la-reprise-automatique"><a class="header" href="#sidekiq-et-la-reprise-automatique">Sidekiq et la reprise automatique</a></h2>
+<p>Le passage à Sidekiq a profondément changé la stratégie de recovery.</p>
+<p>Avant :</p>
+<pre><code class="language-text">cron
+↓
+traitement synchrone
 </code></pre>
+<p>Après :</p>
+<pre><code class="language-text">watcher
+↓
+enqueue Sidekiq
+↓
+worker async
+↓
+retry
+↓
+dead queue
+</code></pre>
+<p>Cela a apporté plusieurs mécanismes essentiels :</p>
+<h3 id="retry-automatique"><a class="header" href="#retry-automatique">Retry automatique</a></h3>
+<p>Un job échoue :</p>
+<pre><code class="language-text">réessai automatique
+</code></pre>
+<p>sans intervention manuelle.</p>
 <hr>
-<h2 id="20-les-leçons-apprises"><a class="header" href="#20-les-leçons-apprises">20. Les leçons apprises</a></h2>
-<h3 id="commit-souvent"><a class="header" href="#commit-souvent">Commit souvent</a></h3>
-<p>Pas une fois par semaine.</p>
+<h3 id="backlog-observable"><a class="header" href="#backlog-observable">Backlog observable</a></h3>
+<p>Le système peut mesurer :</p>
+<pre><code class="language-text">queue_size
+latency
+retry_size
+dead_size
+</code></pre>
+<p>et afficher cela dans <code>/system</code>.</p>
 <hr>
-<h3 id="commit-petit"><a class="header" href="#commit-petit">Commit petit</a></h3>
-<p>Chaque commit doit être compréhensible seul.</p>
+<h3 id="reprise-après-reboot"><a class="header" href="#reprise-après-reboot">Reprise après reboot</a></h3>
+<p>Si Redis et Sidekiq redémarrent :</p>
+<pre><code class="language-text">les jobs reprennent
+</code></pre>
+<p>au lieu d’être perdus.</p>
 <hr>
-<h3 id="nommer-clairement"><a class="header" href="#nommer-clairement">Nommer clairement</a></h3>
-<p>Les messages flous détruisent l’historique.</p>
-<hr>
-<h3 id="ne-jamais-commit-les-secrets"><a class="header" href="#ne-jamais-commit-les-secrets">Ne jamais commit les secrets</a></h3>
-<p>Jamais.</p>
-<hr>
-<h3 id="utiliser-les-branches"><a class="header" href="#utiliser-les-branches">Utiliser les branches</a></h3>
-<p>Les expérimentations doivent être isolées.</p>
-<hr>
-<h3 id="git-est-un-outil-darchitecture"><a class="header" href="#git-est-un-outil-darchitecture">Git est un outil d’architecture</a></h3>
-<p>Pas seulement un backup.</p>
-<hr>
-<h2 id="21-conclusion"><a class="header" href="#21-conclusion">21. Conclusion</a></h2>
-<p>Dans Bitcoin Monitor, Git est devenu bien plus qu’un système de versionning.</p>
-<p>Il est :</p>
+<h2 id="le-rôle-de-systemd"><a class="header" href="#le-rôle-de-systemd">Le rôle de systemd</a></h2>
+<p>Les watchers temps réel ne pouvaient pas dépendre d’un terminal ouvert.</p>
+<p>Ils ont donc été transformés en services systemd user :</p>
+<pre><code class="language-text">zmq-block-watcher.service
+sidekiq-bitcoin-monitor.service
+</code></pre>
+<p>Exemple :</p>
+<pre><code class="language-text">systemctl --user status zmq-block-watcher
+</code></pre>
+<p>Le watcher devient alors :</p>
 <ul>
-<li>un système de protection,</li>
-<li>un historique architectural,</li>
-<li>une mémoire technique,</li>
-<li>un outil de survie,</li>
-<li>un accélérateur de refactor.</li>
+<li>supervisé,</li>
+<li>relancé automatiquement,</li>
+<li>observable,</li>
+<li>intégré au système Linux.</li>
 </ul>
-<p>Parce qu’au final :</p>
-<blockquote>
-<p>plus un projet devient complexe,
-plus son historique devient précieux.</p>
-</blockquote>
-<p>Et dans une plateforme blockchain temps réel :
-un bon Git finit par devenir aussi important que le code lui-même.</p>
+<hr>
+<h2 id="la-supervision-dans-system"><a class="header" href="#la-supervision-dans-system">La supervision dans <code>/system</code></a></h2>
+<p>Une étape importante a été la création d’un vrai dashboard de recovery.</p>
+<p>Le système expose maintenant :</p>
+<pre><code class="language-text">watcher status
+processor status
+lag
+freshness
+queues
+retry
+dead jobs
+disk usage
+bitcoind RPC
+</code></pre>
+<p>Exemple :</p>
+<pre><code class="language-text">Watcher
+OK
+
+Processor
+OK
+
+Last height
+946567
+</code></pre>
+<p>ou :</p>
+<pre><code class="language-text">STALE
+</code></pre>
+<p>si un composant ne bouge plus.</p>
+<p>Le dashboard <code>/system</code> est devenu un outil opérationnel central.</p>
+<hr>
+<h2 id="recovery-readiness"><a class="header" href="#recovery-readiness">Recovery readiness</a></h2>
+<p>Une idée importante est apparue progressivement :</p>
+<pre><code class="language-text">le système doit expliquer lui-même
+comment il peut redémarrer
+</code></pre>
+<p>C’est la naissance du concept :</p>
+<pre><code class="language-text">Recovery readiness
+</code></pre>
+<p>Le système affiche :</p>
+<ul>
+<li>les problèmes critiques,</li>
+<li>les jobs bloqués,</li>
+<li>l’ordre de reprise,</li>
+<li>les modules en retard,</li>
+<li>les dépendances critiques.</li>
+</ul>
+<p>Exemple :</p>
+<pre><code class="language-text">btc_price_daily
+↓
+market_snapshot
+↓
+exchange_observed_scan
+↓
+cluster_scan
+↓
+cluster_signals
+</code></pre>
+<p>Cela transforme le dashboard en véritable centre de supervision.</p>
+<hr>
+<h2 id="le-temps-réel-a-changé-la-philosophie-du-projet"><a class="header" href="#le-temps-réel-a-changé-la-philosophie-du-projet">Le temps réel a changé la philosophie du projet</a></h2>
+<p>Le passage au temps réel a obligé Bitcoin Monitor à évoluer :</p>
+<p>Avant :</p>
+<pre><code class="language-text">application Rails
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">système distribué de traitement blockchain
+</code></pre>
+<p>Le recovery n’est plus une fonctionnalité secondaire.</p>
+<p>C’est devenu :</p>
+<ul>
+<li>une discipline,</li>
+<li>une architecture,</li>
+<li>une philosophie de conception.</li>
+</ul>
+<hr>
+<h2 id="ce-que-cette-évolution-a-apporté"><a class="header" href="#ce-que-cette-évolution-a-apporté">Ce que cette évolution a apporté</a></h2>
+<p>Le système est maintenant capable de :</p>
+<ul>
+<li>reprendre automatiquement après panne,</li>
+<li>éviter les doubles traitements,</li>
+<li>détecter les retards,</li>
+<li>mesurer la fraîcheur,</li>
+<li>superviser Sidekiq,</li>
+<li>superviser Redis,</li>
+<li>superviser bitcoind,</li>
+<li>surveiller les pipelines,</li>
+<li>afficher l’état réel de la plateforme.</li>
+</ul>
+<hr>
+<h2 id="une-leçon-importante"><a class="header" href="#une-leçon-importante">Une leçon importante</a></h2>
+<p>Le vrai défi n’était pas :</p>
+<pre><code class="language-text">traiter les blocs
+</code></pre>
+<p>Le vrai défi était :</p>
+<pre><code class="language-text">continuer à traiter correctement
+même après interruption
+</code></pre>
+<p>C’est cette réflexion qui a progressivement transformé Bitcoin Monitor en une architecture beaucoup plus professionnelle.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="real-time.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="git.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="recovery.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -511,13 +509,10 @@ un bon Git finit par devenir aussi important que le code lui-même.</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="real-time.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="git.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="recovery.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                    </a>
             </nav>
 
         </div>
