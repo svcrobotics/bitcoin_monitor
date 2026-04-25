@@ -92,3 +92,5 @@ gem "sidekiq"
 gem "minitest", "~> 5.25"
 
 gem "redis"
+
+gem "sidekiq-cron"
