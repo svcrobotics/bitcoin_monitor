@@ -1,4 +1,9 @@
-:concurrency: 5
+:concurrency: 6
 
 :queues:
-  - default
+  - [realtime, 8]
+  - [p1_exchange, 4]
+  - [p2_flows, 3]
+  - [p3_clusters, 2]
+  - [p4_analytics, 1]
+  - [default, 1]

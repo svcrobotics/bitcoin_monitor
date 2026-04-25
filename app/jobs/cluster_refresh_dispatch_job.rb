@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ClusterRefreshDispatchJob < ApplicationJob
-  queue_as :default
+  queue_as :p3_clusters
 
   BATCH_SIZE = 50
 

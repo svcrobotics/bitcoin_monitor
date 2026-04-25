@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_04_22_135108) do
+ActiveRecord::Schema[8.0].define(version: 2026_04_25_214658) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -225,7 +225,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_04_22_135108) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.text "traits"
-    t.index ["cluster_id"], name: "index_cluster_profiles_on_cluster_id"
+    t.index ["cluster_id"], name: "index_cluster_profiles_on_cluster_id", unique: true
   end
 
   create_table "cluster_signals", force: :cascade do |t|

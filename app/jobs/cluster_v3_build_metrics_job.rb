@@ -3,7 +3,7 @@
 require "rake"
 
 class ClusterV3BuildMetricsJob < ApplicationJob
-  queue_as :default
+  queue_as :p4_analytics
 
   def perform
     Rails.application.load_tasks

@@ -23,6 +23,10 @@ module Clusters
         refreshed += 1
       rescue StandardError => e
         puts "[cluster_scan] refresh_dirty_cluster_failed cluster_id=#{cluster.id} error=#{e.class}: #{e.message}"
+
+        if e.respond_to?(:record) && e.record.present?
+          puts "[cluster_scan] validation_errors model=#{e.record.class.name} errors=#{e.record.errors.full_messages.join(', ')}"
+        end
       end
 
       refreshed

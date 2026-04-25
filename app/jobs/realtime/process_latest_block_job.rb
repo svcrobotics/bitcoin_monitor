@@ -2,15 +2,23 @@
 
 module Realtime
   class ProcessLatestBlockJob < ApplicationJob
-    queue_as :default
+    queue_as :realtime
 
     CURSOR_NAME = "realtime_block_stream"
+    LOCK_NAME   = "realtime_processing_lock"
+
+    MAX_BLOCKS_PER_RUN = Integer(ENV.fetch("REALTIME_MAX_BLOCKS_PER_RUN", "5"))
 
     def perform
-      lock = ScannerCursor.find_or_create_by!(name: "realtime_processing_lock")
+      lock = ScannerCursor.find_or_create_by!(name: LOCK_NAME)
 
       locked = lock.with_lock do
-        lock.updated_at < 2.minutes.ago
+        if lock.updated_at.present? && lock.updated_at > 30.seconds.ago
+          false
+        else
+          lock.touch
+          true
+        end
       end
 
       unless locked
@@ -18,28 +26,37 @@ module Realtime
         return { ok: true, skipped: true, reason: "lock_active" }
       end
 
-      lock.touch
-
-      process_latest_block
+      process_pending_blocks
+    ensure
+      lock&.update!(updated_at: 1.minute.ago)
     end
 
     private
 
-    def process_latest_block
+    def process_pending_blocks
       rpc = BitcoinRpc.new(wallet: nil)
-      height = rpc.getblockcount.to_i
-      blockhash = rpc.getblockhash(height)
+      best_height = rpc.getblockcount.to_i
 
       cursor = ScannerCursor.find_or_create_by!(name: CURSOR_NAME)
 
-      if cursor.last_blockheight.to_i >= height && cursor.last_blockhash == blockhash
-        Rails.logger.info("[realtime] skip_already_processed height=#{height} hash=#{blockhash}")
-        return { ok: true, skipped: true, height: height }
+      start_height =
+        if cursor.last_blockheight.to_i.positive?
+          cursor.last_blockheight.to_i + 1
+        else
+          best_height
+        end
+
+      if start_height > best_height
+        Rails.logger.info("[realtime] skip_already_caught_up height=#{best_height}")
+        return { ok: true, skipped: true, reason: "caught_up", height: best_height }
       end
 
+      end_height = [best_height, start_height + MAX_BLOCKS_PER_RUN - 1].min
+      end_hash = rpc.getblockhash(end_height)
+
       result = ClusterScanner.call(
-        from_height: height,
-        to_height: height,
+        from_height: start_height,
+        to_height: end_height,
         rpc: rpc,
         refresh: false
       )
@@ -49,18 +66,26 @@ module Realtime
       end
 
       cursor.update!(
-        last_blockheight: height,
-        last_blockhash: blockhash
+        last_blockheight: end_height,
+        last_blockhash: end_hash
       )
 
       Rails.logger.info(
-        "[realtime] latest_block_processed " \
-        "height=#{height} " \
-        "dirty_clusters_count=#{result[:dirty_clusters_count]} " \
-        "result=#{result.inspect}"
+        "[realtime] blocks_processed " \
+        "from=#{start_height} to=#{end_height} best=#{best_height} " \
+        "dirty_clusters_count=#{result[:dirty_clusters_count]}"
       )
 
-      result
+      if end_height < best_height
+        self.class.perform_later
+      end
+
+      result.merge(
+        realtime_from: start_height,
+        realtime_to: end_height,
+        best_height: best_height,
+        more_pending: end_height < best_height
+      )
     end
   end
 end

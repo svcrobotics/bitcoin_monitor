@@ -34,12 +34,11 @@ module Clusters
     attr_reader :grouped_inputs, :height
 
     def create_address!(addr)
-      Address.create!(
-        address: addr,
-        first_seen_height: height,
-        last_seen_height: height
-      )
-    rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
+      Address.create_or_find_by!(address: addr) do |record|
+        record.first_seen_height = height
+        record.last_seen_height = height
+      end
+    rescue ActiveRecord::RecordInvalid
       found = Address.find_by(address: addr)
       return found if found.present?
 

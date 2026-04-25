@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ClusterScanJob < ApplicationJob
-  queue_as :default
+  queue_as :p3_clusters
 
   LIMIT = Integer(ENV.fetch("CLUSTER_SCAN_LIMIT", "1"))
 

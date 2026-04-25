@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class InflowOutflowCapitalBehaviorBuildJob < ApplicationJob
-  queue_as :default
+  queue_as :p2_flows
 
   def perform
     JobRunner.run!(
