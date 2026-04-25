@@ -1,28 +1,21 @@
-# app/jobs/inflow_outflow_capital_behavior_build_job.rb
+# frozen_string_literal: true
+
 class InflowOutflowCapitalBehaviorBuildJob < ApplicationJob
-  queue_as :low
+  queue_as :default
 
-  def perform(day: nil, days_back: nil)
-    meta = {
-      day: day,
-      days_back: days_back
-    }
-
-    JobRunner.run!("inflow_outflow_capital_behavior_build", meta: meta, triggered_by: "cron") do |jr|
+  def perform
+    JobRunner.run!(
+      "inflow_outflow_capital_behavior_build",
+      triggered_by: "sidekiq_cron",
+      scheduled_for: Time.current.strftime("%Y-%m-%d %H:%M:%S")
+    ) do |jr|
       JobRunner.heartbeat!(jr)
 
-      res = InflowOutflowCapitalBehaviorBuilder.call(
-        day: day,
-        days_back: days_back
-      )
+      result = InflowOutflowCapitalBehaviorBuilder.call
 
       JobRunner.heartbeat!(jr)
 
-      jr.update!(
-        meta: meta.merge(result: res).to_json
-      )
-
-      res
+      result
     end
   end
 end

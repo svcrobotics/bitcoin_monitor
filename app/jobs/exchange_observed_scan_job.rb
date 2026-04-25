@@ -1,29 +1,21 @@
 # frozen_string_literal: true
 
 class ExchangeObservedScanJob < ApplicationJob
-  queue_as :low
+  queue_as :default
 
-  def perform(days_back: nil, last_n_blocks: nil)
-    meta = {
-      days_back: days_back,
-      last_n_blocks: last_n_blocks
-    }
-
-    JobRunner.run!("exchange_observed_scan", meta: meta, triggered_by: "cron") do |jr|
+  def perform
+    JobRunner.run!(
+      "exchange_observed_scan",
+      triggered_by: "sidekiq_cron",
+      scheduled_for: Time.current.strftime("%Y-%m-%d %H:%M:%S")
+    ) do |jr|
       JobRunner.heartbeat!(jr)
 
-      res = ExchangeObservedScanner.call(
-        days_back: days_back,
-        last_n_blocks: last_n_blocks
-      )
+      result = ExchangeObservedScanner.call
 
       JobRunner.heartbeat!(jr)
 
-      jr.update!(
-        meta: meta.merge(res).to_json
-      )
-
-      res
+      result
     end
   end
 end

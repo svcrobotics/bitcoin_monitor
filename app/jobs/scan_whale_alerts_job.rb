@@ -135,38 +135,44 @@ class ScanWhaleAlertsJob < ApplicationJob
 
   def scan_block!(rpc, height)
     blockhash  = rpc.getblockhash(height)
-    block      = rpc.getblock(blockhash)
+    block      = rpc.getblock(blockhash, 2)
     block_time = Time.zone.at(block["time"].to_i)
 
-    txids = Array(block["tx"])
-    return if txids.empty?
+    txs = Array(block["tx"])
+    return if txs.empty?
 
-    existing_by_txid = WhaleAlert.where(txid: txids).select(:txid, :meta, :created_at).index_by(&:txid)
+    txids = txs.map { |tx| tx["txid"].to_s }.reject(&:blank?)
+
+    existing_by_txid =
+      WhaleAlert
+        .where(txid: txids)
+        .select(:txid, :meta, :created_at)
+        .index_by(&:txid)
 
     rows = []
     now  = Time.current
 
-    txids.each do |txid|
-      tx =
-        begin
-          rpc.getrawtransaction(txid, true, blockhash)
-        rescue BitcoinRpc::Error
-          next
-        end
+    txs.each do |tx|
+      txid = tx["txid"].to_s
+      next if txid.blank?
 
       metrics = compute_metrics_for_tx(tx)
       next unless metrics
       next unless whale_tx?(metrics)
 
       existing = existing_by_txid[txid]
+
       if SKIP_IF_SAME_CLASSIFIER_VERSION && existing
         meta = existing.meta.is_a?(Hash) ? existing.meta : {}
-        if meta["classifier_version"].to_s == CLASSIFIER_VERSION && meta["scan_version"].to_s == SCAN_VERSION
+
+        if meta["classifier_version"].to_s == CLASSIFIER_VERSION &&
+           meta["scan_version"].to_s == SCAN_VERSION
           next
         end
       end
 
       classified = nil
+
       begin
         classified = WhaleAlertClassifier.call(metrics, apply_threshold: false)
       rescue
@@ -176,8 +182,13 @@ class ScanWhaleAlertsJob < ApplicationJob
       if classified.nil?
         ratio_fallback =
           begin
-            tot = metrics[:total_out_btc].to_d
-            tot.positive? ? (metrics[:largest_output_btc].to_d / tot).round(4) : 0.to_d
+            total = metrics[:total_out_btc].to_d
+
+            if total.positive?
+              (metrics[:largest_output_btc].to_d / total).round(4)
+            else
+              0.to_d
+            end
           rescue
             0.to_d
           end
@@ -198,14 +209,15 @@ class ScanWhaleAlertsJob < ApplicationJob
       end
 
       base_meta = classified[:meta].is_a?(Hash) ? classified[:meta] : {}
+
       base_meta = base_meta.merge(
         "classifier_version" => CLASSIFIER_VERSION,
-        "scan_version"       => SCAN_VERSION,
-        "blockhash"          => blockhash,
+        "scan_version" => SCAN_VERSION,
+        "blockhash" => blockhash,
         "metrics" => {
           "second_largest_output_btc" => metrics[:second_largest_output_btc].to_s,
-          "small_outputs_count"       => metrics[:small_outputs_count],
-          "dust_like_count"           => metrics[:dust_like_count]
+          "small_outputs_count" => metrics[:small_outputs_count],
+          "dust_like_count" => metrics[:dust_like_count]
         }
       )
 
@@ -233,9 +245,9 @@ class ScanWhaleAlertsJob < ApplicationJob
         flow_confidence: classified[:flow_confidence],
         actor_band: classified[:actor_band],
         flow_reasons: flow_reasons_json,
-        flow_scores: (classified[:flow_scores].is_a?(Hash) ? classified[:flow_scores] : {}),
+        flow_scores: classified[:flow_scores].is_a?(Hash) ? classified[:flow_scores] : {},
         meta: base_meta,
-        created_at: (existing ? existing.created_at : now),
+        created_at: existing ? existing.created_at : now,
         updated_at: now
       }
 

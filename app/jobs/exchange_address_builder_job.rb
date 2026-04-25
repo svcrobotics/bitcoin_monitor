@@ -1,30 +1,21 @@
-# app/jobs/exchange_address_builder_job.rb
+# frozen_string_literal: true
+
 class ExchangeAddressBuilderJob < ApplicationJob
-  queue_as :low
+  queue_as :default
 
-  def perform(blocks_back: nil, days_back: nil, reset: false)
-    meta = {
-      blocks_back: blocks_back,
-      days_back: days_back,
-      reset: reset
-    }
-
-    JobRunner.run!("exchange_address_builder", meta: meta, triggered_by: "cron") do |jr|
+  def perform
+    JobRunner.run!(
+      "exchange_address_builder",
+      triggered_by: "sidekiq_cron",
+      scheduled_for: Time.current.strftime("%Y-%m-%d %H:%M:%S")
+    ) do |jr|
       JobRunner.heartbeat!(jr)
 
-      res = ExchangeAddressBuilder.call(
-        blocks_back: blocks_back,
-        days_back: days_back,
-        reset: reset
-      )
+      result = ExchangeAddressBuilder.call
 
       JobRunner.heartbeat!(jr)
 
-      jr.update!(
-        meta: meta.merge(result: res).to_json
-      )
-
-      res
+      result
     end
   end
 end

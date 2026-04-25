@@ -1,17 +1,20 @@
 # frozen_string_literal: true
 
-class InflowOutflowDetailsBuildJob < ApplicationJob
+class BtcIntraday5mJob < ApplicationJob
   queue_as :default
 
   def perform
     JobRunner.run!(
-      "inflow_outflow_details_build",
+      "btc_intraday_5m",
       triggered_by: "sidekiq_cron",
       scheduled_for: Time.current.strftime("%Y-%m-%d %H:%M:%S")
     ) do |jr|
       JobRunner.heartbeat!(jr)
 
-      result = InflowOutflowDetailsBuilder.call
+      result = Btc::Ingestion::IntradayBackfill.call(
+        market: "btcusd",
+        timeframe: "5m"
+      )
 
       JobRunner.heartbeat!(jr)
 

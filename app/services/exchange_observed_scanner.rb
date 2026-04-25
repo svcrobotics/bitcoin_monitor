@@ -200,8 +200,18 @@ class ExchangeObservedScanner
   # ---------------------------------------------------------------------------
 
   def scan_range(range, exchange_set)
-    (range[:start_height]..range[:end_height]).each do |height|
+    start_height = range[:start_height].to_i
+    end_height   = range[:end_height].to_i
+    total_blocks = end_height - start_height + 1
+
+    (start_height..end_height).each_with_index do |height, index|
       scan_height(height, exchange_set)
+
+      update_job_progress!(
+        current: index + 1,
+        total: total_blocks,
+        height: height
+      )
     end
   end
 
@@ -251,6 +261,28 @@ class ExchangeObservedScanner
   # ---------------------------------------------------------------------------
   # Logging
   # ---------------------------------------------------------------------------
+  def update_job_progress!(current:, total:, height:)
+    return if total.to_i <= 0
+    return unless (current % 5).zero? || current == total
+
+    pct = ((current.to_f / total.to_f) * 100).round(1)
+    pct = [[pct, 0].max, 100].min
+
+    job = JobRun
+      .where(name: CURSOR_NAME, status: "running")
+      .order(created_at: :desc)
+      .first
+
+    return unless job
+
+    job.update!(
+      progress_pct: pct,
+      progress_label: "block #{height} • #{current} / #{total} blocs",
+      heartbeat_at: Time.current
+    )
+  rescue => e
+    Rails.logger.warn("[exchange_observed_scan] progress update failed: #{e.class} #{e.message}")
+  end
 
   def log_progress(scanned_blocks, height, seen_buf, spent_buf, exchange_set_size)
     log_every =

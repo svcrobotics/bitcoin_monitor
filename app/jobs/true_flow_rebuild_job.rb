@@ -1,17 +1,20 @@
 # frozen_string_literal: true
 
-class InflowOutflowDetailsBuildJob < ApplicationJob
+class TrueFlowRebuildJob < ApplicationJob
   queue_as :default
 
   def perform
     JobRunner.run!(
-      "inflow_outflow_details_build",
+      "true_flow_rebuild",
       triggered_by: "sidekiq_cron",
       scheduled_for: Time.current.strftime("%Y-%m-%d %H:%M:%S")
     ) do |jr|
       JobRunner.heartbeat!(jr)
 
-      result = InflowOutflowDetailsBuilder.call
+      result = TrueExchangeFlowRebuilder.call(
+        days_back: Integer(ENV.fetch("TRUE_FLOW_DAYS_BACK", "7")),
+        only_missing: false
+      )
 
       JobRunner.heartbeat!(jr)
 

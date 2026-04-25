@@ -1,17 +1,17 @@
 # frozen_string_literal: true
 
-class InflowOutflowDetailsBuildJob < ApplicationJob
+class MarketSnapshotJob < ApplicationJob
   queue_as :default
 
   def perform
     JobRunner.run!(
-      "inflow_outflow_details_build",
+      "market_snapshot",
       triggered_by: "sidekiq_cron",
       scheduled_for: Time.current.strftime("%Y-%m-%d %H:%M:%S")
     ) do |jr|
       JobRunner.heartbeat!(jr)
 
-      result = InflowOutflowDetailsBuilder.call
+      result = MarketSnapshotBuilder.call
 
       JobRunner.heartbeat!(jr)
 
