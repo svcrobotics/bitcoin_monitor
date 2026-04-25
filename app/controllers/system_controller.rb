@@ -4,6 +4,9 @@ class SystemController < ApplicationController
   before_action :catch_up_btc_price_days_in_development, only: [:index]
 
   def index
+    @realtime = System::RealtimeSnapshotBuilder.call
+    @cluster_pipeline_status = System::ClusterPipelineStatus.call
+    @sidekiq_status = System::SidekiqStatus.call
     @jobs = JobRun.recent.limit(200)
     @scanner_status = build_scanner_status
     @exchange_like_status = build_exchange_like_status
@@ -114,7 +117,7 @@ class SystemController < ApplicationController
 
   def build_scanner_status
     best_height = BitcoinRpc.new.getblockcount.to_i
-
+    cluster_status = System::ClusterScanStatus.call
     exchange_cursor = ScannerCursor.find_by(name: "exchange_observed_scan")
     exchange_last_height = exchange_cursor&.last_blockheight
     exchange_lag = exchange_last_height ? (best_height - exchange_last_height) : nil
@@ -149,15 +152,7 @@ class SystemController < ApplicationController
         lag: cluster_lag,
         last_blockhash: cluster_cursor&.last_blockhash,
         updated_at: cluster_cursor&.updated_at,
-        status: if cluster_last_height.nil?
-                  :warn
-                elsif cluster_lag <= 3
-                  :ok
-                elsif cluster_lag <= 12
-                  :warn
-                else
-                  :fail
-                end
+        status: cluster_status[:status]
       }
     }
   rescue => e

@@ -1,0 +1,38 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+ENV["RAILS_ENV"] ||= "development"
+
+require_relative "../config/environment"
+
+puts "[realtime] block watcher started"
+
+rpc = BitcoinRpc.new(wallet: nil)
+
+last_seen_height = nil
+
+loop do
+  begin
+    current_height = rpc.getblockcount.to_i
+
+    if last_seen_height != current_height
+      current_hash = rpc.getblockhash(current_height)
+
+      puts "[realtime] new_block_detected height=#{current_height} hash=#{current_hash}"
+
+      cursor = ScannerCursor.find_or_create_by!(name: "realtime_block_watcher")
+      cursor.update!(
+        last_blockheight: current_height,
+        last_blockhash: current_hash
+      )
+
+      Realtime::ProcessLatestBlockJob.perform_later
+
+      last_seen_height = current_height
+    end
+  rescue => e
+    puts "[realtime] watcher_error #{e.class} #{e.message}"
+  end
+
+  sleep 5
+end

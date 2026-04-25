@@ -9,22 +9,24 @@ class ClusterScanner
   CURSOR_NAME = "cluster_scan"
   INITIAL_BLOCKS_BACK = (Integer(ENV.fetch("CLUSTER_INITIAL_BLOCKS_BACK", "50")) rescue 50)
 
-  def self.call(from_height: nil, to_height: nil, limit: nil, rpc: nil, job_run: nil)
+  def self.call(from_height: nil, to_height: nil, limit: nil, rpc: nil, job_run: nil, refresh: true)
     new(
       from_height: from_height,
       to_height: to_height,
       limit: limit,
       rpc: rpc,
-      job_run: job_run
+      job_run: job_run,
+      refresh: refresh
     ).call
   end
 
-  def initialize(from_height: nil, to_height: nil, limit: nil, rpc: nil, job_run: nil)
+  def initialize(from_height: nil, to_height: nil, limit: nil, rpc: nil, job_run: nil, refresh: true)
     @from_height = from_height.present? ? from_height.to_i : nil
     @to_height   = to_height.present? ? to_height.to_i : nil
     @limit       = limit.present? ? limit.to_i : nil
     @rpc         = rpc || BitcoinRpc.new(wallet: nil)
     @job_run = job_run
+    @refresh = refresh
 
     @dirty_cluster_ids = Set.new
 
@@ -38,7 +40,11 @@ class ClusterScanner
       addresses_touched: 0,
       pruned_blocks_skipped: 0,
       tx_skipped_rpc_errors: 0,
-      tx_skipped_missing_prevout: 0
+      tx_skipped_missing_prevout: 0,
+      multi_input_candidates: 0,
+      already_linked_txs: 0,
+      input_rows_found: 0,
+      multi_address_candidates: 0
     }
   end
 
@@ -64,6 +70,12 @@ class ClusterScanner
       "end_height=#{range[:end_height]}"
     )
 
+    update_progress!(
+      range[:start_height],
+      range[:start_height],
+      range[:end_height]
+    )
+
     (range[:start_height]..range[:end_height]).each do |height|
       scanned = scan_block(height)
       @stats[:scanned_blocks] += 1 if scanned
@@ -75,7 +87,7 @@ class ClusterScanner
       log_progress(height)
     end
 
-    refresh_dirty_clusters!
+    refresh_dirty_clusters! if @refresh
 
     update_cursor!(range[:end_height]) if range[:mode] == :incremental
 
@@ -84,7 +96,10 @@ class ClusterScanner
       mode: range[:mode],
       best_height: best_height,
       start_height: range[:start_height],
-      end_height: range[:end_height]
+      end_height: range[:end_height],
+      refresh: @refresh,
+      dirty_clusters_count: @dirty_cluster_ids.size,
+      dirty_cluster_ids: @refresh ? [] : @dirty_cluster_ids.to_a
     }.merge(@stats)
   end
 
@@ -173,21 +188,51 @@ class ClusterScanner
     txid = tx["txid"].to_s
     return if txid.blank?
     return if coinbase_tx?(tx)
-    return if AddressLink.exists?(txid: txid, link_type: "multi_input")
 
-    input_rows = extract_input_rows_from_prevout(tx)
-    return if input_rows.empty?
+    if Array(tx["vin"]).size >= 2
+      @stats[:multi_input_candidates] += 1
+    end
 
-    grouped_inputs = group_inputs_by_address(input_rows)
+    if AddressLink.exists?(txid: txid, link_type: "multi_input")
+      @stats[:already_linked_txs] += 1
+      return
+    end
+
+    grouped_inputs = Clusters::InputExtractor.call(tx)
+
+    @stats[:input_rows_found] += grouped_inputs.sum { |g| g[:total_inputs].to_i }
+
+    return if grouped_inputs.empty?
+
+    if grouped_inputs.size >= 2
+      @stats[:multi_address_candidates] += 1
+    end
+
     return if grouped_inputs.size < 2
 
     @stats[:multi_input_txs] += 1
 
     ActiveRecord::Base.transaction do
-      address_records = upsert_addresses!(grouped_inputs.keys, height)
-      assign_input_stats!(address_records, grouped_inputs, height)
-      cluster = attach_or_merge_clusters!(address_records)
-      @stats[:links_created] += create_links!(address_records, txid, height)
+      grouped_by_address = grouped_inputs.index_by { |g| g[:address] }
+
+      address_records = Clusters::AddressWriter.call(
+        grouped_inputs: grouped_by_address,
+        height: height
+      )
+
+      merge_result = Clusters::ClusterMerger.call(address_records: address_records)
+
+      @stats[:clusters_created] += merge_result.created
+      @stats[:clusters_merged] += merge_result.merged
+
+      cluster = merge_result.cluster
+
+      @stats[:links_created] += Clusters::LinkWriter.call(
+        address_records: address_records,
+        txid: txid,
+        height: height
+      )
+
       mark_cluster_dirty!(cluster)
     end
 
@@ -199,194 +244,8 @@ class ClusterScanner
     raise Error, "scan_transaction failed txid=#{txid} height=#{height}: #{e.class} - #{e.message}"
   end
 
-  def extract_input_rows_from_prevout(tx)
-    rows = []
-
-    Array(tx["vin"]).each do |vin|
-      next if vin["coinbase"].present?
-
-      prevout = vin["prevout"]
-      unless prevout.present?
-        @stats[:tx_skipped_missing_prevout] += 1
-        next
-      end
-
-      script_pub_key = prevout["scriptPubKey"] || {}
-      address = extract_address(script_pub_key)
-      next if address.blank?
-
-      value_sats = btc_to_sats(prevout["value"])
-      next if value_sats <= 0
-
-      rows << {
-        address: address,
-        value_sats: value_sats
-      }
-    end
-
-    rows
-  end
-
-  def group_inputs_by_address(rows)
-    grouped = Hash.new(0)
-
-    rows.each do |row|
-      grouped[row[:address]] += row[:value_sats].to_i
-    end
-
-    grouped
-  end
-
-  def extract_address(script_pub_key)
-    return if script_pub_key.blank?
-
-    script_pub_key["address"].presence ||
-      Array(script_pub_key["addresses"]).first.presence
-  end
-
-  def btc_to_sats(value)
-    (value.to_d * 100_000_000).to_i
-  rescue StandardError
-    0
-  end
-
   def coinbase_tx?(tx)
     Array(tx["vin"]).any? { |vin| vin["coinbase"].present? }
-  end
-
-  def upsert_addresses!(addresses, height)
-    addresses.map do |addr|
-      existing = Address.find_by(address: addr)
-      next existing if existing.present?
-
-      begin
-        created = nil
-
-        Address.transaction(requires_new: true) do
-          created = Address.create!(
-            address: addr,
-            first_seen_height: height,
-            last_seen_height: height
-          )
-        end
-
-        created
-      rescue ActiveRecord::RecordNotUnique, ActiveRecord::RecordInvalid
-        found = Address.find_by(address: addr)
-        next found if found.present?
-
-        raise Error, "upsert_address failed address=#{addr.inspect} height=#{height}: duplicate suspected but record not found"
-      rescue => e
-        raise Error, "upsert_address failed address=#{addr.inspect} height=#{height}: #{e.class} - #{e.message}"
-      end
-    end
-  end
-
-  def assign_input_stats!(address_records, grouped_inputs, height)
-    address_records.each do |record|
-      sent_sats = grouped_inputs.fetch(record.address, 0).to_i
-
-      record.update!(
-        first_seen_height: min_present(record.first_seen_height, height),
-        last_seen_height: max_present(record.last_seen_height, height),
-        total_sent_sats: record.total_sent_sats.to_i + sent_sats,
-        tx_count: record.tx_count.to_i + 1
-      )
-    end
-  end
-
-  def attach_or_merge_clusters!(address_records)
-    cluster_ids = address_records.map(&:cluster_id).compact.uniq
-
-    if cluster_ids.empty?
-      cluster = Cluster.create!
-
-      Address.where(id: address_records.map(&:id)).update_all(
-        cluster_id: cluster.id,
-        updated_at: Time.current
-      )
-
-      @stats[:clusters_created] += 1
-      return cluster
-    end
-
-    if cluster_ids.size == 1
-      cluster = Cluster.find(cluster_ids.first)
-
-      unclustered_ids = address_records.select { |record| record.cluster_id.nil? }.map(&:id)
-      if unclustered_ids.any?
-        Address.where(id: unclustered_ids).update_all(
-          cluster_id: cluster.id,
-          updated_at: Time.current
-        )
-      end
-
-      return cluster
-    end
-
-    merge_clusters!(cluster_ids, address_records)
-  end
-
-  def merge_clusters!(cluster_ids, address_records)
-    master_id = cluster_ids.min
-    other_ids = cluster_ids - [master_id]
-
-    Address.where(cluster_id: other_ids).update_all(
-      cluster_id: master_id,
-      updated_at: Time.current
-    )
-
-    unclustered_ids = address_records.select { |record| record.cluster_id.nil? }.map(&:id)
-    if unclustered_ids.any?
-      Address.where(id: unclustered_ids).update_all(
-        cluster_id: master_id,
-        updated_at: Time.current
-      )
-    end
-
-    cleanup_derived_rows_for_clusters!([master_id] + other_ids)
-
-    Cluster.where(id: other_ids).delete_all
-
-    @stats[:clusters_merged] += other_ids.size
-
-    Cluster.find(master_id)
-  end
-
-  def cleanup_derived_rows_for_clusters!(cluster_ids)
-    ids = Array(cluster_ids).compact.uniq
-    return if ids.empty?
-
-    ClusterSignal.where(cluster_id: ids).delete_all
-    ClusterMetric.where(cluster_id: ids).delete_all
-    ClusterProfile.where(cluster_id: ids).delete_all
-  end
-
-  def create_links!(address_records, txid, height)
-    records = address_records.sort_by(&:id)
-    return 0 if records.size < 2
-
-    pivot = records.first
-    created = 0
-
-    records.drop(1).each do |other|
-      id_a, id_b = [pivot.id, other.id].sort
-
-      link = AddressLink.find_or_initialize_by(
-        address_a_id: id_a,
-        address_b_id: id_b,
-        link_type: "multi_input",
-        txid: txid
-      )
-
-      next if link.persisted?
-
-      link.block_height = height
-      link.save!
-      created += 1
-    end
-
-    created
   end
 
   def mark_cluster_dirty!(cluster)
@@ -396,24 +255,9 @@ class ClusterScanner
   end
 
   def refresh_dirty_clusters!
-    return if @dirty_cluster_ids.empty?
-
-    puts "[cluster_scan] refresh_dirty_clusters count=#{@dirty_cluster_ids.size}"
-
-    Cluster.where(id: @dirty_cluster_ids.to_a).find_each do |cluster|
-      cluster.recalculate_stats!
-      ClusterAggregator.call(cluster)
-    end
-  end
-
-  def min_present(a, b)
-    return b if a.blank?
-    [a, b].min
-  end
-
-  def max_present(a, b)
-    return b if a.blank?
-    [a, b].max
+    Clusters::DirtyClusterRefresher.call(
+      cluster_ids: @dirty_cluster_ids.to_a
+    )
   end
 
   def log_progress(height)
