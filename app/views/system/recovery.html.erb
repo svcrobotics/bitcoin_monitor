@@ -1,8 +1,8 @@
 <% snapshot = @recovery_snapshot || {} %>
-<% state = @recovery_state || {} %>
+<% state = @recovery_state || snapshot[:state] || {} %>
 
 <%
-  def status_classes(status)
+  status_classes = lambda do |status|
     case status.to_s
     when "ok", "healthy"
       "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
@@ -13,20 +13,18 @@
     end
   end
 
-  def progress_pct(pipe)
+  progress_pct = lambda do |pipe|
     best = pipe[:best_height].to_i
     last = pipe[:last_height].to_i
-    return 100 if best <= 0
-    [[(last.to_f / best * 100).round(2), 100].min, 0].max
+    best <= 0 ? 100 : [[(last.to_f / best * 100).round(2), 100].min, 0].max
   end
 
-  def lag_label(lag)
-    lag = lag.to_i
-    return "À jour" if lag <= 0
-    "#{lag} blocs de retard"
+  lag_label = lambda do |lag|
+    lag.to_i <= 0 ? "À jour" : "#{lag.to_i} blocs de retard"
   end
 
-  global_state = state[:state].to_s
+  global_state = state[:state].to_s.presence || "unknown"
+
   blocking_reason =
     if state[:cluster_lag].to_i > 20
       "Blocage principal : cluster scan en retard de #{state[:cluster_lag]} blocs."
@@ -37,24 +35,81 @@
     else
       "Aucun blocage critique détecté."
     end
+
+  action_message =
+    case global_state
+    when "stalled"
+      "Action recommandée : relancer le pipeline critique avant de reconstruire les agrégats."
+    when "recovering"
+      "Recovery en cours : surveiller la baisse progressive des lags."
+    else
+      "Système synchronisé."
+    end
 %>
 
 <div class="mx-auto max-w-7xl px-6 py-8 text-gray-100">
 
-  <!-- Header -->
-  <div class="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-    <div>
-      <p class="text-sm uppercase tracking-wide text-gray-400">System recovery</p>
-      <h1 class="mt-2 text-3xl font-bold">Recovery control center</h1>
-      <p class="mt-2 max-w-3xl text-gray-400">
-        Suivi de la reprise après redémarrage, panne, backlog Sidekiq ou retard blockchain.
-      </p>
+  <div class="mb-8 rounded-3xl border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-950 p-6">
+    <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
+      <div>
+        <p class="text-sm uppercase tracking-wide text-gray-500">System recovery</p>
+        <h1 class="mt-2 text-3xl font-bold">Recovery control center</h1>
+        <p class="mt-2 max-w-3xl text-gray-400">
+          Suivi de la reprise après redémarrage, panne, backlog Sidekiq ou retard blockchain.
+        </p>
+
+        <div class="mt-5 rounded-2xl border border-gray-800 bg-gray-950/70 p-4">
+          <div class="text-sm uppercase tracking-wide text-gray-500">Diagnostic</div>
+          <div class="mt-1 text-lg font-semibold"><%= blocking_reason %></div>
+          <div class="mt-2 text-sm text-gray-400"><%= action_message %></div>
+        </div>
+      </div>
+
+      <div class="min-w-56 rounded-2xl border <%= status_classes.call(global_state) %> px-5 py-4 text-right">
+        <div class="text-sm opacity-80">État global</div>
+        <div class="mt-1 text-3xl font-bold"><%= global_state.upcase %></div>
+        <div class="mt-2 text-xs opacity-70">
+          generated_at: <%= snapshot[:generated_at] || "—" %>
+        </div>
+      </div>
     </div>
 
-    <div class="rounded-2xl border <%= status_classes(global_state) %> px-5 py-4 text-right">
-      <div class="text-sm opacity-80">État global</div>
-      <div class="mt-1 text-2xl font-bold"><%= global_state.upcase %></div>
-    </div>
+    <% unless snapshot[:error].present? %>
+      <div class="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
+        <div class="rounded-2xl border border-gray-800 bg-gray-950 p-4">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Job actif</div>
+          <div class="mt-2 text-lg font-semibold"><%= snapshot[:current_job_name] || "Aucun" %></div>
+          <div class="mt-1 text-sm text-gray-500"><%= snapshot[:current_job_progress_label] || "—" %></div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-950 p-4">
+          <div class="text-xs uppercase tracking-wide text-gray-500">Vitesse estimée</div>
+          <div class="mt-2 text-lg font-semibold">
+            <%= snapshot[:estimated_blocks_per_minute] || "—" %>
+            <span class="text-sm font-normal text-gray-500">blocs/min</span>
+          </div>
+        </div>
+
+        <div class="rounded-2xl border border-gray-800 bg-gray-950 p-4">
+          <div class="text-xs uppercase tracking-wide text-gray-500">ETA recovery</div>
+          <div class="mt-2 text-lg font-semibold">
+            <%= snapshot[:eta_minutes] ? "#{snapshot[:eta_minutes]} min" : "—" %>
+          </div>
+        </div>
+      </div>
+
+      <% if snapshot[:current_job_progress_pct].present? %>
+        <div class="mt-5">
+          <div class="mb-2 flex justify-between text-xs text-gray-500">
+            <span>Progression job actif</span>
+            <span><%= snapshot[:current_job_progress_pct] %>%</span>
+          </div>
+          <div class="h-2 overflow-hidden rounded-full bg-gray-800">
+            <div class="h-full rounded-full bg-sky-400" style="width: <%= snapshot[:current_job_progress_pct] %>%"></div>
+          </div>
+        </div>
+      <% end %>
+    <% end %>
   </div>
 
   <% if snapshot[:error].present? %>
@@ -63,41 +118,12 @@
     </div>
   <% else %>
 
-    <!-- Diagnostic -->
-    <div class="mb-6 rounded-2xl border border-gray-800 bg-gray-900 p-5">
-      <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <div class="text-sm uppercase tracking-wide text-gray-500">Diagnostic</div>
-          <div class="mt-1 text-lg font-semibold"><%= blocking_reason %></div>
-          <p class="mt-1 text-sm text-gray-400">
-            Best height <%= snapshot[:best_height] %> · Realtime lag <%= state[:realtime_lag] %> ·
-            Exchange lag <%= state[:exchange_lag] %> · Cluster lag <%= state[:cluster_lag] %>
-          </p>
-        </div>
-
-        <% if global_state == "stalled" %>
-          <div class="rounded-xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
-            Action recommandée : relancer le pipeline critique avant de reconstruire les agrégats.
-          </div>
-        <% elsif global_state == "recovering" %>
-          <div class="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-            Recovery en cours : surveiller la baisse progressive des lags.
-          </div>
-        <% else %>
-          <div class="rounded-xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">
-            Système synchronisé.
-          </div>
-        <% end %>
-      </div>
-    </div>
-
-    <!-- KPIs -->
     <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
       <% [
         ["Best height", snapshot[:best_height], "Hauteur blockchain actuelle"],
-        ["Realtime lag", state[:realtime_lag], lag_label(state[:realtime_lag])],
-        ["Exchange lag", state[:exchange_lag], lag_label(state[:exchange_lag])],
-        ["Cluster lag", state[:cluster_lag], lag_label(state[:cluster_lag])]
+        ["Realtime lag", state[:realtime_lag], lag_label.call(state[:realtime_lag])],
+        ["Exchange lag", state[:exchange_lag], lag_label.call(state[:exchange_lag])],
+        ["Cluster lag", state[:cluster_lag], lag_label.call(state[:cluster_lag])]
       ].each do |label, value, sub| %>
         <div class="rounded-2xl border border-gray-800 bg-gray-900 p-4">
           <div class="text-sm text-gray-400"><%= label %></div>
@@ -107,7 +133,6 @@
       <% end %>
     </div>
 
-    <!-- Pipelines -->
     <div class="mt-10 flex items-center justify-between">
       <h2 class="text-xl font-semibold">Pipelines de recovery</h2>
       <div class="text-sm text-gray-500">Progression par curseur</div>
@@ -115,7 +140,7 @@
 
     <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
       <% snapshot[:pipelines].each do |_key, pipe| %>
-        <% pct = progress_pct(pipe) %>
+        <% pct = progress_pct.call(pipe) %>
 
         <div class="rounded-2xl border border-gray-800 bg-gray-900 p-5">
           <div class="flex items-center justify-between gap-4">
@@ -123,11 +148,11 @@
               <div class="text-sm text-gray-400"><%= pipe[:priority] %></div>
               <div class="text-lg font-semibold"><%= pipe[:label] %></div>
               <% if pipe[:lag].present? %>
-                <div class="mt-1 text-sm text-gray-500"><%= lag_label(pipe[:lag]) %></div>
+                <div class="mt-1 text-sm text-gray-500"><%= lag_label.call(pipe[:lag]) %></div>
               <% end %>
             </div>
 
-            <span class="rounded-full border px-3 py-1 text-sm font-semibold <%= status_classes(pipe[:status]) %>">
+            <span class="rounded-full border px-3 py-1 text-sm font-semibold <%= status_classes.call(pipe[:status]) %>">
               <%= pipe[:status].to_s.upcase %>
             </span>
           </div>
@@ -180,7 +205,6 @@
       <% end %>
     </div>
 
-    <!-- Queues -->
     <h2 class="mt-10 text-xl font-semibold">Queues Sidekiq</h2>
 
     <div class="mt-4 overflow-hidden rounded-2xl border border-gray-800">
@@ -211,7 +235,6 @@
       </table>
     </div>
 
-    <!-- Workers + Locks -->
     <div class="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-2">
       <div>
         <h2 class="text-xl font-semibold">Workers actifs</h2>
@@ -257,7 +280,6 @@
       </div>
     </div>
 
-    <!-- Recent jobs -->
     <h2 class="mt-10 text-xl font-semibold">Dernières exécutions recovery</h2>
 
     <div class="mt-4 overflow-hidden rounded-2xl border border-gray-800">
@@ -276,7 +298,7 @@
             <tr>
               <td class="px-4 py-3 font-medium"><%= jr[:name] %></td>
               <td class="px-4 py-3">
-                <span class="rounded-full border px-2 py-1 text-xs font-semibold <%= status_classes(jr[:status]) %>">
+                <span class="rounded-full border px-2 py-1 text-xs font-semibold <%= status_classes.call(jr[:status]) %>">
                   <%= jr[:status].to_s.upcase %>
                 </span>
               </td>
