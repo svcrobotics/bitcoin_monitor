@@ -3,18 +3,18 @@
 class ClusterScanJob < ApplicationJob
   queue_as :p3_clusters
 
-  LIMIT = Integer(ENV.fetch("CLUSTER_SCAN_LIMIT", "1"))
-
   def perform
     JobRunner.run!(
       "cluster_scan",
-      triggered_by: "sidekiq_cron",
+      triggered_by: ENV.fetch("TRIGGERED_BY", "sidekiq_cron"),
       scheduled_for: Time.current.strftime("%Y-%m-%d %H:%M:%S")
     ) do |jr|
       JobRunner.heartbeat!(jr)
 
+      limit = Integer(ENV.fetch("CLUSTER_SCAN_LIMIT", "50"))
+
       result = Clusters::ScanAndDispatch.call(
-        limit: LIMIT,
+        limit: limit,
         job_run: jr
       )
 
