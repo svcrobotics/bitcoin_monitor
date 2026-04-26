@@ -1,10 +1,15 @@
+Voici une version mise à jour qui intègre **Redis Streams** et **Turbo Streams live UI**.
+
+````markdown
 # Chapitre — Temps réel : quand Bitcoin Monitor a commencé à écouter Bitcoin
 
 > Pendant longtemps, Bitcoin Monitor observait la blockchain.
 >
 > Puis un jour, l’application a commencé à l’écouter.
 
-Ce chapitre raconte la transition progressive entre une architecture batch classique basée sur des cron et une architecture événementielle temps réel alimentée par Bitcoin Core via ZMQ. 
+Ce chapitre raconte la transition progressive entre une architecture batch classique basée sur des cron et une architecture événementielle temps réel alimentée par Bitcoin Core via ZMQ, Redis Streams et Turbo Streams.
+
+---
 
 ## Pourquoi le batch ne suffisait plus
 
@@ -18,13 +23,9 @@ scan blockchain
 PostgreSQL
 ↓
 dashboard
-```
+````
 
-Ce système était robuste.
-
-Simple.
-
-Prévisible.
+Ce système était robuste, simple et prévisible.
 
 Mais une limite devenait de plus en plus visible :
 
@@ -38,60 +39,72 @@ Mais pour :
 * Exchange Flow,
 * Signals,
 * Realtime dashboards,
+* alertes,
+* supervision live,
 
 cela devenait une contrainte architecturale.
 
+---
+
 ## La vraie question
 
-La question n’était pas :
+La question n’était pas seulement :
 
 > “comment faire du temps réel ?”
 
 La vraie question était :
 
-> “quel module mérite réellement du temps réel maintenant ?”
+> “quel socle construire pour que plusieurs modules puissent réagir au même événement Bitcoin ?”
 
-Le choix retenu n’a pas été :
+Le choix retenu n’a pas été de rendre immédiatement tous les modules temps réel.
+
+Le choix a été :
 
 ```text
-Cluster temps réel
+construire un flux événementiel central
 ```
 
-mais :
+D’abord :
 
 ```text
 Realtime::BlockStream
 ```
 
+Puis progressivement :
+
+```text
+Redis Stream bitcoin.blocks
+```
+
 Autrement dit :
 
-> construire un pipeline événementiel centralisé capable de réagir à un nouveau bloc Bitcoin.
+> construire un pipeline centralisé capable de recevoir un nouveau bloc Bitcoin, de le publier comme événement, puis de laisser plusieurs consommateurs spécialisés réagir.
 
-Le premier consommateur de ce pipeline serait Cluster.
+---
 
 ## L’idée du pipeline événementiel
 
-L’architecture cible devenait :
+L’architecture cible devient :
 
 ```text
-bitcoind
+Bitcoin Core
 ↓
-nouveau bloc détecté
+ZMQ
 ↓
-Realtime::BlockIngestor
+zmq_block_watcher
 ↓
-Sidekiq
+Redis Stream bitcoin.blocks
 ↓
-Cluster scan incrémental
+workers spécialisés
 ↓
-refresh async
+PostgreSQL + cache
 ↓
-signals
+Turbo Streams / ActionCable
 ↓
-dashboard
+UI live
 ```
 
-Le changement de philosophie était énorme.
+Le changement de philosophie est énorme.
 
 Avant :
 
@@ -107,41 +120,13 @@ Bitcoin Core annonce :
 “un nouveau bloc vient d’arriver”
 ```
 
-## Pourquoi Cluster était le premier candidat
+Puis Bitcoin Monitor publie cet événement dans un flux interne.
 
-Le module Cluster était déjà prêt.
-
-Il possédait déjà :
-
-* un scanner incrémental,
-* des jobs Sidekiq,
-* Redis,
-* un refresh asynchrone,
-* des dirty clusters,
-* des métriques,
-* des signaux.
-
-Le pipeline existait déjà :
-
-```text
-scan
-↓
-dirty clusters
-↓
-refresh async
-↓
-metrics
-↓
-signals
-```
-
-Il ne manquait qu’une chose :
-
-> le déclenchement événementiel.
+---
 
 ## Première version : polling RPC
 
-La première V1 temps réel n’utilisait même pas ZMQ.
+La première version temps réel n’utilisait pas encore ZMQ.
 
 Elle utilisait simplement :
 
@@ -169,11 +154,9 @@ nouveau bloc ?
 enqueue Sidekiq job
 ```
 
-Simple.
+Simple, minimaliste, mais suffisant pour valider l’architecture.
 
-Minimaliste.
-
-Mais suffisant pour valider toute l’architecture.
+---
 
 ## Premier job temps réel
 
@@ -186,7 +169,7 @@ Realtime::ProcessLatestBlockJob
 avait une responsabilité volontairement limitée :
 
 ```text
-traiter uniquement le dernier bloc
+traiter le dernier bloc connu
 ```
 
 Architecture :
@@ -203,6 +186,45 @@ ClusterScanner
 refresh async
 ```
 
+Le premier consommateur du temps réel était donc le module Cluster.
+
+---
+
+## Pourquoi Cluster était le premier candidat
+
+Le module Cluster était déjà prêt.
+
+Il possédait déjà :
+
+* un scanner incrémental,
+* des jobs Sidekiq,
+* Redis,
+* un refresh asynchrone,
+* des dirty clusters,
+* des métriques,
+* des signaux,
+* un curseur de reprise.
+
+Le pipeline existait déjà :
+
+```text
+scan
+↓
+dirty clusters
+↓
+refresh async
+↓
+metrics
+↓
+signals
+```
+
+Il ne manquait qu’une chose :
+
+> le déclenchement événementiel.
+
+---
+
 ## Première validation
 
 Le premier test manuel :
@@ -211,7 +233,7 @@ Le premier test manuel :
 bin/rails realtime:process_latest_block
 ```
 
-a immédiatement montré que le pipeline fonctionnait.
+a montré que le pipeline fonctionnait.
 
 Dans les logs :
 
@@ -228,6 +250,8 @@ clusters_created > 0
 ```
 
 Le temps réel devenait concret.
+
+---
 
 ## Premier vrai problème : le même bloc traité deux fois
 
@@ -254,6 +278,8 @@ links_created=0
 Le système ne cassait pas.
 
 Mais il retraitait inutilement les mêmes données.
+
+---
 
 ## L’idempotence devient obligatoire
 
@@ -291,6 +317,8 @@ C’est une règle fondamentale des systèmes événementiels :
 
 Le système doit survivre à cela.
 
+---
+
 ## Le watcher devient observable
 
 Ensuite, un deuxième curseur a été ajouté :
@@ -319,9 +347,11 @@ dernier bloc traité
 
 Cette séparation est essentielle.
 
+---
+
 ## La distinction Watcher / Processor
 
-Bitcoin Monitor distingue désormais :
+Bitcoin Monitor distingue désormais deux responsabilités.
 
 ### Watcher
 
@@ -329,7 +359,9 @@ Responsable de :
 
 * détecter les nouveaux blocs,
 * écouter Bitcoin Core,
-* déclencher les jobs.
+* mettre à jour son curseur,
+* publier l’événement,
+* déclencher le traitement.
 
 ### Processor
 
@@ -337,10 +369,13 @@ Responsable de :
 
 * scanner les blocs,
 * mettre à jour Cluster,
+* mettre à jour Exchange,
 * recalculer les signaux,
-* mettre à jour les curseurs.
+* mettre à jour les curseurs de traitement.
 
-Ce ne sont pas les mêmes responsabilités.
+Détecter n’est pas traiter.
+
+---
 
 ## Première supervision dans `/system`
 
@@ -369,6 +404,8 @@ C’est une étape très importante.
 
 Parce qu’un système temps réel invisible est dangereux.
 
+---
+
 ## Pourquoi Sidekiq était indispensable
 
 Le watcher ne devait jamais :
@@ -382,12 +419,16 @@ Son rôle devait rester minimal :
 ```text
 détection
 ↓
+publication événement
+↓
 enqueue job
 ↓
 fin
 ```
 
 Sidekiq devient alors le moteur du traitement asynchrone.
+
+---
 
 ## Le premier problème Sidekiq
 
@@ -422,6 +463,8 @@ processor height=946548
 
 C’est exactement ce que le dashboard `/system` devait permettre de voir immédiatement.
 
+---
+
 ## Le passage à ZMQ
 
 Le polling RPC fonctionnait.
@@ -431,6 +474,8 @@ Mais il posait une question logique :
 > pourquoi demander régulièrement à Bitcoin Core s’il y a un nouveau bloc, alors qu’il peut les publier lui-même ?
 
 C’est là que ZMQ entre en scène.
+
+---
 
 ## Configuration ZMQ dans Bitcoin Core
 
@@ -473,6 +518,8 @@ Bitcoin Core commence alors à publier :
 
 * les nouveaux blocs,
 * les nouvelles transactions.
+
+---
 
 ## Première erreur : mauvais datadir
 
@@ -521,6 +568,8 @@ Et enfin :
 
 Bitcoin Core publie maintenant les événements blockchain.
 
+---
+
 ## Le watcher ZMQ
 
 Un nouveau watcher apparaît :
@@ -533,7 +582,7 @@ Cette fois, l’application ne poll plus.
 
 Elle écoute directement Bitcoin Core.
 
-Architecture :
+Architecture initiale :
 
 ```text
 bitcoind ZMQ
@@ -544,6 +593,20 @@ Sidekiq
 ↓
 Realtime::ProcessLatestBlockJob
 ```
+
+Puis l’architecture évolue :
+
+```text
+bitcoind ZMQ
+↓
+zmq_block_watcher
+↓
+Redis Stream bitcoin.blocks
+↓
+Sidekiq / workers spécialisés
+```
+
+---
 
 ## Deuxième problème : libzmq absente
 
@@ -576,6 +639,8 @@ C’est un rappel important :
 gem Ruby ≠ dépendance système native
 ```
 
+---
+
 ## Troisième problème : FrozenError
 
 Ensuite :
@@ -601,6 +666,8 @@ Started zmq-block-watcher.service
 
 C’est exactement pour cela que les watchers doivent être supervisés.
 
+---
+
 ## Systemd devient obligatoire
 
 Le watcher devient un vrai service :
@@ -624,6 +691,8 @@ Active: active (running)
 Le watcher n’est plus un simple terminal Ruby.
 
 Il devient une pièce d’infrastructure.
+
+---
 
 ## L’ancien watcher RPC est désactivé
 
@@ -652,18 +721,334 @@ inactive (dead)
 
 ZMQ devient la source officielle du temps réel.
 
-## Le pipeline final
+---
 
-L’architecture devient :
+## Redis Streams : le tournant architectural
+
+Après ZMQ, une nouvelle étape majeure est ajoutée :
+
+```text
+Redis Stream bitcoin.blocks
+```
+
+L’objectif n’est plus seulement de lancer un job.
+
+L’objectif devient de publier un événement réutilisable.
+
+Un nouveau service apparaît :
+
+```text
+Realtime::BlockEventProducer
+```
+
+Il écrit dans Redis Stream :
+
+```ruby
+Realtime::BlockEventProducer.call(
+  height: height,
+  blockhash: blockhash
+)
+```
+
+L’événement ressemble à ceci :
+
+```text
+type       new_block
+height     946798
+blockhash  000000000000000000017c51640fcc139c81c7cc1695f8600978d0d17f44955a
+created_at 1777243718
+```
+
+Redis Stream devient alors :
+
+```text
+le bus d’événements blockchain interne
+```
+
+Ce n’est plus une simple queue.
+
+C’est un journal d’événements.
+
+---
+
+## Pourquoi Redis Streams change tout
+
+Avant :
+
+```text
+ZMQ
+↓
+Sidekiq job
+↓
+traitement
+```
+
+Après :
+
+```text
+ZMQ
+↓
+Redis Stream bitcoin.blocks
+↓
+plusieurs consommateurs
+```
+
+La différence est majeure.
+
+Un même événement `new_block` peut alimenter :
+
+```text
+Cluster
+Exchange
+Whales
+Alerts
+Metrics
+UI live
+```
+
+Visuellement :
+
+```text
+bitcoin.blocks
+├── Cluster worker
+├── Exchange worker
+├── Whale worker
+├── Alert worker
+├── Metrics worker
+└── UI broadcaster
+```
+
+Cela transforme Bitcoin Monitor en architecture event-driven.
+
+---
+
+## Premier vrai événement live
+
+Après redémarrage du watcher ZMQ, un nouveau bloc réel arrive :
+
+```text
+1777243718434-0
+type
+new_block
+height
+946798
+blockhash
+000000000000000000017c51640fcc139c81c7cc1695f8600978d0d17f44955a
+created_at
+1777243718
+```
+
+Ce n’est plus un test.
+
+C’est un vrai événement Bitcoin reçu en live depuis le nœud local.
+
+Bitcoin Monitor possède désormais un flux blockchain temps réel.
+
+---
+
+## Plusieurs streams demain
+
+Le premier stream est :
+
+```text
+bitcoin.blocks
+```
+
+Mais l’architecture ouvre la voie à plusieurs flux spécialisés :
+
+| Stream                   | Rôle                  |
+| ------------------------ | --------------------- |
+| `bitcoin.blocks`         | nouveaux blocs        |
+| `bitcoin.transactions`   | transactions          |
+| `bitcoin.whales`         | transferts importants |
+| `bitcoin.exchange_flows` | inflow/outflow        |
+| `bitcoin.alerts`         | alertes critiques     |
+| `bitcoin.metrics`        | analytics calculés    |
+
+L’application passe d’un modèle :
+
+```text
+jobs qui interrogent la base
+```
+
+à un modèle :
+
+```text
+modules qui réagissent à des événements
+```
+
+---
+
+## Turbo Streams : l’UI devient vivante
+
+Une fois l’événement publié dans Redis Stream, une nouvelle étape devient possible :
+
+```text
+afficher le bloc en live dans l’interface
+```
+
+Un partial est créé :
+
+```text
+app/views/system/realtime/_latest_block.html.erb
+```
+
+Il contient la cible Turbo :
+
+```html
+<div id="latest_block_live">
+```
+
+La page `/system` s’abonne au flux :
+
+```erb
+<%= turbo_stream_from "bitcoin_blocks" %>
+```
+
+Puis un broadcaster est ajouté :
+
+```text
+Realtime::BlockEventBroadcaster
+```
+
+Il envoie le remplacement Turbo :
+
+```ruby
+Turbo::StreamsChannel.broadcast_replace_to(
+  "bitcoin_blocks",
+  target: "latest_block_live",
+  partial: "system/realtime/latest_block",
+  locals: {
+    block: {
+      height: height,
+      blockhash: blockhash,
+      created_at: created_at
+    }
+  }
+)
+```
+
+Le résultat :
+
+```text
+nouveau bloc Bitcoin
+↓
+ZMQ
+↓
+Redis Stream
+↓
+Turbo Stream
+↓
+carte live dans /system
+```
+
+Pour la première fois, `/system` change sans refresh navigateur.
+
+---
+
+## Validation de l’UI live
+
+Un premier test manuel :
+
+```ruby
+Turbo::StreamsChannel.broadcast_replace_to(
+  "bitcoin_blocks",
+  target: "latest_block_live",
+  html: "<div id=\"latest_block_live\">LIVE TEST</div>"
+)
+```
+
+a validé que :
+
+```text
+ActionCable fonctionne
+Turbo Streams fonctionne
+la page écoute bien le channel
+```
+
+Puis le service applicatif a été testé :
+
+```ruby
+Realtime::BlockEventBroadcaster.call(
+  height: 947000,
+  blockhash: "service_test_hash",
+  created_at: Time.current
+)
+```
+
+La carte `/system` s’est mise à jour instantanément :
+
+```text
+Live block stream
+947000
+service_test_hash
+reçu à 2026-04-27 01:28:44 +0200
+```
+
+La chaîne WebSocket est donc opérationnelle.
+
+---
+
+## Protection anti-backlog
+
+Un autre point critique a été ajouté : empêcher le watcher d’empiler plusieurs jobs realtime identiques.
+
+Avant :
+
+```text
+nouveau bloc
+↓
+enqueue
+↓
+nouveau bloc
+↓
+enqueue
+↓
+backlog possible
+```
+
+Maintenant, avant d’enqueue :
+
+```ruby
+realtime_queue_size = Sidekiq::Queue.new("realtime").size
+
+realtime_running =
+  Sidekiq::Workers.new.any? do |_, _, work|
+    payload = work.payload
+    work.queue == "realtime" &&
+      (payload["wrapped"] == "Realtime::ProcessLatestBlockJob" ||
+       payload["class"] == "Realtime::ProcessLatestBlockJob")
+  end
+
+if realtime_queue_size.zero? && !realtime_running
+  Realtime::ProcessLatestBlockJob.perform_later
+else
+  Rails.logger.info("[realtime] skip_enqueue already_pending")
+end
+```
+
+Cette protection est indispensable dans un système temps réel.
+
+Elle évite qu’un pic d’événements crée un backlog inutile.
+
+---
+
+## Le pipeline actuel
+
+À ce stade, l’architecture réelle devient :
 
 ```text
 Bitcoin Core
 ↓
 ZMQ
 ↓
-zmq-block-watcher
+zmq_block_watcher
 ↓
-Sidekiq
+Redis Stream bitcoin.blocks
+↓
+Turbo Stream live UI
+↓
+Sidekiq realtime job
 ↓
 Realtime::ProcessLatestBlockJob
 ↓
@@ -680,6 +1065,17 @@ signals
 dashboard
 ```
 
+Ce pipeline combine :
+
+* ZMQ pour la détection immédiate,
+* Redis Streams pour le bus d’événements,
+* Sidekiq pour les traitements lourds,
+* Turbo Streams pour l’interface live,
+* PostgreSQL pour la persistance,
+* `/system` pour l’observabilité.
+
+---
+
 ## Ce que cela change réellement
 
 Bitcoin Monitor ne fonctionne plus uniquement “par période”.
@@ -690,7 +1086,11 @@ L’application réagit désormais :
 * aux événements,
 * au flux réel de la blockchain.
 
-C’est un changement architectural majeur.
+La page `/system` n’est plus seulement un tableau de bord statique.
+
+Elle devient une interface vivante.
+
+---
 
 ## Les leçons apprises
 
@@ -705,8 +1105,12 @@ Commencer par :
 Puis seulement :
 
 * ZMQ,
+* Redis Streams,
 * systemd,
+* Turbo Streams,
 * supervision.
+
+---
 
 ### Le temps réel doit être observable
 
@@ -716,6 +1120,8 @@ Sans `/system` :
 * impossible de voir les retards,
 * impossible de diagnostiquer les blocages.
 
+---
+
 ### Watcher et Processor sont deux responsabilités différentes
 
 Détecter :
@@ -724,6 +1130,22 @@ Détecter :
 ≠
 traiter
 ```
+
+Publier :
+
+```text
+≠
+analyser
+```
+
+Afficher :
+
+```text
+≠
+persister
+```
+
+---
 
 ### Les cron restent indispensables
 
@@ -738,11 +1160,15 @@ Les cron sécurisent :
 Architecture finale :
 
 ```text
-ZMQ      = accélérateur
-Sidekiq  = orchestration
-cron     = filet de sécurité
-/system  = observabilité
+ZMQ            = détection immédiate
+Redis Streams  = bus d’événements
+Sidekiq        = orchestration lourde
+Turbo Streams  = UI live
+cron           = filet de sécurité
+/system        = observabilité
 ```
+
+---
 
 ## Conclusion
 
@@ -750,8 +1176,15 @@ Le passage au temps réel représente une étape fondamentale dans Bitcoin Monit
 
 Le projet est passé :
 
-* d’une application Rails batch,
-* à une plateforme blockchain événementielle.
+```text
+application Rails batch
+```
+
+à :
+
+```text
+plateforme blockchain événementielle
+```
 
 L’application ne demande plus simplement :
 
@@ -760,3 +1193,8 @@ L’application ne demande plus simplement :
 Elle écoute désormais :
 
 > “la blockchain vient de changer.”
+
+Puis elle publie, traite, affiche et supervise cet événement en temps réel.
+
+```
+```
