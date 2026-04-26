@@ -1,6 +1,6 @@
 # Recovery
 
-Bitcoin Monitor ne traite pas seulement des données blockchain.
+Bitcoin Monitor ne traite pas uniquement des données blockchain.
 
 L’application doit aussi survivre :
 
@@ -10,39 +10,42 @@ L’application doit aussi survivre :
 * à une désynchronisation de `bitcoind`,
 * à une interruption réseau,
 * à un arrêt prolongé des workers,
-* ou à un backlog massif de jobs.
+* à un backlog massif de jobs,
+* ou à une perte temporaire du temps réel.
 
-À mesure que le projet est devenu plus temps réel et plus asynchrone, une nouvelle question est apparue :
+À mesure que l’architecture est devenue plus temps réel, plus incrémentale et plus asynchrone, une nouvelle problématique est apparue :
 
-> Comment garantir que le système puisse reprendre automatiquement sans corruption de données ?
+> Comment garantir que le système puisse reprendre automatiquement sans corruption, sans double traitement et sans rescan massif ?
 
-Ce problème est devenu central lorsque l’architecture Cluster est passée :
+Ce problème est devenu central lorsque l’architecture Cluster a progressivement évolué :
 
 ```text
 cron simple
 ↓
 scan massif
 ↓
-temps réel
+pipeline incrémental
 ↓
 Sidekiq
 ↓
-pipeline incrémental
+temps réel
 ↓
 watchers ZMQ
 ↓
 refresh async
+↓
+recovery orchestration
 ```
 
 À partir de ce moment-là, le système ne pouvait plus simplement “redémarrer”.
 
-Il fallait concevoir une vraie stratégie de recovery.
+Il fallait concevoir une véritable architecture de recovery.
 
 ---
 
 ## Pourquoi le recovery est devenu critique
 
-Au début, Bitcoin Monitor fonctionnait principalement avec des cron jobs :
+Au début, Bitcoin Monitor reposait principalement sur des cron jobs :
 
 ```text
 cron
@@ -57,7 +60,7 @@ Le modèle était simple :
 * un cron échoue,
 * il sera relancé plus tard.
 
-Mais avec l’arrivée du temps réel, plusieurs composants sont devenus dépendants :
+Mais avec l’arrivée du temps réel, les dépendances se sont multipliées :
 
 ```text
 bitcoind
@@ -77,10 +80,11 @@ Signals
 Dashboard
 ```
 
-Un arrêt d’un seul maillon pouvait créer :
+Un seul maillon bloqué pouvait provoquer :
 
 * du retard,
 * des données incohérentes,
+* des jobs en boucle,
 * un backlog Redis,
 * des clusters non rafraîchis,
 * des signaux obsolètes,
@@ -102,12 +106,14 @@ résilient
 
 C’est-à-dire capable de :
 
-* détecter son état,
-* détecter les retards,
+* détecter son état réel,
+* mesurer les retards,
 * mesurer la fraîcheur,
 * reprendre automatiquement,
 * éviter les doubles traitements,
-* continuer même après panne.
+* éviter les boucles infinies,
+* continuer même après panne,
+* expliquer clairement ce qui est bloqué.
 
 ---
 
@@ -119,7 +125,7 @@ La base du recovery dans Bitcoin Monitor repose sur un élément extrêmement si
 ScannerCursor
 ```
 
-Chaque pipeline possède un curseur :
+Chaque pipeline possède un curseur dédié :
 
 ```text
 cluster_scan
@@ -143,13 +149,14 @@ Cela permet au système de savoir :
 * où reprendre,
 * si un module est bloqué,
 * si les données sont fraîches,
-* si un service est en retard.
+* si un pipeline est en retard,
+* si un traitement est réellement actif.
 
 ---
 
 ## Exemple : protection contre le double traitement
 
-Le temps réel a rapidement révélé un problème :
+Le passage au temps réel a rapidement révélé un problème classique :
 
 ```text
 même bloc traité plusieurs fois
@@ -168,9 +175,9 @@ already_linked_txs=100
 links_created=0
 ```
 
-Le système retraitait donc le même bloc.
+Le système retraitait donc les mêmes données.
 
-La solution a été d’ajouter un verrou basé sur le curseur :
+La solution a été d’ajouter une protection basée sur le curseur :
 
 ```ruby
 if cursor.last_blockheight.to_i >= height &&
@@ -184,11 +191,11 @@ if cursor.last_blockheight.to_i >= height &&
 end
 ```
 
-Ce mécanisme simple est devenu une brique majeure du recovery.
+Ce mécanisme simple est devenu une brique centrale du recovery.
 
 ---
 
-## Reprendre après interruption
+## Reprendre automatiquement après interruption
 
 Lorsqu’un watcher redémarre, il ne repart pas “à zéro”.
 
@@ -205,11 +212,11 @@ Puis reprend automatiquement :
 ```text
 dernier bloc connu
 ↓
-nouveau best height
+best height actuel
 ↓
 scan incrémental
 ↓
-rattrapage
+rattrapage progressif
 ```
 
 Cela permet :
@@ -218,13 +225,14 @@ Cela permet :
 * de reprendre après maintenance,
 * d’éviter les rescans complets,
 * de limiter la charge CPU,
-* de préserver Redis et PostgreSQL.
+* de protéger Redis,
+* de préserver PostgreSQL.
 
 ---
 
 ## Sidekiq et la reprise automatique
 
-Le passage à Sidekiq a profondément changé la stratégie de recovery.
+Le passage à Sidekiq a profondément transformé la stratégie de recovery.
 
 Avant :
 
@@ -248,7 +256,9 @@ retry
 dead queue
 ```
 
-Cela a apporté plusieurs mécanismes essentiels :
+Cela a apporté plusieurs mécanismes essentiels.
+
+---
 
 ### Retry automatique
 
@@ -273,13 +283,13 @@ retry_size
 dead_size
 ```
 
-et afficher cela dans `/system`.
+et afficher ces métriques dans `/system/recovery`.
 
 ---
 
 ### Reprise après reboot
 
-Si Redis et Sidekiq redémarrent :
+Si Redis ou Sidekiq redémarrent :
 
 ```text
 les jobs reprennent
@@ -289,11 +299,110 @@ au lieu d’être perdus.
 
 ---
 
-## Le rôle de systemd
+## Une leçon importante : les jobs ne doivent jamais s’auto-boucler
+
+Une erreur critique découverte pendant le développement concernait les jobs auto-relancés.
+
+Exemple réel :
+
+```ruby
+InflowOutflowDetailsBuildJob.perform_later
+```
+
+appelé directement à l’intérieur du job lui-même.
+
+Conséquence :
+
+```text
+job
+↓
+enqueue lui-même
+↓
+re-exécution
+↓
+nouvel enqueue
+↓
+boucle infinie
+```
+
+Le résultat :
+
+* explosion du backlog Sidekiq,
+* workers saturés,
+* duplication des traitements,
+* recovery bloqué.
+
+La correction a consisté à :
+
+* supprimer les auto-enqueue,
+* centraliser l’orchestration,
+* empêcher les doublons,
+* contrôler les pipelines depuis un orchestrateur unique.
+
+Cette erreur a fortement influencé l’architecture recovery finale.
+
+---
+
+## Le rôle des locks
+
+Le système utilise plusieurs locks :
+
+```text
+realtime_processing_lock
+exchange_observed_scan_lock
+recovery_orchestrator_lock
+```
+
+Ces locks permettent de :
+
+* empêcher les doubles exécutions,
+* protéger les pipelines critiques,
+* superviser les workers,
+* détecter les traitements inactifs.
+
+Mais une leçon importante est apparue :
+
+> un lock ancien n’est pas forcément un problème.
+
+Au début, tout lock “vieux” apparaissait comme :
+
+```text
+OLD
+```
+
+même lorsque le système était parfaitement synchronisé.
+
+Le dashboard a ensuite été amélioré avec une logique contextuelle :
+
+```text
+ACTIVE
+IDLE
+WAITING
+STALE
+```
+
+Le statut dépend maintenant :
+
+* de l’âge du lock,
+* ET du lag réel du pipeline associé.
+
+Exemple :
+
+```text
+IDLE
+lag lié: 0
+Repos normal : aucun retard critique.
+```
+
+Cela a permis d’éviter de faux diagnostics.
+
+---
+
+## systemd et la supervision Linux
 
 Les watchers temps réel ne pouvaient pas dépendre d’un terminal ouvert.
 
-Ils ont donc été transformés en services systemd user :
+Ils ont donc été transformés en services systemd :
 
 ```text
 zmq-block-watcher.service
@@ -302,59 +411,91 @@ sidekiq-bitcoin-monitor.service
 
 Exemple :
 
-```text
+```bash
 systemctl --user status zmq-block-watcher
 ```
 
-Le watcher devient alors :
+Les watchers deviennent alors :
 
-* supervisé,
-* relancé automatiquement,
-* observable,
-* intégré au système Linux.
+* supervisés,
+* relancés automatiquement,
+* observables,
+* intégrés au système Linux.
 
 ---
 
-## La supervision dans `/system`
+## Le dashboard `/system/recovery`
 
-Une étape importante a été la création d’un vrai dashboard de recovery.
+Une étape importante a été la création d’un véritable centre de supervision recovery.
 
-Le système expose maintenant :
+Le système expose désormais :
 
 ```text
-watcher status
-processor status
-lag
-freshness
-queues
-retry
-dead jobs
-disk usage
-bitcoind RPC
+best height
+realtime lag
+exchange lag
+cluster lag
+pipeline status
+queues Sidekiq
+workers actifs
+locks
+recovery jobs
+ETA
+vitesse de rattrapage
 ```
 
 Exemple :
 
 ```text
-Watcher
-OK
-
-Processor
-OK
-
-Last height
-946567
+state: healthy
+realtime_lag: 1
+cluster_lag: 0
+exchange_lag: 0
 ```
 
 ou :
 
 ```text
-STALE
+STALLED
 ```
 
-si un composant ne bouge plus.
+si un pipeline critique ne progresse plus.
 
-Le dashboard `/system` est devenu un outil opérationnel central.
+---
+
+## Recovery orchestration
+
+Le système possède maintenant une logique d’orchestration recovery.
+
+Le recovery n’est plus “passif”.
+
+Le système sait :
+
+* quel pipeline doit repartir en premier,
+* quel lag est critique,
+* quels jobs sont actifs,
+* quels jobs sont bloqués,
+* quels modules doivent attendre.
+
+Exemple :
+
+```text
+P0 realtime
+↓
+P1 exchange scan
+↓
+P2 inflow/outflow
+↓
+P3 cluster scan
+↓
+P4 analytics
+```
+
+Cette hiérarchie évite :
+
+* les recalculs inutiles,
+* les backlogs massifs,
+* les pipelines incohérents.
 
 ---
 
@@ -373,35 +514,31 @@ C’est la naissance du concept :
 Recovery readiness
 ```
 
-Le système affiche :
+Le dashboard affiche désormais :
 
 * les problèmes critiques,
-* les jobs bloqués,
-* l’ordre de reprise,
-* les modules en retard,
-* les dépendances critiques.
+* les pipelines en retard,
+* les lags,
+* les jobs actifs,
+* les locks,
+* les ETA,
+* la progression du recovery,
+* les dépendances critiques,
+* les vitesses estimées de rattrapage.
 
-Exemple :
+Le dashboard est progressivement devenu :
 
 ```text
-btc_price_daily
-↓
-market_snapshot
-↓
-exchange_observed_scan
-↓
-cluster_scan
-↓
-cluster_signals
+un centre de supervision opérationnel
 ```
 
-Cela transforme le dashboard en véritable centre de supervision.
+et non plus une simple page système.
 
 ---
 
 ## Le temps réel a changé la philosophie du projet
 
-Le passage au temps réel a obligé Bitcoin Monitor à évoluer :
+Le passage au temps réel a transformé Bitcoin Monitor.
 
 Avant :
 
@@ -421,7 +558,8 @@ C’est devenu :
 
 * une discipline,
 * une architecture,
-* une philosophie de conception.
+* une philosophie de conception,
+* une couche critique de fiabilité.
 
 ---
 
@@ -436,8 +574,12 @@ Le système est maintenant capable de :
 * superviser Sidekiq,
 * superviser Redis,
 * superviser bitcoind,
-* surveiller les pipelines,
-* afficher l’état réel de la plateforme.
+* superviser les pipelines,
+* superviser les locks,
+* afficher l’état réel de la plateforme,
+* orchestrer le recovery automatiquement,
+* limiter les rescans massifs,
+* expliquer les blocages en temps réel.
 
 ---
 
@@ -456,4 +598,4 @@ continuer à traiter correctement
 même après interruption
 ```
 
-C’est cette réflexion qui a progressivement transformé Bitcoin Monitor en une architecture beaucoup plus professionnelle. 
+C’est cette réflexion qui a progressivement transformé Bitcoin Monitor en une architecture beaucoup plus professionnelle.

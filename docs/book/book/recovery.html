@@ -35,7 +35,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-9d85b68a.js";
+            window.path_to_searchindex_js = "searchindex-c1300624.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-d428d19f.js"></script>
@@ -175,7 +175,7 @@
                 <div id="mdbook-content" class="content">
                     <main>
                         <h1 id="recovery"><a class="header" href="#recovery">Recovery</a></h1>
-<p>Bitcoin Monitor ne traite pas seulement des données blockchain.</p>
+<p>Bitcoin Monitor ne traite pas uniquement des données blockchain.</p>
 <p>L’application doit aussi survivre :</p>
 <ul>
 <li>à un redémarrage serveur,</li>
@@ -184,32 +184,35 @@
 <li>à une désynchronisation de <code>bitcoind</code>,</li>
 <li>à une interruption réseau,</li>
 <li>à un arrêt prolongé des workers,</li>
-<li>ou à un backlog massif de jobs.</li>
+<li>à un backlog massif de jobs,</li>
+<li>ou à une perte temporaire du temps réel.</li>
 </ul>
-<p>À mesure que le projet est devenu plus temps réel et plus asynchrone, une nouvelle question est apparue :</p>
+<p>À mesure que l’architecture est devenue plus temps réel, plus incrémentale et plus asynchrone, une nouvelle problématique est apparue :</p>
 <blockquote>
-<p>Comment garantir que le système puisse reprendre automatiquement sans corruption de données ?</p>
+<p>Comment garantir que le système puisse reprendre automatiquement sans corruption, sans double traitement et sans rescan massif ?</p>
 </blockquote>
-<p>Ce problème est devenu central lorsque l’architecture Cluster est passée :</p>
+<p>Ce problème est devenu central lorsque l’architecture Cluster a progressivement évolué :</p>
 <pre><code class="language-text">cron simple
 ↓
 scan massif
 ↓
-temps réel
+pipeline incrémental
 ↓
 Sidekiq
 ↓
-pipeline incrémental
+temps réel
 ↓
 watchers ZMQ
 ↓
 refresh async
+↓
+recovery orchestration
 </code></pre>
 <p>À partir de ce moment-là, le système ne pouvait plus simplement “redémarrer”.</p>
-<p>Il fallait concevoir une vraie stratégie de recovery.</p>
+<p>Il fallait concevoir une véritable architecture de recovery.</p>
 <hr>
 <h2 id="pourquoi-le-recovery-est-devenu-critique"><a class="header" href="#pourquoi-le-recovery-est-devenu-critique">Pourquoi le recovery est devenu critique</a></h2>
-<p>Au début, Bitcoin Monitor fonctionnait principalement avec des cron jobs :</p>
+<p>Au début, Bitcoin Monitor reposait principalement sur des cron jobs :</p>
 <pre><code class="language-text">cron
 ↓
 scan blockchain
@@ -221,7 +224,7 @@ mise à jour SQL
 <li>un cron échoue,</li>
 <li>il sera relancé plus tard.</li>
 </ul>
-<p>Mais avec l’arrivée du temps réel, plusieurs composants sont devenus dépendants :</p>
+<p>Mais avec l’arrivée du temps réel, les dépendances se sont multipliées :</p>
 <pre><code class="language-text">bitcoind
 ↓
 ZMQ watcher
@@ -238,10 +241,11 @@ Signals
 ↓
 Dashboard
 </code></pre>
-<p>Un arrêt d’un seul maillon pouvait créer :</p>
+<p>Un seul maillon bloqué pouvait provoquer :</p>
 <ul>
 <li>du retard,</li>
 <li>des données incohérentes,</li>
+<li>des jobs en boucle,</li>
 <li>un backlog Redis,</li>
 <li>des clusters non rafraîchis,</li>
 <li>des signaux obsolètes,</li>
@@ -256,19 +260,21 @@ Dashboard
 </code></pre>
 <p>C’est-à-dire capable de :</p>
 <ul>
-<li>détecter son état,</li>
-<li>détecter les retards,</li>
+<li>détecter son état réel,</li>
+<li>mesurer les retards,</li>
 <li>mesurer la fraîcheur,</li>
 <li>reprendre automatiquement,</li>
 <li>éviter les doubles traitements,</li>
-<li>continuer même après panne.</li>
+<li>éviter les boucles infinies,</li>
+<li>continuer même après panne,</li>
+<li>expliquer clairement ce qui est bloqué.</li>
 </ul>
 <hr>
 <h2 id="les-curseurs-comme-fondation-du-recovery"><a class="header" href="#les-curseurs-comme-fondation-du-recovery">Les curseurs comme fondation du recovery</a></h2>
 <p>La base du recovery dans Bitcoin Monitor repose sur un élément extrêmement simple :</p>
 <pre><code class="language-ruby">ScannerCursor
 </code></pre>
-<p>Chaque pipeline possède un curseur :</p>
+<p>Chaque pipeline possède un curseur dédié :</p>
 <pre><code class="language-text">cluster_scan
 exchange_observed_scan
 exchange_address_builder
@@ -286,11 +292,12 @@ updated_at
 <li>où reprendre,</li>
 <li>si un module est bloqué,</li>
 <li>si les données sont fraîches,</li>
-<li>si un service est en retard.</li>
+<li>si un pipeline est en retard,</li>
+<li>si un traitement est réellement actif.</li>
 </ul>
 <hr>
 <h2 id="exemple--protection-contre-le-double-traitement"><a class="header" href="#exemple--protection-contre-le-double-traitement">Exemple : protection contre le double traitement</a></h2>
-<p>Le temps réel a rapidement révélé un problème :</p>
+<p>Le passage au temps réel a rapidement révélé un problème classique :</p>
 <pre><code class="language-text">même bloc traité plusieurs fois
 </code></pre>
 <p>Les logs montraient :</p>
@@ -300,8 +307,8 @@ updated_at
 <pre><code class="language-text">already_linked_txs=100
 links_created=0
 </code></pre>
-<p>Le système retraitait donc le même bloc.</p>
-<p>La solution a été d’ajouter un verrou basé sur le curseur :</p>
+<p>Le système retraitait donc les mêmes données.</p>
+<p>La solution a été d’ajouter une protection basée sur le curseur :</p>
 <pre><code class="language-ruby">if cursor.last_blockheight.to_i &gt;= height &amp;&amp;
    cursor.last_blockhash == blockhash
 
@@ -312,9 +319,9 @@ links_created=0
   return
 end
 </code></pre>
-<p>Ce mécanisme simple est devenu une brique majeure du recovery.</p>
+<p>Ce mécanisme simple est devenu une brique centrale du recovery.</p>
 <hr>
-<h2 id="reprendre-après-interruption"><a class="header" href="#reprendre-après-interruption">Reprendre après interruption</a></h2>
+<h2 id="reprendre-automatiquement-après-interruption"><a class="header" href="#reprendre-automatiquement-après-interruption">Reprendre automatiquement après interruption</a></h2>
 <p>Lorsqu’un watcher redémarre, il ne repart pas “à zéro”.</p>
 <p>Il lit son curseur :</p>
 <pre><code class="language-ruby">ScannerCursor.find_by(
@@ -324,11 +331,11 @@ end
 <p>Puis reprend automatiquement :</p>
 <pre><code class="language-text">dernier bloc connu
 ↓
-nouveau best height
+best height actuel
 ↓
 scan incrémental
 ↓
-rattrapage
+rattrapage progressif
 </code></pre>
 <p>Cela permet :</p>
 <ul>
@@ -336,11 +343,12 @@ rattrapage
 <li>de reprendre après maintenance,</li>
 <li>d’éviter les rescans complets,</li>
 <li>de limiter la charge CPU,</li>
-<li>de préserver Redis et PostgreSQL.</li>
+<li>de protéger Redis,</li>
+<li>de préserver PostgreSQL.</li>
 </ul>
 <hr>
 <h2 id="sidekiq-et-la-reprise-automatique"><a class="header" href="#sidekiq-et-la-reprise-automatique">Sidekiq et la reprise automatique</a></h2>
-<p>Le passage à Sidekiq a profondément changé la stratégie de recovery.</p>
+<p>Le passage à Sidekiq a profondément transformé la stratégie de recovery.</p>
 <p>Avant :</p>
 <pre><code class="language-text">cron
 ↓
@@ -357,7 +365,8 @@ retry
 ↓
 dead queue
 </code></pre>
-<p>Cela a apporté plusieurs mécanismes essentiels :</p>
+<p>Cela a apporté plusieurs mécanismes essentiels.</p>
+<hr>
 <h3 id="retry-automatique"><a class="header" href="#retry-automatique">Retry automatique</a></h3>
 <p>Un job échoue :</p>
 <pre><code class="language-text">réessai automatique
@@ -371,59 +380,157 @@ latency
 retry_size
 dead_size
 </code></pre>
-<p>et afficher cela dans <code>/system</code>.</p>
+<p>et afficher ces métriques dans <code>/system/recovery</code>.</p>
 <hr>
 <h3 id="reprise-après-reboot"><a class="header" href="#reprise-après-reboot">Reprise après reboot</a></h3>
-<p>Si Redis et Sidekiq redémarrent :</p>
+<p>Si Redis ou Sidekiq redémarrent :</p>
 <pre><code class="language-text">les jobs reprennent
 </code></pre>
 <p>au lieu d’être perdus.</p>
 <hr>
-<h2 id="le-rôle-de-systemd"><a class="header" href="#le-rôle-de-systemd">Le rôle de systemd</a></h2>
+<h2 id="une-leçon-importante--les-jobs-ne-doivent-jamais-sauto-boucler"><a class="header" href="#une-leçon-importante--les-jobs-ne-doivent-jamais-sauto-boucler">Une leçon importante : les jobs ne doivent jamais s’auto-boucler</a></h2>
+<p>Une erreur critique découverte pendant le développement concernait les jobs auto-relancés.</p>
+<p>Exemple réel :</p>
+<pre><code class="language-ruby">InflowOutflowDetailsBuildJob.perform_later
+</code></pre>
+<p>appelé directement à l’intérieur du job lui-même.</p>
+<p>Conséquence :</p>
+<pre><code class="language-text">job
+↓
+enqueue lui-même
+↓
+re-exécution
+↓
+nouvel enqueue
+↓
+boucle infinie
+</code></pre>
+<p>Le résultat :</p>
+<ul>
+<li>explosion du backlog Sidekiq,</li>
+<li>workers saturés,</li>
+<li>duplication des traitements,</li>
+<li>recovery bloqué.</li>
+</ul>
+<p>La correction a consisté à :</p>
+<ul>
+<li>supprimer les auto-enqueue,</li>
+<li>centraliser l’orchestration,</li>
+<li>empêcher les doublons,</li>
+<li>contrôler les pipelines depuis un orchestrateur unique.</li>
+</ul>
+<p>Cette erreur a fortement influencé l’architecture recovery finale.</p>
+<hr>
+<h2 id="le-rôle-des-locks"><a class="header" href="#le-rôle-des-locks">Le rôle des locks</a></h2>
+<p>Le système utilise plusieurs locks :</p>
+<pre><code class="language-text">realtime_processing_lock
+exchange_observed_scan_lock
+recovery_orchestrator_lock
+</code></pre>
+<p>Ces locks permettent de :</p>
+<ul>
+<li>empêcher les doubles exécutions,</li>
+<li>protéger les pipelines critiques,</li>
+<li>superviser les workers,</li>
+<li>détecter les traitements inactifs.</li>
+</ul>
+<p>Mais une leçon importante est apparue :</p>
+<blockquote>
+<p>un lock ancien n’est pas forcément un problème.</p>
+</blockquote>
+<p>Au début, tout lock “vieux” apparaissait comme :</p>
+<pre><code class="language-text">OLD
+</code></pre>
+<p>même lorsque le système était parfaitement synchronisé.</p>
+<p>Le dashboard a ensuite été amélioré avec une logique contextuelle :</p>
+<pre><code class="language-text">ACTIVE
+IDLE
+WAITING
+STALE
+</code></pre>
+<p>Le statut dépend maintenant :</p>
+<ul>
+<li>de l’âge du lock,</li>
+<li>ET du lag réel du pipeline associé.</li>
+</ul>
+<p>Exemple :</p>
+<pre><code class="language-text">IDLE
+lag lié: 0
+Repos normal : aucun retard critique.
+</code></pre>
+<p>Cela a permis d’éviter de faux diagnostics.</p>
+<hr>
+<h2 id="systemd-et-la-supervision-linux"><a class="header" href="#systemd-et-la-supervision-linux">systemd et la supervision Linux</a></h2>
 <p>Les watchers temps réel ne pouvaient pas dépendre d’un terminal ouvert.</p>
-<p>Ils ont donc été transformés en services systemd user :</p>
+<p>Ils ont donc été transformés en services systemd :</p>
 <pre><code class="language-text">zmq-block-watcher.service
 sidekiq-bitcoin-monitor.service
 </code></pre>
 <p>Exemple :</p>
-<pre><code class="language-text">systemctl --user status zmq-block-watcher
+<pre><code class="language-bash">systemctl --user status zmq-block-watcher
 </code></pre>
-<p>Le watcher devient alors :</p>
+<p>Les watchers deviennent alors :</p>
 <ul>
-<li>supervisé,</li>
-<li>relancé automatiquement,</li>
-<li>observable,</li>
-<li>intégré au système Linux.</li>
+<li>supervisés,</li>
+<li>relancés automatiquement,</li>
+<li>observables,</li>
+<li>intégrés au système Linux.</li>
 </ul>
 <hr>
-<h2 id="la-supervision-dans-system"><a class="header" href="#la-supervision-dans-system">La supervision dans <code>/system</code></a></h2>
-<p>Une étape importante a été la création d’un vrai dashboard de recovery.</p>
-<p>Le système expose maintenant :</p>
-<pre><code class="language-text">watcher status
-processor status
-lag
-freshness
-queues
-retry
-dead jobs
-disk usage
-bitcoind RPC
+<h2 id="le-dashboard-systemrecovery"><a class="header" href="#le-dashboard-systemrecovery">Le dashboard <code>/system/recovery</code></a></h2>
+<p>Une étape importante a été la création d’un véritable centre de supervision recovery.</p>
+<p>Le système expose désormais :</p>
+<pre><code class="language-text">best height
+realtime lag
+exchange lag
+cluster lag
+pipeline status
+queues Sidekiq
+workers actifs
+locks
+recovery jobs
+ETA
+vitesse de rattrapage
 </code></pre>
 <p>Exemple :</p>
-<pre><code class="language-text">Watcher
-OK
-
-Processor
-OK
-
-Last height
-946567
+<pre><code class="language-text">state: healthy
+realtime_lag: 1
+cluster_lag: 0
+exchange_lag: 0
 </code></pre>
 <p>ou :</p>
-<pre><code class="language-text">STALE
+<pre><code class="language-text">STALLED
 </code></pre>
-<p>si un composant ne bouge plus.</p>
-<p>Le dashboard <code>/system</code> est devenu un outil opérationnel central.</p>
+<p>si un pipeline critique ne progresse plus.</p>
+<hr>
+<h2 id="recovery-orchestration"><a class="header" href="#recovery-orchestration">Recovery orchestration</a></h2>
+<p>Le système possède maintenant une logique d’orchestration recovery.</p>
+<p>Le recovery n’est plus “passif”.</p>
+<p>Le système sait :</p>
+<ul>
+<li>quel pipeline doit repartir en premier,</li>
+<li>quel lag est critique,</li>
+<li>quels jobs sont actifs,</li>
+<li>quels jobs sont bloqués,</li>
+<li>quels modules doivent attendre.</li>
+</ul>
+<p>Exemple :</p>
+<pre><code class="language-text">P0 realtime
+↓
+P1 exchange scan
+↓
+P2 inflow/outflow
+↓
+P3 cluster scan
+↓
+P4 analytics
+</code></pre>
+<p>Cette hiérarchie évite :</p>
+<ul>
+<li>les recalculs inutiles,</li>
+<li>les backlogs massifs,</li>
+<li>les pipelines incohérents.</li>
+</ul>
 <hr>
 <h2 id="recovery-readiness"><a class="header" href="#recovery-readiness">Recovery readiness</a></h2>
 <p>Une idée importante est apparue progressivement :</p>
@@ -433,29 +540,25 @@ comment il peut redémarrer
 <p>C’est la naissance du concept :</p>
 <pre><code class="language-text">Recovery readiness
 </code></pre>
-<p>Le système affiche :</p>
+<p>Le dashboard affiche désormais :</p>
 <ul>
 <li>les problèmes critiques,</li>
-<li>les jobs bloqués,</li>
-<li>l’ordre de reprise,</li>
-<li>les modules en retard,</li>
-<li>les dépendances critiques.</li>
+<li>les pipelines en retard,</li>
+<li>les lags,</li>
+<li>les jobs actifs,</li>
+<li>les locks,</li>
+<li>les ETA,</li>
+<li>la progression du recovery,</li>
+<li>les dépendances critiques,</li>
+<li>les vitesses estimées de rattrapage.</li>
 </ul>
-<p>Exemple :</p>
-<pre><code class="language-text">btc_price_daily
-↓
-market_snapshot
-↓
-exchange_observed_scan
-↓
-cluster_scan
-↓
-cluster_signals
+<p>Le dashboard est progressivement devenu :</p>
+<pre><code class="language-text">un centre de supervision opérationnel
 </code></pre>
-<p>Cela transforme le dashboard en véritable centre de supervision.</p>
+<p>et non plus une simple page système.</p>
 <hr>
 <h2 id="le-temps-réel-a-changé-la-philosophie-du-projet"><a class="header" href="#le-temps-réel-a-changé-la-philosophie-du-projet">Le temps réel a changé la philosophie du projet</a></h2>
-<p>Le passage au temps réel a obligé Bitcoin Monitor à évoluer :</p>
+<p>Le passage au temps réel a transformé Bitcoin Monitor.</p>
 <p>Avant :</p>
 <pre><code class="language-text">application Rails
 </code></pre>
@@ -467,7 +570,8 @@ cluster_signals
 <ul>
 <li>une discipline,</li>
 <li>une architecture,</li>
-<li>une philosophie de conception.</li>
+<li>une philosophie de conception,</li>
+<li>une couche critique de fiabilité.</li>
 </ul>
 <hr>
 <h2 id="ce-que-cette-évolution-a-apporté"><a class="header" href="#ce-que-cette-évolution-a-apporté">Ce que cette évolution a apporté</a></h2>
@@ -480,8 +584,12 @@ cluster_signals
 <li>superviser Sidekiq,</li>
 <li>superviser Redis,</li>
 <li>superviser bitcoind,</li>
-<li>surveiller les pipelines,</li>
-<li>afficher l’état réel de la plateforme.</li>
+<li>superviser les pipelines,</li>
+<li>superviser les locks,</li>
+<li>afficher l’état réel de la plateforme,</li>
+<li>orchestrer le recovery automatiquement,</li>
+<li>limiter les rescans massifs,</li>
+<li>expliquer les blocages en temps réel.</li>
 </ul>
 <hr>
 <h2 id="une-leçon-importante"><a class="header" href="#une-leçon-importante">Une leçon importante</a></h2>
