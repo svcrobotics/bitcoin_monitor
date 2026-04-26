@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-ec5560cb.js";
+            window.path_to_searchindex_js = "searchindex-52ffba8e.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-d428d19f.js"></script>
@@ -2974,24 +2974,16 @@ Parfait pour les petits pipelines.</p>
 <p>une application blockchain sérieuse finit presque toujours par devenir un système distribué miniature.</p>
 </blockquote>
 <div style="break-before: page; page-break-before: always;"></div>
-<h1 id="real-time"><a href="#real-time" class="header">Real Time</a></h1>
-<p>Voici une version mise à jour qui intègre <strong>Redis Streams</strong> et <strong>Turbo Streams live UI</strong>.</p>
-<pre><code class="language-markdown"># Chapitre — Temps réel : quand Bitcoin Monitor a commencé à écouter Bitcoin
-
-&gt; Pendant longtemps, Bitcoin Monitor observait la blockchain.
-&gt;
-&gt; Puis un jour, l’application a commencé à l’écouter.
-
-Ce chapitre raconte la transition progressive entre une architecture batch classique basée sur des cron et une architecture événementielle temps réel alimentée par Bitcoin Core via ZMQ, Redis Streams et Turbo Streams.
-
----
-
-## Pourquoi le batch ne suffisait plus
-
-Au début, Bitcoin Monitor fonctionnait selon un modèle très classique :
-
-```text
-cron
+<h1 id="temps-réel--quand-bitcoin-monitor-a-commencé-à-écouter-bitcoin"><a class="header" href="#temps-réel--quand-bitcoin-monitor-a-commencé-à-écouter-bitcoin">Temps réel : quand Bitcoin Monitor a commencé à écouter Bitcoin</a></h1>
+<blockquote>
+<p>Pendant longtemps, Bitcoin Monitor observait la blockchain.</p>
+<p>Puis un jour, l’application a commencé à l’écouter.</p>
+</blockquote>
+<p>Ce chapitre raconte la transition progressive entre une architecture batch classique basée sur des cron et une architecture événementielle temps réel alimentée par Bitcoin Core via ZMQ, Redis Streams et Turbo Streams.</p>
+<hr>
+<h2 id="pourquoi-le-batch-ne-suffisait-plus"><a class="header" href="#pourquoi-le-batch-ne-suffisait-plus">Pourquoi le batch ne suffisait plus</a></h2>
+<p>Au début, Bitcoin Monitor fonctionnait selon un modèle très classique :</p>
+<pre><code class="language-text">cron
 ↓
 scan blockchain
 ↓
@@ -3776,7 +3768,6 @@ cron           = filet de sécurité
 <p>“la blockchain vient de changer.”</p>
 </blockquote>
 <p>Puis elle publie, traite, affiche et supervise cet événement en temps réel.</p>
-<pre><code></code></pre>
 <div style="break-before: page; page-break-before: always;"></div>
 <h1 id="git--loutil-invisible-qui-protège-bitcoin-monitor"><a class="header" href="#git--loutil-invisible-qui-protège-bitcoin-monitor">Git : l’outil invisible qui protège Bitcoin Monitor</a></h1>
 <blockquote>

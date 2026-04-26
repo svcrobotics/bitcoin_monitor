@@ -1,7 +1,4 @@
-Voici une version mise à jour qui intègre **Redis Streams** et **Turbo Streams live UI**.
-
-````markdown
-# Chapitre — Temps réel : quand Bitcoin Monitor a commencé à écouter Bitcoin
+# Temps réel : quand Bitcoin Monitor a commencé à écouter Bitcoin
 
 > Pendant longtemps, Bitcoin Monitor observait la blockchain.
 >
@@ -1196,5 +1193,3 @@ Elle écoute désormais :
 
 Puis elle publie, traite, affiche et supervise cet événement en temps réel.
 
-```
-```
