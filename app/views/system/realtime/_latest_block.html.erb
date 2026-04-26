@@ -1,0 +1,15 @@
+<div id="latest_block_live" class="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-4">
+  <div class="text-xs uppercase tracking-wide text-sky-300">Live block stream</div>
+
+  <div class="mt-2 text-2xl font-bold text-gray-100">
+    <%= block[:height] || "—" %>
+  </div>
+
+  <div class="mt-2 font-mono text-xs text-gray-400 break-all">
+    <%= block[:blockhash] || "En attente du prochain bloc..." %>
+  </div>
+
+  <div class="mt-2 text-xs text-gray-500">
+    reçu à <%= block[:created_at] || Time.current %>
+  </div>
+</div>

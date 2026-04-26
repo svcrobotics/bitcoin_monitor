@@ -364,6 +364,16 @@
 
   <!-- Realtime -->
   <section class="<%= section_class %>">
+    <%= turbo_stream_from "bitcoin_blocks" %>
+
+    <div class="mb-4">
+      <%= render "system/realtime/latest_block", block: {
+        height: @realtime.dig(:watcher, :last_blockheight),
+        blockhash: @realtime.dig(:watcher, :last_blockhash),
+        created_at: @realtime.dig(:watcher, :updated_at)
+      } %>
+    </div>
+    
     <div class="mb-5">
       <div class="<%= label_class %>">Realtime</div>
       <h2 class="mt-1 text-xl font-semibold text-gray-100">Realtime block stream</h2>

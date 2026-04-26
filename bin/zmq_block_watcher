@@ -41,6 +41,22 @@ loop do
     updated_at: Time.current
   )
 
+  event_id = Realtime::BlockEventProducer.call(
+    height: height,
+    blockhash: blockhash
+  )
+
+  Realtime::BlockEventBroadcaster.call(
+    height: height,
+    blockhash: blockhash,
+    created_at: Time.current
+  )
+  
+  Rails.logger.info(
+    "[zmq] block_event_published stream=bitcoin.blocks " \
+    "event_id=#{event_id} height=#{height} hash=#{blockhash}"
+  )
+
   require "sidekiq/api"
 
   realtime_queue_size = Sidekiq::Queue.new("realtime").size
