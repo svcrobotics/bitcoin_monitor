@@ -60,6 +60,7 @@ module System
         current_job_name: progress[:current_job_name],
         current_job_progress_pct: progress[:current_job_progress_pct],
         current_job_progress_label: progress[:current_job_progress_label],
+        current_job_progress_meta: progress[:current_job_progress_meta],
         pipelines: build_pipelines(best_height),
         queues: build_queues,
         workers: build_workers,
@@ -226,7 +227,7 @@ module System
       JobRun
         .where(name: JOB_NAMES)
         .order(started_at: :desc)
-        .limit(40)
+        .limit(25)
         .map do |jr|
           {
             name: jr.name,
@@ -237,7 +238,8 @@ module System
             duration_seconds: duration_seconds(jr),
             error_message: jr.respond_to?(:error_message) ? jr.error_message : jr.error,
             progress_pct: jr.progress_pct,
-            progress_label: jr.progress_label
+            progress_label: jr.progress_label,
+            progress_meta: jr.progress_meta
           }
         end
     end
@@ -263,13 +265,15 @@ module System
       return {
         current_job_name: nil,
         current_job_progress_pct: nil,
-        current_job_progress_label: "Aucun job recovery actif"
+        current_job_progress_label: "Aucun job recovery actif",
+        current_job_progress_meta: nil
       } unless jr
 
       {
         current_job_name: jr.name,
         current_job_progress_pct: jr.progress_pct,
-        current_job_progress_label: jr.progress_label.presence || "Job en cours"
+        current_job_progress_label: jr.progress_label.presence || "Job en cours",
+        current_job_progress_meta: jr.progress_meta
       }
     end
 

@@ -6,7 +6,7 @@
     case status.to_s
     when "ok", "healthy"
       "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-    when "critical", "stalled"
+    when "critical", "stalled", "fail", "failing"
       "border-rose-500/20 bg-rose-500/10 text-rose-300"
     else
       "border-amber-500/20 bg-amber-500/10 text-amber-300"
@@ -54,6 +54,7 @@
       <div>
         <p class="text-sm uppercase tracking-wide text-gray-500">System recovery</p>
         <h1 class="mt-2 text-3xl font-bold">Recovery control center</h1>
+
         <p class="mt-2 max-w-3xl text-gray-400">
           Suivi de la reprise après redémarrage, panne, backlog Sidekiq ou retard blockchain.
         </p>
@@ -80,6 +81,13 @@
           <div class="text-xs uppercase tracking-wide text-gray-500">Job actif</div>
           <div class="mt-2 text-lg font-semibold"><%= snapshot[:current_job_name] || "Aucun" %></div>
           <div class="mt-1 text-sm text-gray-500"><%= snapshot[:current_job_progress_label] || "—" %></div>
+          <% if snapshot[:current_job_progress_meta].present? %>
+              <div class="mt-2 text-xs text-gray-600">
+                blocks=<%= snapshot[:current_job_progress_meta]["scanned_blocks"] || "—" %> ·
+                txs=<%= snapshot[:current_job_progress_meta]["scanned_txs"] || "—" %> ·
+                links=<%= snapshot[:current_job_progress_meta]["links_created"] || "—" %>
+              </div>
+          <% end %>
         </div>
 
         <div class="rounded-2xl border border-gray-800 bg-gray-950 p-4">
@@ -99,13 +107,16 @@
       </div>
 
       <% if snapshot[:current_job_progress_pct].present? %>
+        <% active_pct = [[snapshot[:current_job_progress_pct].to_f, 0].max, 100].min %>
+
         <div class="mt-5">
           <div class="mb-2 flex justify-between text-xs text-gray-500">
             <span>Progression job actif</span>
-            <span><%= snapshot[:current_job_progress_pct] %>%</span>
+            <span><%= active_pct.round(1) %>%</span>
           </div>
+
           <div class="h-2 overflow-hidden rounded-full bg-gray-800">
-            <div class="h-full rounded-full bg-sky-400" style="width: <%= snapshot[:current_job_progress_pct] %>%"></div>
+            <div class="h-full rounded-full bg-sky-400" style="width: <%= active_pct %>%"></div>
           </div>
         </div>
       <% end %>
@@ -147,6 +158,7 @@
             <div>
               <div class="text-sm text-gray-400"><%= pipe[:priority] %></div>
               <div class="text-lg font-semibold"><%= pipe[:label] %></div>
+
               <% if pipe[:lag].present? %>
                 <div class="mt-1 text-sm text-gray-500"><%= lag_label.call(pipe[:lag]) %></div>
               <% end %>
@@ -177,10 +189,12 @@
                   <div class="text-gray-500">Last</div>
                   <div class="font-semibold"><%= pipe[:last_height] %></div>
                 </div>
+
                 <div class="rounded-xl bg-gray-950 p-3">
                   <div class="text-gray-500">Best</div>
                   <div class="font-semibold"><%= pipe[:best_height] %></div>
                 </div>
+
                 <div class="rounded-xl bg-gray-950 p-3">
                   <div class="text-gray-500">Lag</div>
                   <div class="font-semibold"><%= pipe[:lag] %></div>
@@ -217,9 +231,11 @@
             <th class="px-4 py-3">État</th>
           </tr>
         </thead>
+
         <tbody class="divide-y divide-gray-800 bg-gray-950">
           <% snapshot[:queues].each do |q| %>
             <% busy = q[:size].to_i > 0 || q[:latency].to_f > 30 %>
+
             <tr>
               <td class="px-4 py-3 font-medium"><%= q[:name] %></td>
               <td class="px-4 py-3"><%= q[:size] %></td>
@@ -350,7 +366,7 @@
 
     <h2 class="mt-10 text-xl font-semibold">Dernières exécutions recovery</h2>
 
-    <div class="mt-4 overflow-hidden rounded-2xl border border-gray-800">
+    <div class="mt-4 overflow-x-auto rounded-2xl border border-gray-800">
       <table class="w-full text-left text-sm">
         <thead class="bg-gray-900 text-gray-400">
           <tr>
@@ -358,20 +374,63 @@
             <th class="px-4 py-3">Status</th>
             <th class="px-4 py-3">Start</th>
             <th class="px-4 py-3">Durée</th>
+            <th class="px-4 py-3">Progress</th>
             <th class="px-4 py-3">Erreur</th>
           </tr>
         </thead>
+
         <tbody class="divide-y divide-gray-800 bg-gray-950">
           <% snapshot[:recent_job_runs].each do |jr| %>
-            <tr>
+            <tr class="align-top">
               <td class="px-4 py-3 font-medium"><%= jr[:name] %></td>
+
               <td class="px-4 py-3">
                 <span class="rounded-full border px-2 py-1 text-xs font-semibold <%= status_classes.call(jr[:status]) %>">
                   <%= jr[:status].to_s.upcase %>
                 </span>
               </td>
+
               <td class="px-4 py-3 text-gray-300"><%= jr[:started_at] %></td>
-              <td class="px-4 py-3"><%= jr[:duration_seconds] || "—" %>s</td>
+
+              <td class="px-4 py-3">
+                <%= jr[:duration_seconds] || "—" %>s
+              </td>
+
+              <td class="px-4 py-3">
+                <% if jr[:progress_pct].present? || jr[:progress_label].present? || jr[:progress_meta].present? %>
+                  <% pct = [[jr[:progress_pct].to_f, 0].max, 100].min %>
+
+                  <div class="min-w-44">
+                    <% if jr[:progress_pct].present? %>
+                      <div class="mb-1 flex justify-between text-xs text-gray-500">
+                        <span>progress</span>
+                        <span><%= pct.round(1) %>%</span>
+                      </div>
+
+                      <div class="h-1.5 overflow-hidden rounded-full bg-gray-800">
+                        <div class="h-full rounded-full bg-sky-400" style="width: <%= pct %>%"></div>
+                      </div>
+                    <% end %>
+
+                    <% if jr[:progress_label].present? %>
+                      <div class="mt-1 text-xs text-gray-500">
+                        <%= jr[:progress_label] %>
+                      </div>
+                    <% end %>
+
+                    <% if jr[:progress_meta].present? %>
+                      <div class="mt-1 text-xs text-gray-600">
+                        blocks=<%= jr[:progress_meta]["scanned_blocks"] || "—" %> ·
+                        txs=<%= jr[:progress_meta]["scanned_txs"] || "—" %> ·
+                        links=<%= jr[:progress_meta]["links_created"] || "—" %>
+                      </div>
+                    <% end %>
+                  </div>
+                <% else %>
+                  <span class="text-gray-600">—</span>
+                <% end %>
+              </td>
+
               <td class="px-4 py-3 text-rose-300">
                 <%= truncate((jr[:error_message] || jr[:error]).to_s, length: 120) %>
               </td>
