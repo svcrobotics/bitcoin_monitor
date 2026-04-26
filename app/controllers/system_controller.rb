@@ -61,6 +61,11 @@ class SystemController < ApplicationController
     end
   end
 
+  def recovery
+    @recovery_state = System::RecoveryStateBuilder.call
+    @recovery_snapshot = System::RecoverySnapshotBuilder.call
+  end
+
   private
 
   def ensure_local_or_development!

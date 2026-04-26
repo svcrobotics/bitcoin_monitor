@@ -32,6 +32,14 @@ class RecoveryOrchestratorJob < ApplicationJob
 
   def run_recovery!
     best_height = BitcoinRpc.new(wallet: nil).getblockcount.to_i
+    state = System::RecoveryStateBuilder.call
+
+    Rails.logger.info(
+      "[recovery] state=#{state[:state]} " \
+      "realtime_lag=#{state[:realtime_lag]} " \
+      "exchange_lag=#{state[:exchange_lag]} " \
+      "cluster_lag=#{state[:cluster_lag]}"
+    )
 
     Rails.logger.info("[recovery] start best_height=#{best_height}")
 
@@ -69,9 +77,6 @@ class RecoveryOrchestratorJob < ApplicationJob
     Rails.logger.info("[recovery][P2] enqueue inflow/outflow rebuild")
 
     InflowOutflowBuildJob.perform_later
-    InflowOutflowDetailsBuildJob.perform_later
-    InflowOutflowBehaviorBuildJob.perform_later
-    InflowOutflowCapitalBehaviorBuildJob.perform_later
   end
 
   def recover_p3_clusters!(best_height)

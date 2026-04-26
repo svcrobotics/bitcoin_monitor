@@ -187,9 +187,15 @@
         </p>
       </div>
 
-      <span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold <%= @recovery[:recovery_needed] ? "text-rose-300 bg-rose-500/10 border border-rose-500/20" : "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20" %>">
-        <%= @recovery[:recovery_needed] ? "RECOVERY NEEDED" : "READY" %>
-      </span>
+      <div class="flex flex-col items-start lg:items-end gap-3">
+        <span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold <%= @recovery[:recovery_needed] ? "text-rose-300 bg-rose-500/10 border border-rose-500/20" : "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20" %>">
+          <%= @recovery[:recovery_needed] ? "RECOVERY NEEDED" : "READY" %>
+        </span>
+
+        <%= link_to "Ouvrir Recovery center",
+            system_recovery_path,
+            class: "inline-flex items-center rounded-xl border border-sky-500/20 bg-sky-500/10 px-4 py-2 text-sm font-medium text-sky-300 hover:bg-sky-500/15 transition" %>
+      </div>
     </div>
 
     <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mt-5">

@@ -28,4 +28,8 @@ class JobRun < ApplicationRecord
   def skipped?
     status == "skipped"
   end
+
+  def error_message
+    error
+  end
 end

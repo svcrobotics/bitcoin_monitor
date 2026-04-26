@@ -16,6 +16,8 @@ Rails.application.routes.draw do
     resource :dashboard, only: [:show], controller: :dashboard
   end
 
+  get "system/recovery", to: "system#recovery"
+
   root "dashboard#index"
 
   # Route nommée pour le dashboard

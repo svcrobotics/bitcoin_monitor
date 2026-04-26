@@ -14,7 +14,8 @@ class InflowOutflowBuildJob < ApplicationJob
       days_back = Integer(ENV.fetch("DAYS_BACK", ENV.fetch("DAYS", "2")))
 
       result = InflowOutflowBuilder.call(days_back: days_back)
-
+      InflowOutflowDetailsBuildJob.perform_later
+      
       JobRunner.heartbeat!(jr)
 
       result
