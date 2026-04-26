@@ -262,17 +262,85 @@
 
         <div class="mt-4 space-y-2">
           <% snapshot[:locks].each do |lock| %>
-            <% stale = lock[:age_seconds].to_i > 600 %>
+            <%
+              age = lock[:age_seconds].to_i
+
+              relevant_lag =
+                case lock[:name]
+                when "realtime_processing_lock"
+                  state[:realtime_lag].to_i
+                when "exchange_observed_scan_lock"
+                  state[:exchange_lag].to_i
+                when "recovery_orchestrator_lock"
+                  [state[:realtime_lag].to_i, state[:exchange_lag].to_i, state[:cluster_lag].to_i].max
+                else
+                  0
+                end
+
+              lock_state =
+                if age <= 300
+                  :active
+                elsif relevant_lag <= 5
+                  :idle
+                elsif age <= 1800
+                  :waiting
+                else
+                  :stale
+                end
+
+              lock_classes =
+                case lock_state
+                when :active
+                  "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+                when :idle
+                  "border-sky-500/20 bg-sky-500/10 text-sky-300"
+                when :waiting
+                  "border-amber-500/20 bg-amber-500/10 text-amber-300"
+                else
+                  "border-rose-500/20 bg-rose-500/10 text-rose-300"
+                end
+
+              lock_label =
+                case lock_state
+                when :active
+                  "ACTIVE"
+                when :idle
+                  "IDLE"
+                when :waiting
+                  "WAITING"
+                else
+                  "STALE"
+                end
+
+              lock_hint =
+                case lock_state
+                when :active
+                  "Lock récemment mis à jour."
+                when :idle
+                  "Repos normal : aucun retard critique."
+                when :waiting
+                  "Retard détecté, mais lock encore récent."
+                else
+                  "Retard détecté et lock ancien : à surveiller."
+                end
+            %>
+
             <div class="rounded-2xl border border-gray-800 bg-gray-900 p-4">
               <div class="flex items-center justify-between">
                 <div class="font-semibold"><%= lock[:name] %></div>
-                <span class="rounded-full border px-2 py-1 text-xs font-semibold <%= stale ? "border-amber-500/20 bg-amber-500/10 text-amber-300" : "border-emerald-500/20 bg-emerald-500/10 text-emerald-300" %>">
-                  <%= stale ? "OLD" : "FRESH" %>
+                <span class="rounded-full border px-2 py-1 text-xs font-semibold <%= lock_classes %>">
+                  <%= lock_label %>
                 </span>
               </div>
+
               <div class="mt-2 text-sm text-gray-400">
                 updated_at: <%= lock[:updated_at] || "missing" %><br>
-                age: <%= lock[:age_seconds] || "—" %>s
+                age: <%= lock[:age_seconds] || "—" %>s<br>
+                lag lié: <%= relevant_lag %>
+              </div>
+
+              <div class="mt-2 text-xs text-gray-500">
+                <%= lock_hint %>
               </div>
             </div>
           <% end %>
