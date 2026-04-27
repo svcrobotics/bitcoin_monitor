@@ -25,7 +25,7 @@ C’est précisément là que Redis Streams est devenu indispensable.
 
 L’architecture initiale ressemblait à ceci :
 
-```text id="m55y4k"
+```text
 cron
 ↓
 job Rails
@@ -45,7 +45,7 @@ Le fonctionnement était :
 
 Mais le modèle restait essentiellement :
 
-```text id="n3g9tm"
+```text
 batch
 ```
 
@@ -84,7 +84,7 @@ Ce bloc peut intéresser :
 
 Avant Redis Streams, une approche naïve aurait été :
 
-```text id="z8n6kr"
+```text
 nouveau bloc
 ↓
 1 gros job
@@ -118,7 +118,7 @@ C’est une différence fondamentale.
 
 Une queue fonctionne généralement comme ceci :
 
-```text id="kbyl9h"
+```text
 1 message
 ↓
 1 consommateur
@@ -128,7 +128,7 @@ message supprimé
 
 Exemple :
 
-```text id="e8xtkg"
+```text
 job Sidekiq
 ↓
 1 worker
@@ -144,7 +144,7 @@ C’est parfait pour :
 
 Mais pas pour :
 
-```text id="0s3f8u"
+```text
 1 événement
 ↓
 plusieurs réactions indépendantes
@@ -156,7 +156,7 @@ plusieurs réactions indépendantes
 
 Un stream fonctionne différemment :
 
-```text id="4k7txg"
+```text
 1 événement
 ↓
 N consommateurs
@@ -164,7 +164,7 @@ N consommateurs
 
 Par exemple :
 
-```text id="mj0srm"
+```text
 nouveau bloc Bitcoin
 ├── Cluster worker
 ├── Exchange worker
@@ -235,13 +235,13 @@ Le choix architectural était donc volontaire :
 
 Le premier stream créé :
 
-```text id="9lm3c4"
+```text
 bitcoin.blocks
 ```
 
 Sa responsabilité :
 
-```text id="r7t3pk"
+```text
 publier les nouveaux blocs Bitcoin
 ```
 
@@ -251,7 +251,7 @@ publier les nouveaux blocs Bitcoin
 
 Le premier événement réel ressemblait à ceci :
 
-```text id="r9sh9u"
+```text
 1777243718434-0
 type
 new_block
@@ -263,17 +263,15 @@ created_at
 1777243718
 ```
 
-C’était un moment important.
+Ce n’était plus :
 
-Parce que ce n’était plus :
-
-```text id="q8ckxj"
+```text
 un job Rails
 ```
 
 C’était :
 
-```text id="j7q13f"
+```text
 un événement blockchain vivant
 ```
 
@@ -285,19 +283,19 @@ circulant dans l’infrastructure.
 
 Un nouveau service apparaît :
 
-```text id="gr93wy"
+```text
 Realtime::BlockEventProducer
 ```
 
 Son rôle :
 
-```text id="x5u2hv"
+```text
 écrire dans Redis Stream
 ```
 
 Exemple :
 
-```ruby id="vx4x7q"
+```ruby
 redis.xadd(
   "bitcoin.blocks",
   {
@@ -317,13 +315,13 @@ Le système commence alors à produire des événements blockchain internes.
 
 Le stream n’est pas :
 
-```text id="g6hvsy"
+```text
 le traitement
 ```
 
 Le stream est :
 
-```text id="r0f9nd"
+```text
 la source d’événements
 ```
 
@@ -336,7 +334,7 @@ Le stream représente :
 
 Autrement dit :
 
-```text id="nh1g7l"
+```text
 événement
 ≠
 traitement
@@ -348,7 +346,7 @@ traitement
 
 Avant :
 
-```text id="sy8fob"
+```text
 watcher
 ↓
 job spécifique
@@ -358,7 +356,7 @@ traitement spécifique
 
 Après Redis Streams :
 
-```text id="4hjc0m"
+```text
 watcher
 ↓
 stream
@@ -379,19 +377,19 @@ Le système devient :
 
 Le premier consommateur réel du stream fut :
 
-```text id="trhrsm"
+```text
 Realtime::ProcessLatestBlockJob
 ```
 
 Son rôle :
 
-```text id="vr2vxg"
+```text
 traiter le dernier bloc
 ```
 
 Puis déclencher :
 
-```text id="ktt57n"
+```text
 ClusterScanner
 ↓
 dirty clusters
@@ -409,13 +407,13 @@ signals
 
 Avant Redis Streams, Bitcoin Monitor ressemblait surtout à :
 
-```text id="k1fslg"
+```text
 une application Rails batch
 ```
 
 Après Redis Streams, le projet commence à ressembler à :
 
-```text id="7b7w2f"
+```text
 une plateforme événementielle blockchain
 ```
 
@@ -423,166 +421,411 @@ Le changement est énorme.
 
 ---
 
-# Les futurs streams
+## Quand le temps réel rencontre la réalité
 
-Très vite, l’idée apparaît :
+La première version fonctionnait.
 
-```text id="xv0mwb"
-un stream par type d’événement
+Mais un vrai problème est rapidement apparu :
+
+```text
+les redémarrages serveur
 ```
 
-Architecture cible :
+et surtout :
 
-| Stream                   | Rôle               |
-| ------------------------ | ------------------ |
-| `bitcoin.blocks`         | nouveaux blocs     |
-| `bitcoin.transactions`   | transactions       |
-| `bitcoin.whales`         | whales détectées   |
-| `bitcoin.exchange_flows` | inflow/outflow     |
-| `bitcoin.alerts`         | alertes            |
-| `bitcoin.metrics`        | analytics          |
-| `bitcoin.system`         | monitoring interne |
-
-Bitcoin Monitor commence alors à se transformer en :
-
-```text id="jz3p34"
-système événementiel modulaire
+```text
+les backlogs blockchain
 ```
 
 ---
 
-## La naissance des micro pipelines
+## Le vrai défi : le recovery
 
-L’introduction des streams change aussi la façon de penser les modules.
+Après reboot :
 
-Avant :
+* plusieurs blocs Bitcoin avaient été minés,
+* les curseurs Rails étaient en retard,
+* Sidekiq redémarrait,
+* certains jobs étaient encore marqués RUNNING,
+* plusieurs pipelines tentaient de rattraper le retard simultanément.
 
-```text id="20jlwm"
-gros jobs monolithiques
+C’est là que les vrais problèmes de systèmes distribués sont apparus.
+
+---
+
+## Les premiers symptômes
+
+Le dashboard recovery montrait :
+
+```text
+Realtime lag: 18
+Cluster lag: 18
+Exchange lag: 18
 ```
 
-Après :
+Et surtout :
 
-```text id="ckqkfa"
-petits pipelines spécialisés
+```text
+cluster_scan RUNNING
+exchange_observed_scan RUNNING
 ```
 
-Exemple :
+pendant des dizaines de minutes.
 
-```text id="4z4v26"
-bitcoin.blocks
-↓
-ClusterConsumer
-↓
-scan incrémental
+---
+
+## Les deadlocks PostgreSQL
+
+Le vrai problème venait des jobs concurrents.
+
+Plusieurs `ClusterScanJob` tournaient simultanément.
+
+Conséquences :
+
+* contention PostgreSQL,
+* verrous SQL,
+* deadlocks,
+* jobs bloqués,
+* queues saturées.
+
+Exemple réel :
+
+```text
+ClusterScanner::Error: scan_transaction failed
 ```
 
 ou :
 
-```text id="n2z72m"
-bitcoin.blocks
-↓
-ExchangeFlowConsumer
-↓
-analyse inflow/outflow
-```
-
-ou encore :
-
-```text id="q92hvy"
-bitcoin.transactions
-↓
-WhaleConsumer
-↓
-détection gros transferts
+```text
+deadlock detected
 ```
 
 ---
 
-## L’architecture cible
+## Pourquoi le problème était difficile
 
-Progressivement, l’architecture devient :
+Le problème n’était pas Redis Streams.
 
-```text id="5x0df6"
+Le problème était :
+
+```text
+la concurrence incontrôlée
+```
+
+Redis Streams diffusait correctement les événements.
+
+Mais plusieurs workers Sidekiq consommaient et enqueueaient trop de jobs simultanément.
+
+---
+
+## Le problème du over-enqueue
+
+Le consumer déclenchait :
+
+```ruby
+Realtime::ProcessLatestBlockJob.perform_later
+ExchangeObservedScanJob.perform_later
+ClusterScanJob.perform_later
+```
+
+à chaque événement.
+
+Résultat :
+
+```text
+realtime=6
+p3_clusters=9
+default=47
+```
+
+Les queues explosaient.
+
+---
+
+## La vraie solution : orchestration
+
+Le système devait devenir :
+
+```text
+événementiel
++
+orchestré
+```
+
+Ce fut une étape fondamentale.
+
+---
+
+## Introduction des locks Redis
+
+Pour empêcher plusieurs pipelines identiques :
+
+```text
+lock:realtime_processor
+lock:exchange_observed_scan
+lock:cluster_scan
+```
+
+Chaque pipeline devient :
+
+```text
+single-flight
+```
+
+Un seul worker autorisé à la fois.
+
+---
+
+## Protection anti-concurrence
+
+Avant lancement :
+
+```ruby
+SETNX lock:key
+```
+
+Si le lock existe déjà :
+
+```text
+skip lock_active
+```
+
+Le système évite alors :
+
+* les doubles scans,
+* les deadlocks,
+* les traitements concurrents.
+
+---
+
+## Consumer Groups Redis
+
+Un vrai Consumer Group Redis est ajouté :
+
+```text
+bitcoin_monitor
+```
+
+Consumer :
+
+```text
+block_consumer
+```
+
+Lecture :
+
+```text
+XREADGROUP
+```
+
+ACK :
+
+```text
+XACK
+```
+
+Le système devient alors :
+
+* rejouable,
+* robuste,
+* traçable,
+* résilient après reboot.
+
+---
+
+## XPENDING : la vraie puissance du stream
+
+Redis Streams apporte une capacité extrêmement importante :
+
+```text
+voir les événements non ACK
+```
+
+Commande :
+
+```bash
+XPENDING bitcoin.blocks bitcoin_monitor
+```
+
+Cela permet :
+
+* recovery,
+* replay,
+* debugging,
+* supervision temps réel.
+
+---
+
+## Recovery automatique après reboot
+
+Un problème subtil apparaissait :
+
+```text
+aucun nouvel événement Redis
+mais
+lags toujours présents
+```
+
+Donc :
+
+```text
+stream à jour
+≠
+pipelines à jour
+```
+
+Le consumer a alors été modifié pour vérifier :
+
+```ruby
+System::RecoveryStateBuilder.call
+```
+
+et relancer automatiquement :
+
+```ruby
+Realtime::ProcessLatestBlockJob
+ExchangeObservedScanJob
+ClusterScanJob
+```
+
+si un lag existe.
+
+Le recovery devient autonome.
+
+---
+
+## Queues Sidekiq dédiées
+
+Une autre amélioration majeure :
+
+```yml
+:queues:
+  - [realtime, 8]
+  - [p1_exchange, 4]
+  - [p2_flows, 3]
+  - [p3_clusters, 2]
+  - [p4_analytics, 1]
+  - [default, 1]
+```
+
+Chaque pipeline possède désormais sa propre priorité.
+
+---
+
+## La surprise : concurrency=2 était meilleur
+
+Initialement :
+
+```yml
+:concurrency: 6
+```
+
+Mais les performances étaient mauvaises :
+
+* trop de concurrence,
+* trop de contention PostgreSQL,
+* trop de locks SQL.
+
+Après tests :
+
+```yml
+:concurrency: 2
+```
+
+le recovery est devenu :
+
+* plus rapide,
+* plus stable,
+* beaucoup plus propre.
+
+C’était une leçon importante :
+
+> plus de parallélisme ≠ plus de performance.
+
+---
+
+## Le Recovery Center
+
+Une nouvelle page apparaît :
+
+```text
+/system/recovery
+```
+
+Elle expose :
+
+* lags blockchain,
+* pipelines,
+* ETA,
+* queues,
+* workers,
+* locks Redis,
+* jobs RUNNING,
+* jobs FAIL,
+* progression recovery.
+
+Le système devient observable.
+
+---
+
+## Architecture finale
+
+```text
 Bitcoin Core
 ↓
-ZMQ
+ZMQ hashblock
 ↓
-Redis Streams
+zmq_block_watcher
 ↓
-Workers spécialisés
+Redis Streams (bitcoin.blocks)
 ↓
-DB + cache + WebSocket
+BlockStreamConsumer
 ↓
-UI live
-```
-
-Cette architecture possède plusieurs avantages majeurs :
-
-* temps réel,
-* découplage,
-* extensibilité,
-* supervision,
-* parallélisation,
-* observabilité.
-
----
-
-## Redis Streams et Turbo Streams
-
-Une autre conséquence importante apparaît rapidement :
-
-```text id="u4l4xt"
-les événements backend peuvent maintenant alimenter directement l’UI
-```
-
-Architecture :
-
-```text id="avfqj3"
-Redis Stream
+Sidekiq queues dédiées
+├── realtime
+├── p1_exchange
+├── p2_flows
+├── p3_clusters
+└── p4_analytics
 ↓
-Broadcaster
+Pipelines spécialisés
 ↓
-Turbo Stream
+PostgreSQL
 ↓
-WebSocket
+Recovery Center
 ↓
 Dashboard live
 ```
-
-Le dashboard `/system` devient alors :
-
-```text id="uhj8jx"
-vivant
-```
-
-sans refresh navigateur.
 
 ---
 
 ## Ce que Redis Streams change réellement
 
-Redis Streams change la manière de penser l’application.
-
 Avant :
 
-```text id="2r00b5"
+```text
 “quel cron lance quel job ?”
 ```
 
 Après :
 
-```text id="mjlwm2"
+```text
 “quel événement produit quelle réaction ?”
 ```
 
-C’est exactement le modèle des systèmes modernes :
+Puis finalement :
 
-* plateformes de trading,
-* exchanges,
-* systèmes blockchain,
-* monitoring temps réel,
-* pipelines analytiques.
+```text
+“comment garantir que chaque événement
+soit traité exactement comme prévu,
+même après panne ou reboot ?”
+```
+
+C’est là que Bitcoin Monitor commence réellement à devenir :
+
+```text
+une plateforme événementielle blockchain résiliente
+```
 
 ---
 
@@ -604,20 +847,72 @@ Il doit seulement publier.
 
 ---
 
-### Le découplage simplifie énormément l’architecture
+### Le temps réel crée des problèmes systèmes
 
-Chaque module peut évoluer indépendamment.
+Les vrais défis deviennent :
+
+* recovery,
+* orchestration,
+* locks,
+* concurrence,
+* supervision,
+* replay,
+* résilience.
 
 ---
 
-### Redis Streams est une étape intermédiaire extrêmement puissante
+### Plus de parallélisme n’est pas toujours meilleur
 
-Kafka viendra peut-être un jour.
+La contention PostgreSQL peut ralentir tout le système.
 
-Mais Redis Streams permet déjà :
+---
 
-* une architecture moderne,
-* avec une complexité minimale.
+### Redis Streams a transformé l’architecture
+
+Bitcoin Monitor est passé :
+
+```text
+d’une application batch Rails
+```
+
+à :
+
+```text
+une infrastructure événementielle temps réel
+```
+
+---
+
+## Futures évolutions
+
+Architecture cible long terme :
+
+```text
+ZMQ
+↓
+Redis Streams
+↓
+Consumers spécialisés
+↓
+Workers dédiés
+↓
+PostgreSQL
+↓
+ClickHouse / Elasticsearch
+↓
+WebSocket / UI live
+```
+
+Futures améliorations possibles :
+
+* multi-consumers,
+* replay intelligent,
+* DLQ,
+* monitoring Prometheus,
+* Grafana,
+* scaling multi-machine,
+* analytics temps réel,
+* pipelines IA.
 
 ---
 
@@ -627,25 +922,27 @@ L’introduction de Redis Streams représente l’un des plus grands tournants t
 
 Le projet est passé :
 
-```text id="d3m6ec"
+```text
 d’une application pilotée par des jobs
 ```
 
 à :
 
-```text id="0opk3w"
+```text
 une plateforme pilotée par des événements
 ```
 
-Bitcoin Monitor ne se contente plus d’exécuter des traitements.
+Mais surtout :
 
-L’application possède désormais :
+```text
+une plateforme capable de survivre
+à un reboot,
+un backlog blockchain,
+et un recovery complet.
+```
 
-* un flux,
-* des événements,
-* des producteurs,
-* des consommateurs,
-* des pipelines,
-* une architecture temps réel.
+C’est ce moment où une application Rails commence à devenir :
 
-Et ce changement ouvre la voie à tout le reste.
+```text
+un véritable système temps réel.
+```

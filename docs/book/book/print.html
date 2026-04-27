@@ -36,7 +36,7 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-765047cd.js";
+            window.path_to_searchindex_js = "searchindex-29121e87.js";
         </script>
         <!-- Start loading toc.js asap -->
         <script src="toc-39d582e9.js"></script>
@@ -4537,7 +4537,7 @@ même après interruption
 <hr>
 <h2 id="avant-redis-streams"><a class="header" href="#avant-redis-streams">Avant Redis Streams</a></h2>
 <p>L’architecture initiale ressemblait à ceci :</p>
-<pre><code class="language-text id=&quot;m55y4k&quot;">cron
+<pre><code class="language-text">cron
 ↓
 job Rails
 ↓
@@ -4554,7 +4554,7 @@ dashboard
 <li>facile à comprendre.</li>
 </ul>
 <p>Mais le modèle restait essentiellement :</p>
-<pre><code class="language-text id=&quot;n3g9tm&quot;">batch
+<pre><code class="language-text">batch
 </code></pre>
 <p>Les modules ne réagissaient pas immédiatement aux événements blockchain.</p>
 <p>Ils attendaient :</p>
@@ -4586,7 +4586,7 @@ dashboard
 <li>futurs modules IA.</li>
 </ul>
 <p>Avant Redis Streams, une approche naïve aurait été :</p>
-<pre><code class="language-text id=&quot;z8n6kr&quot;">nouveau bloc
+<pre><code class="language-text">nouveau bloc
 ↓
 1 gros job
 ↓
@@ -4611,14 +4611,14 @@ tout recalculer
 <hr>
 <h2 id="queue-classique"><a class="header" href="#queue-classique">Queue classique</a></h2>
 <p>Une queue fonctionne généralement comme ceci :</p>
-<pre><code class="language-text id=&quot;kbyl9h&quot;">1 message
+<pre><code class="language-text">1 message
 ↓
 1 consommateur
 ↓
 message supprimé
 </code></pre>
 <p>Exemple :</p>
-<pre><code class="language-text id=&quot;e8xtkg&quot;">job Sidekiq
+<pre><code class="language-text">job Sidekiq
 ↓
 1 worker
 ↓
@@ -4631,19 +4631,19 @@ traitement
 <li>des pipelines simples.</li>
 </ul>
 <p>Mais pas pour :</p>
-<pre><code class="language-text id=&quot;0s3f8u&quot;">1 événement
+<pre><code class="language-text">1 événement
 ↓
 plusieurs réactions indépendantes
 </code></pre>
 <hr>
 <h2 id="event-stream"><a class="header" href="#event-stream">Event stream</a></h2>
 <p>Un stream fonctionne différemment :</p>
-<pre><code class="language-text id=&quot;4k7txg&quot;">1 événement
+<pre><code class="language-text">1 événement
 ↓
 N consommateurs
 </code></pre>
 <p>Par exemple :</p>
-<pre><code class="language-text id=&quot;mj0srm&quot;">nouveau bloc Bitcoin
+<pre><code class="language-text">nouveau bloc Bitcoin
 ├── Cluster worker
 ├── Exchange worker
 ├── Whale worker
@@ -4700,15 +4700,15 @@ N consommateurs
 <hr>
 <h2 id="le-premier-stream"><a class="header" href="#le-premier-stream">Le premier stream</a></h2>
 <p>Le premier stream créé :</p>
-<pre><code class="language-text id=&quot;9lm3c4&quot;">bitcoin.blocks
+<pre><code class="language-text">bitcoin.blocks
 </code></pre>
 <p>Sa responsabilité :</p>
-<pre><code class="language-text id=&quot;r7t3pk&quot;">publier les nouveaux blocs Bitcoin
+<pre><code class="language-text">publier les nouveaux blocs Bitcoin
 </code></pre>
 <hr>
 <h2 id="première-publication"><a class="header" href="#première-publication">Première publication</a></h2>
 <p>Le premier événement réel ressemblait à ceci :</p>
-<pre><code class="language-text id=&quot;r9sh9u&quot;">1777243718434-0
+<pre><code class="language-text">1777243718434-0
 type
 new_block
 height
@@ -4718,24 +4718,23 @@ blockhash
 created_at
 1777243718
 </code></pre>
-<p>C’était un moment important.</p>
-<p>Parce que ce n’était plus :</p>
-<pre><code class="language-text id=&quot;q8ckxj&quot;">un job Rails
+<p>Ce n’était plus :</p>
+<pre><code class="language-text">un job Rails
 </code></pre>
 <p>C’était :</p>
-<pre><code class="language-text id=&quot;j7q13f&quot;">un événement blockchain vivant
+<pre><code class="language-text">un événement blockchain vivant
 </code></pre>
 <p>circulant dans l’infrastructure.</p>
 <hr>
 <h2 id="le-premier-producteur"><a class="header" href="#le-premier-producteur">Le premier producteur</a></h2>
 <p>Un nouveau service apparaît :</p>
-<pre><code class="language-text id=&quot;gr93wy&quot;">Realtime::BlockEventProducer
+<pre><code class="language-text">Realtime::BlockEventProducer
 </code></pre>
 <p>Son rôle :</p>
-<pre><code class="language-text id=&quot;x5u2hv&quot;">écrire dans Redis Stream
+<pre><code class="language-text">écrire dans Redis Stream
 </code></pre>
 <p>Exemple :</p>
-<pre><code class="language-ruby id=&quot;vx4x7q&quot;">redis.xadd(
+<pre><code class="language-ruby">redis.xadd(
   "bitcoin.blocks",
   {
     type: "new_block",
@@ -4749,10 +4748,10 @@ created_at
 <hr>
 <h2 id="ce-que-le-stream-représente-réellement"><a class="header" href="#ce-que-le-stream-représente-réellement">Ce que le stream représente réellement</a></h2>
 <p>Le stream n’est pas :</p>
-<pre><code class="language-text id=&quot;g6hvsy&quot;">le traitement
+<pre><code class="language-text">le traitement
 </code></pre>
 <p>Le stream est :</p>
-<pre><code class="language-text id=&quot;r0f9nd&quot;">la source d’événements
+<pre><code class="language-text">la source d’événements
 </code></pre>
 <p>C’est une distinction fondamentale.</p>
 <p>Le stream représente :</p>
@@ -4761,21 +4760,21 @@ created_at
 <li>indépendamment de ce qui va le consommer.</li>
 </ul>
 <p>Autrement dit :</p>
-<pre><code class="language-text id=&quot;nh1g7l&quot;">événement
+<pre><code class="language-text">événement
 ≠
 traitement
 </code></pre>
 <hr>
 <h2 id="le-découplage-devient-réel"><a class="header" href="#le-découplage-devient-réel">Le découplage devient réel</a></h2>
 <p>Avant :</p>
-<pre><code class="language-text id=&quot;sy8fob&quot;">watcher
+<pre><code class="language-text">watcher
 ↓
 job spécifique
 ↓
 traitement spécifique
 </code></pre>
 <p>Après Redis Streams :</p>
-<pre><code class="language-text id=&quot;4hjc0m&quot;">watcher
+<pre><code class="language-text">watcher
 ↓
 stream
 ↓
@@ -4791,13 +4790,13 @@ plusieurs consommateurs indépendants
 <hr>
 <h2 id="le-premier-consommateur"><a class="header" href="#le-premier-consommateur">Le premier consommateur</a></h2>
 <p>Le premier consommateur réel du stream fut :</p>
-<pre><code class="language-text id=&quot;trhrsm&quot;">Realtime::ProcessLatestBlockJob
+<pre><code class="language-text">Realtime::ProcessLatestBlockJob
 </code></pre>
 <p>Son rôle :</p>
-<pre><code class="language-text id=&quot;vr2vxg&quot;">traiter le dernier bloc
+<pre><code class="language-text">traiter le dernier bloc
 </code></pre>
 <p>Puis déclencher :</p>
-<pre><code class="language-text id=&quot;ktt57n&quot;">ClusterScanner
+<pre><code class="language-text">ClusterScanner
 ↓
 dirty clusters
 ↓
@@ -4810,128 +4809,272 @@ signals
 <hr>
 <h2 id="pourquoi-cest-un-tournant-majeur"><a class="header" href="#pourquoi-cest-un-tournant-majeur">Pourquoi c’est un tournant majeur</a></h2>
 <p>Avant Redis Streams, Bitcoin Monitor ressemblait surtout à :</p>
-<pre><code class="language-text id=&quot;k1fslg&quot;">une application Rails batch
+<pre><code class="language-text">une application Rails batch
 </code></pre>
 <p>Après Redis Streams, le projet commence à ressembler à :</p>
-<pre><code class="language-text id=&quot;7b7w2f&quot;">une plateforme événementielle blockchain
+<pre><code class="language-text">une plateforme événementielle blockchain
 </code></pre>
 <p>Le changement est énorme.</p>
 <hr>
-<h1 id="les-futurs-streams"><a class="header" href="#les-futurs-streams">Les futurs streams</a></h1>
-<p>Très vite, l’idée apparaît :</p>
-<pre><code class="language-text id=&quot;xv0mwb&quot;">un stream par type d’événement
+<h2 id="quand-le-temps-réel-rencontre-la-réalité"><a class="header" href="#quand-le-temps-réel-rencontre-la-réalité">Quand le temps réel rencontre la réalité</a></h2>
+<p>La première version fonctionnait.</p>
+<p>Mais un vrai problème est rapidement apparu :</p>
+<pre><code class="language-text">les redémarrages serveur
 </code></pre>
-<p>Architecture cible :</p>
-<div class="table-wrapper">
-<table>
-<thead>
-<tr><th>Stream</th><th>Rôle</th></tr>
-</thead>
-<tbody>
-<tr><td><code>bitcoin.blocks</code></td><td>nouveaux blocs</td></tr>
-<tr><td><code>bitcoin.transactions</code></td><td>transactions</td></tr>
-<tr><td><code>bitcoin.whales</code></td><td>whales détectées</td></tr>
-<tr><td><code>bitcoin.exchange_flows</code></td><td>inflow/outflow</td></tr>
-<tr><td><code>bitcoin.alerts</code></td><td>alertes</td></tr>
-<tr><td><code>bitcoin.metrics</code></td><td>analytics</td></tr>
-<tr><td><code>bitcoin.system</code></td><td>monitoring interne</td></tr>
-</tbody>
-</table>
-</div>
-<p>Bitcoin Monitor commence alors à se transformer en :</p>
-<pre><code class="language-text id=&quot;jz3p34&quot;">système événementiel modulaire
+<p>et surtout :</p>
+<pre><code class="language-text">les backlogs blockchain
 </code></pre>
 <hr>
-<h2 id="la-naissance-des-micro-pipelines"><a class="header" href="#la-naissance-des-micro-pipelines">La naissance des micro pipelines</a></h2>
-<p>L’introduction des streams change aussi la façon de penser les modules.</p>
-<p>Avant :</p>
-<pre><code class="language-text id=&quot;20jlwm&quot;">gros jobs monolithiques
+<h2 id="le-vrai-défi--le-recovery"><a class="header" href="#le-vrai-défi--le-recovery">Le vrai défi : le recovery</a></h2>
+<p>Après reboot :</p>
+<ul>
+<li>plusieurs blocs Bitcoin avaient été minés,</li>
+<li>les curseurs Rails étaient en retard,</li>
+<li>Sidekiq redémarrait,</li>
+<li>certains jobs étaient encore marqués RUNNING,</li>
+<li>plusieurs pipelines tentaient de rattraper le retard simultanément.</li>
+</ul>
+<p>C’est là que les vrais problèmes de systèmes distribués sont apparus.</p>
+<hr>
+<h2 id="les-premiers-symptômes"><a class="header" href="#les-premiers-symptômes">Les premiers symptômes</a></h2>
+<p>Le dashboard recovery montrait :</p>
+<pre><code class="language-text">Realtime lag: 18
+Cluster lag: 18
+Exchange lag: 18
 </code></pre>
-<p>Après :</p>
-<pre><code class="language-text id=&quot;ckqkfa&quot;">petits pipelines spécialisés
+<p>Et surtout :</p>
+<pre><code class="language-text">cluster_scan RUNNING
+exchange_observed_scan RUNNING
 </code></pre>
-<p>Exemple :</p>
-<pre><code class="language-text id=&quot;4z4v26&quot;">bitcoin.blocks
-↓
-ClusterConsumer
-↓
-scan incrémental
+<p>pendant des dizaines de minutes.</p>
+<hr>
+<h2 id="les-deadlocks-postgresql"><a class="header" href="#les-deadlocks-postgresql">Les deadlocks PostgreSQL</a></h2>
+<p>Le vrai problème venait des jobs concurrents.</p>
+<p>Plusieurs <code>ClusterScanJob</code> tournaient simultanément.</p>
+<p>Conséquences :</p>
+<ul>
+<li>contention PostgreSQL,</li>
+<li>verrous SQL,</li>
+<li>deadlocks,</li>
+<li>jobs bloqués,</li>
+<li>queues saturées.</li>
+</ul>
+<p>Exemple réel :</p>
+<pre><code class="language-text">ClusterScanner::Error: scan_transaction failed
 </code></pre>
 <p>ou :</p>
-<pre><code class="language-text id=&quot;n2z72m&quot;">bitcoin.blocks
-↓
-ExchangeFlowConsumer
-↓
-analyse inflow/outflow
-</code></pre>
-<p>ou encore :</p>
-<pre><code class="language-text id=&quot;q92hvy&quot;">bitcoin.transactions
-↓
-WhaleConsumer
-↓
-détection gros transferts
+<pre><code class="language-text">deadlock detected
 </code></pre>
 <hr>
-<h2 id="larchitecture-cible"><a class="header" href="#larchitecture-cible">L’architecture cible</a></h2>
-<p>Progressivement, l’architecture devient :</p>
-<pre><code class="language-text id=&quot;5x0df6&quot;">Bitcoin Core
-↓
-ZMQ
-↓
-Redis Streams
-↓
-Workers spécialisés
-↓
-DB + cache + WebSocket
-↓
-UI live
+<h2 id="pourquoi-le-problème-était-difficile"><a class="header" href="#pourquoi-le-problème-était-difficile">Pourquoi le problème était difficile</a></h2>
+<p>Le problème n’était pas Redis Streams.</p>
+<p>Le problème était :</p>
+<pre><code class="language-text">la concurrence incontrôlée
 </code></pre>
-<p>Cette architecture possède plusieurs avantages majeurs :</p>
+<p>Redis Streams diffusait correctement les événements.</p>
+<p>Mais plusieurs workers Sidekiq consommaient et enqueueaient trop de jobs simultanément.</p>
+<hr>
+<h2 id="le-problème-du-over-enqueue"><a class="header" href="#le-problème-du-over-enqueue">Le problème du over-enqueue</a></h2>
+<p>Le consumer déclenchait :</p>
+<pre><code class="language-ruby">Realtime::ProcessLatestBlockJob.perform_later
+ExchangeObservedScanJob.perform_later
+ClusterScanJob.perform_later
+</code></pre>
+<p>à chaque événement.</p>
+<p>Résultat :</p>
+<pre><code class="language-text">realtime=6
+p3_clusters=9
+default=47
+</code></pre>
+<p>Les queues explosaient.</p>
+<hr>
+<h2 id="la-vraie-solution--orchestration"><a class="header" href="#la-vraie-solution--orchestration">La vraie solution : orchestration</a></h2>
+<p>Le système devait devenir :</p>
+<pre><code class="language-text">événementiel
++
+orchestré
+</code></pre>
+<p>Ce fut une étape fondamentale.</p>
+<hr>
+<h2 id="introduction-des-locks-redis"><a class="header" href="#introduction-des-locks-redis">Introduction des locks Redis</a></h2>
+<p>Pour empêcher plusieurs pipelines identiques :</p>
+<pre><code class="language-text">lock:realtime_processor
+lock:exchange_observed_scan
+lock:cluster_scan
+</code></pre>
+<p>Chaque pipeline devient :</p>
+<pre><code class="language-text">single-flight
+</code></pre>
+<p>Un seul worker autorisé à la fois.</p>
+<hr>
+<h2 id="protection-anti-concurrence"><a class="header" href="#protection-anti-concurrence">Protection anti-concurrence</a></h2>
+<p>Avant lancement :</p>
+<pre><code class="language-ruby">SETNX lock:key
+</code></pre>
+<p>Si le lock existe déjà :</p>
+<pre><code class="language-text">skip lock_active
+</code></pre>
+<p>Le système évite alors :</p>
 <ul>
-<li>temps réel,</li>
-<li>découplage,</li>
-<li>extensibilité,</li>
-<li>supervision,</li>
-<li>parallélisation,</li>
-<li>observabilité.</li>
+<li>les doubles scans,</li>
+<li>les deadlocks,</li>
+<li>les traitements concurrents.</li>
 </ul>
 <hr>
-<h2 id="redis-streams-et-turbo-streams"><a class="header" href="#redis-streams-et-turbo-streams">Redis Streams et Turbo Streams</a></h2>
-<p>Une autre conséquence importante apparaît rapidement :</p>
-<pre><code class="language-text id=&quot;u4l4xt&quot;">les événements backend peuvent maintenant alimenter directement l’UI
+<h2 id="consumer-groups-redis"><a class="header" href="#consumer-groups-redis">Consumer Groups Redis</a></h2>
+<p>Un vrai Consumer Group Redis est ajouté :</p>
+<pre><code class="language-text">bitcoin_monitor
 </code></pre>
-<p>Architecture :</p>
-<pre><code class="language-text id=&quot;avfqj3&quot;">Redis Stream
+<p>Consumer :</p>
+<pre><code class="language-text">block_consumer
+</code></pre>
+<p>Lecture :</p>
+<pre><code class="language-text">XREADGROUP
+</code></pre>
+<p>ACK :</p>
+<pre><code class="language-text">XACK
+</code></pre>
+<p>Le système devient alors :</p>
+<ul>
+<li>rejouable,</li>
+<li>robuste,</li>
+<li>traçable,</li>
+<li>résilient après reboot.</li>
+</ul>
+<hr>
+<h2 id="xpending--la-vraie-puissance-du-stream"><a class="header" href="#xpending--la-vraie-puissance-du-stream">XPENDING : la vraie puissance du stream</a></h2>
+<p>Redis Streams apporte une capacité extrêmement importante :</p>
+<pre><code class="language-text">voir les événements non ACK
+</code></pre>
+<p>Commande :</p>
+<pre><code class="language-bash">XPENDING bitcoin.blocks bitcoin_monitor
+</code></pre>
+<p>Cela permet :</p>
+<ul>
+<li>recovery,</li>
+<li>replay,</li>
+<li>debugging,</li>
+<li>supervision temps réel.</li>
+</ul>
+<hr>
+<h2 id="recovery-automatique-après-reboot"><a class="header" href="#recovery-automatique-après-reboot">Recovery automatique après reboot</a></h2>
+<p>Un problème subtil apparaissait :</p>
+<pre><code class="language-text">aucun nouvel événement Redis
+mais
+lags toujours présents
+</code></pre>
+<p>Donc :</p>
+<pre><code class="language-text">stream à jour
+≠
+pipelines à jour
+</code></pre>
+<p>Le consumer a alors été modifié pour vérifier :</p>
+<pre><code class="language-ruby">System::RecoveryStateBuilder.call
+</code></pre>
+<p>et relancer automatiquement :</p>
+<pre><code class="language-ruby">Realtime::ProcessLatestBlockJob
+ExchangeObservedScanJob
+ClusterScanJob
+</code></pre>
+<p>si un lag existe.</p>
+<p>Le recovery devient autonome.</p>
+<hr>
+<h2 id="queues-sidekiq-dédiées"><a class="header" href="#queues-sidekiq-dédiées">Queues Sidekiq dédiées</a></h2>
+<p>Une autre amélioration majeure :</p>
+<pre><code class="language-yml">:queues:
+  - [realtime, 8]
+  - [p1_exchange, 4]
+  - [p2_flows, 3]
+  - [p3_clusters, 2]
+  - [p4_analytics, 1]
+  - [default, 1]
+</code></pre>
+<p>Chaque pipeline possède désormais sa propre priorité.</p>
+<hr>
+<h2 id="la-surprise--concurrency2-était-meilleur"><a class="header" href="#la-surprise--concurrency2-était-meilleur">La surprise : concurrency=2 était meilleur</a></h2>
+<p>Initialement :</p>
+<pre><code class="language-yml">:concurrency: 6
+</code></pre>
+<p>Mais les performances étaient mauvaises :</p>
+<ul>
+<li>trop de concurrence,</li>
+<li>trop de contention PostgreSQL,</li>
+<li>trop de locks SQL.</li>
+</ul>
+<p>Après tests :</p>
+<pre><code class="language-yml">:concurrency: 2
+</code></pre>
+<p>le recovery est devenu :</p>
+<ul>
+<li>plus rapide,</li>
+<li>plus stable,</li>
+<li>beaucoup plus propre.</li>
+</ul>
+<p>C’était une leçon importante :</p>
+<blockquote>
+<p>plus de parallélisme ≠ plus de performance.</p>
+</blockquote>
+<hr>
+<h2 id="le-recovery-center"><a class="header" href="#le-recovery-center">Le Recovery Center</a></h2>
+<p>Une nouvelle page apparaît :</p>
+<pre><code class="language-text">/system/recovery
+</code></pre>
+<p>Elle expose :</p>
+<ul>
+<li>lags blockchain,</li>
+<li>pipelines,</li>
+<li>ETA,</li>
+<li>queues,</li>
+<li>workers,</li>
+<li>locks Redis,</li>
+<li>jobs RUNNING,</li>
+<li>jobs FAIL,</li>
+<li>progression recovery.</li>
+</ul>
+<p>Le système devient observable.</p>
+<hr>
+<h2 id="architecture-finale"><a class="header" href="#architecture-finale">Architecture finale</a></h2>
+<pre><code class="language-text">Bitcoin Core
 ↓
-Broadcaster
+ZMQ hashblock
 ↓
-Turbo Stream
+zmq_block_watcher
 ↓
-WebSocket
+Redis Streams (bitcoin.blocks)
+↓
+BlockStreamConsumer
+↓
+Sidekiq queues dédiées
+├── realtime
+├── p1_exchange
+├── p2_flows
+├── p3_clusters
+└── p4_analytics
+↓
+Pipelines spécialisés
+↓
+PostgreSQL
+↓
+Recovery Center
 ↓
 Dashboard live
 </code></pre>
-<p>Le dashboard <code>/system</code> devient alors :</p>
-<pre><code class="language-text id=&quot;uhj8jx&quot;">vivant
-</code></pre>
-<p>sans refresh navigateur.</p>
 <hr>
 <h2 id="ce-que-redis-streams-change-réellement"><a class="header" href="#ce-que-redis-streams-change-réellement">Ce que Redis Streams change réellement</a></h2>
-<p>Redis Streams change la manière de penser l’application.</p>
 <p>Avant :</p>
-<pre><code class="language-text id=&quot;2r00b5&quot;">“quel cron lance quel job ?”
+<pre><code class="language-text">“quel cron lance quel job ?”
 </code></pre>
 <p>Après :</p>
-<pre><code class="language-text id=&quot;mjlwm2&quot;">“quel événement produit quelle réaction ?”
+<pre><code class="language-text">“quel événement produit quelle réaction ?”
 </code></pre>
-<p>C’est exactement le modèle des systèmes modernes :</p>
-<ul>
-<li>plateformes de trading,</li>
-<li>exchanges,</li>
-<li>systèmes blockchain,</li>
-<li>monitoring temps réel,</li>
-<li>pipelines analytiques.</li>
-</ul>
+<p>Puis finalement :</p>
+<pre><code class="language-text">“comment garantir que chaque événement
+soit traité exactement comme prévu,
+même après panne ou reboot ?”
+</code></pre>
+<p>C’est là que Bitcoin Monitor commence réellement à devenir :</p>
+<pre><code class="language-text">une plateforme événementielle blockchain résiliente
+</code></pre>
 <hr>
 <h2 id="les-leçons-apprises-1"><a class="header" href="#les-leçons-apprises-1">Les leçons apprises</a></h2>
 <h3 id="un-stream-nest-pas-une-queue"><a class="header" href="#un-stream-nest-pas-une-queue">Un stream n’est pas une queue</a></h3>
@@ -4942,36 +5085,74 @@ Dashboard live
 <p>Le producteur ne doit pas connaître les consommateurs.</p>
 <p>Il doit seulement publier.</p>
 <hr>
-<h3 id="le-découplage-simplifie-énormément-larchitecture"><a class="header" href="#le-découplage-simplifie-énormément-larchitecture">Le découplage simplifie énormément l’architecture</a></h3>
-<p>Chaque module peut évoluer indépendamment.</p>
-<hr>
-<h3 id="redis-streams-est-une-étape-intermédiaire-extrêmement-puissante"><a class="header" href="#redis-streams-est-une-étape-intermédiaire-extrêmement-puissante">Redis Streams est une étape intermédiaire extrêmement puissante</a></h3>
-<p>Kafka viendra peut-être un jour.</p>
-<p>Mais Redis Streams permet déjà :</p>
+<h3 id="le-temps-réel-crée-des-problèmes-systèmes"><a class="header" href="#le-temps-réel-crée-des-problèmes-systèmes">Le temps réel crée des problèmes systèmes</a></h3>
+<p>Les vrais défis deviennent :</p>
 <ul>
-<li>une architecture moderne,</li>
-<li>avec une complexité minimale.</li>
+<li>recovery,</li>
+<li>orchestration,</li>
+<li>locks,</li>
+<li>concurrence,</li>
+<li>supervision,</li>
+<li>replay,</li>
+<li>résilience.</li>
+</ul>
+<hr>
+<h3 id="plus-de-parallélisme-nest-pas-toujours-meilleur"><a class="header" href="#plus-de-parallélisme-nest-pas-toujours-meilleur">Plus de parallélisme n’est pas toujours meilleur</a></h3>
+<p>La contention PostgreSQL peut ralentir tout le système.</p>
+<hr>
+<h3 id="redis-streams-a-transformé-larchitecture"><a class="header" href="#redis-streams-a-transformé-larchitecture">Redis Streams a transformé l’architecture</a></h3>
+<p>Bitcoin Monitor est passé :</p>
+<pre><code class="language-text">d’une application batch Rails
+</code></pre>
+<p>à :</p>
+<pre><code class="language-text">une infrastructure événementielle temps réel
+</code></pre>
+<hr>
+<h2 id="futures-évolutions"><a class="header" href="#futures-évolutions">Futures évolutions</a></h2>
+<p>Architecture cible long terme :</p>
+<pre><code class="language-text">ZMQ
+↓
+Redis Streams
+↓
+Consumers spécialisés
+↓
+Workers dédiés
+↓
+PostgreSQL
+↓
+ClickHouse / Elasticsearch
+↓
+WebSocket / UI live
+</code></pre>
+<p>Futures améliorations possibles :</p>
+<ul>
+<li>multi-consumers,</li>
+<li>replay intelligent,</li>
+<li>DLQ,</li>
+<li>monitoring Prometheus,</li>
+<li>Grafana,</li>
+<li>scaling multi-machine,</li>
+<li>analytics temps réel,</li>
+<li>pipelines IA.</li>
 </ul>
 <hr>
 <h2 id="conclusion-1"><a class="header" href="#conclusion-1">Conclusion</a></h2>
 <p>L’introduction de Redis Streams représente l’un des plus grands tournants techniques de Bitcoin Monitor.</p>
 <p>Le projet est passé :</p>
-<pre><code class="language-text id=&quot;d3m6ec&quot;">d’une application pilotée par des jobs
+<pre><code class="language-text">d’une application pilotée par des jobs
 </code></pre>
 <p>à :</p>
-<pre><code class="language-text id=&quot;0opk3w&quot;">une plateforme pilotée par des événements
+<pre><code class="language-text">une plateforme pilotée par des événements
 </code></pre>
-<p>Bitcoin Monitor ne se contente plus d’exécuter des traitements.</p>
-<p>L’application possède désormais :</p>
-<ul>
-<li>un flux,</li>
-<li>des événements,</li>
-<li>des producteurs,</li>
-<li>des consommateurs,</li>
-<li>des pipelines,</li>
-<li>une architecture temps réel.</li>
-</ul>
-<p>Et ce changement ouvre la voie à tout le reste.</p>
+<p>Mais surtout :</p>
+<pre><code class="language-text">une plateforme capable de survivre
+à un reboot,
+un backlog blockchain,
+et un recovery complet.
+</code></pre>
+<p>C’est ce moment où une application Rails commence à devenir :</p>
+<pre><code class="language-text">un véritable système temps réel.
+</code></pre>
 
                     </main>
 
