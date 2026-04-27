@@ -1,7 +1,8 @@
+# app/jobs/cluster_refresh_job.rb
 # frozen_string_literal: true
 
 class ClusterRefreshJob < ApplicationJob
-  queue_as :p3_clusters
+  queue_as :default
 
   def perform(cluster_ids)
     ids = Array(cluster_ids).compact.uniq

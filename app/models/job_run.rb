@@ -1,5 +1,7 @@
 # app/models/job_run.rb
 class JobRun < ApplicationRecord
+  scope :for_job, ->(name) { where(name: name) }
+  scope :recent, -> { order(started_at: :desc, created_at: :desc) }
   STATUSES = %w[running ok fail skipped].freeze
   TRIGGERS = %w[cron manual recovery].freeze
 

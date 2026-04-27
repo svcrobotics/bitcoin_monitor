@@ -2,7 +2,7 @@
 
 module Clusters
   class RefreshDirtyClustersJob < ApplicationJob
-    queue_as :default
+    queue_as :p3_clusters
 
     def perform(cluster_ids)
       cluster_ids = Array(cluster_ids).map(&:to_i).uniq

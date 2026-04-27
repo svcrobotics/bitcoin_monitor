@@ -1,9 +1,10 @@
+# app/jobs/cluster_refresh_dispatch_job.rb
 # frozen_string_literal: true
 
 class ClusterRefreshDispatchJob < ApplicationJob
-  queue_as :p3_clusters
+  queue_as :default
 
-  BATCH_SIZE = 50
+  BATCH_SIZE = Integer(ENV.fetch("CLUSTER_REFRESH_BATCH_SIZE", "50"))
 
   def perform(cluster_ids)
     ids = Array(cluster_ids).compact.uniq

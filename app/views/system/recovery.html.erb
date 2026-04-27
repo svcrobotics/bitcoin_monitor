@@ -38,12 +38,16 @@
 
   action_message =
     case global_state
+    when "healthy"
+      "Système synchronisé."
+    when "degraded"
+      "Système dégradé : un pipeline est en retard ou instable."
     when "stalled"
       "Action recommandée : relancer le pipeline critique avant de reconstruire les agrégats."
     when "recovering"
       "Recovery en cours : surveiller la baisse progressive des lags."
     else
-      "Système synchronisé."
+      "État système à vérifier."
     end
 %>
 
