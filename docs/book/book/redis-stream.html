@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Whale - Construire une application Rails professionnelle</title>
+        <title>Redis Stream - Construire une application Rails professionnelle</title>
 
 
         <!-- Custom HTML head -->
@@ -174,465 +174,471 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="whale-scan--le-moment-où-bitcoin-monitor-a-commencé-à-surveiller-les-gros-mouvements-du-réseau"><a class="header" href="#whale-scan--le-moment-où-bitcoin-monitor-a-commencé-à-surveiller-les-gros-mouvements-du-réseau">Whale Scan : le moment où Bitcoin Monitor a commencé à surveiller les gros mouvements du réseau</a></h1>
+                        <h1 id="redis-streams--quand-bitcoin-monitor-est-devenu-événementiel"><a class="header" href="#redis-streams--quand-bitcoin-monitor-est-devenu-événementiel">Redis Streams : quand Bitcoin Monitor est devenu événementiel</a></h1>
 <blockquote>
-<p><em>Au départ, Bitcoin Monitor observait surtout le marché.</em></p>
-<p>Les prix.</p>
-<p>Les variations.</p>
-<p>Les indicateurs classiques.</p>
-<p>Puis une question est apparue :</p>
+<p>Au début, Bitcoin Monitor exécutait des jobs.</p>
+<p>Puis l’application a commencé à faire circuler des événements.</p>
+</blockquote>
+<p>Ce chapitre raconte l’introduction de Redis Streams dans Bitcoin Monitor et pourquoi ce changement représente un tournant architectural majeur.</p>
+<p>Pendant longtemps, l’application fonctionnait principalement autour de :</p>
+<ul>
+<li>cron,</li>
+<li>jobs Sidekiq,</li>
+<li>PostgreSQL,</li>
+<li>traitements périodiques.</li>
+</ul>
+<p>Puis un nouveau besoin est apparu :</p>
 <blockquote>
-<p>que se passe-t-il réellement sur la blockchain lorsqu’une énorme quantité de Bitcoin bouge ?</p>
+<p>plusieurs modules devaient réagir au même événement blockchain.</p>
 </blockquote>
-<p>Ce chapitre raconte comment un simple besoin de détection de “grosses transactions” a progressivement conduit à :</p>
-<ul>
-<li>des heuristiques comportementales,</li>
-<li>des classifications probabilistes,</li>
-<li>des scanners blockchain massifs,</li>
-<li>des problèmes de performance,</li>
-<li>des datasets historiques,</li>
-<li>et une nouvelle manière d’interpréter le marché.</li>
-</ul>
-</blockquote>
+<p>C’est précisément là que Redis Streams est devenu indispensable.</p>
 <hr>
-<h2 id="1-le-problème-initial"><a class="header" href="#1-le-problème-initial">1. Le problème initial</a></h2>
-<p>Au début, Bitcoin Monitor savait déjà :</p>
+<h2 id="avant-redis-streams"><a class="header" href="#avant-redis-streams">Avant Redis Streams</a></h2>
+<p>L’architecture initiale ressemblait à ceci :</p>
+<pre><code class="language-text id=&quot;m55y4k&quot;">cron
+↓
+job Rails
+↓
+scan blockchain
+↓
+PostgreSQL
+↓
+dashboard
+</code></pre>
+<p>Le fonctionnement était :</p>
 <ul>
-<li>lire des blocs,</li>
-<li>récupérer des transactions,</li>
-<li>afficher des données marché.</li>
+<li>simple,</li>
+<li>robuste,</li>
+<li>facile à comprendre.</li>
 </ul>
-<p>Mais quelque chose manquait.</p>
-<p>Le système observait :</p>
-<pre><code class="language-text id=&quot;x8srlq&quot;">le prix
+<p>Mais le modèle restait essentiellement :</p>
+<pre><code class="language-text id=&quot;n3g9tm&quot;">batch
 </code></pre>
-<p>sans réellement observer :</p>
-<pre><code class="language-text id=&quot;8h1s9o&quot;">les acteurs qui déplacent le capital.
-</code></pre>
-<p>Et dans Bitcoin :
-les très gros mouvements sont rarement anodins.</p>
+<p>Les modules ne réagissaient pas immédiatement aux événements blockchain.</p>
+<p>Ils attendaient :</p>
+<ul>
+<li>un cron,</li>
+<li>un scheduler,</li>
+<li>ou un nouveau scan périodique.</li>
+</ul>
 <hr>
-<h2 id="2-le-mot-whale"><a class="header" href="#2-le-mot-whale">2. Le mot “whale”</a></h2>
-<p>Dans l’écosystème crypto, un terme revient constamment :</p>
-<pre><code class="language-text id=&quot;cru79m&quot;">whale
-</code></pre>
-<p>Une whale représente généralement :</p>
-<ul>
-<li>une entité,</li>
-<li>un fonds,</li>
-<li>un exchange,</li>
-<li>une institution,</li>
-<li>ou un très gros détenteur.</li>
-</ul>
-<p>L’idée semblait simple :</p>
+<h2 id="le-vrai-problème"><a class="header" href="#le-vrai-problème">Le vrai problème</a></h2>
+<p>Le problème n’était pas :</p>
 <blockquote>
-<p>détecter les transactions énormes.</p>
+<p>“comment faire du temps réel ?”</p>
 </blockquote>
-<p>Mais très vite, la réalité est devenue beaucoup plus complexe.</p>
-<hr>
-<h2 id="3-le-premier-scanner"><a class="header" href="#3-le-premier-scanner">3. Le premier scanner</a></h2>
-<p>La première version du système faisait quelque chose de relativement basique.</p>
-<p>Le scanner :</p>
-<ul>
-<li>lisait les blocs récents,</li>
-<li>parcourait les transactions,</li>
-<li>calculait les montants déplacés,</li>
-<li>puis déclenchait des alertes.</li>
-</ul>
-<p>Le pipeline ressemblait à ceci :</p>
-<pre><code class="language-text id=&quot;efhl8r&quot;">Bitcoin Core RPC
-      ↓
-scan blocks
-      ↓
-parse transactions
-      ↓
-calculate outputs
-      ↓
-threshold detection
-      ↓
-alert
-</code></pre>
-<p>Le seuil initial ressemblait à :</p>
-<pre><code class="language-ruby id=&quot;prhny5&quot;">MIN_BTC = 100
-</code></pre>
-<p>Si une transaction dépassait :</p>
-<pre><code class="language-text id=&quot;wyov6z&quot;">100 BTC
-</code></pre>
-<p>elle devenait intéressante.</p>
-<hr>
-<h2 id="4-le-premier-faux-sentiment-de-simplicité"><a class="header" href="#4-le-premier-faux-sentiment-de-simplicité">4. Le premier faux sentiment de simplicité</a></h2>
-<p>Au départ :
-cela semblait suffisant.</p>
-<p>Mais rapidement :
-un problème important est apparu.</p>
-<p>Une transaction énorme ne signifie pas forcément :</p>
-<ul>
-<li>achat,</li>
-<li>vente,</li>
-<li>panique,</li>
-<li>accumulation,</li>
-<li>ou mouvement institutionnel.</li>
-</ul>
-<p>Parfois :
-c’est juste un reshuffle interne.</p>
-<hr>
-<h2 id="5-les-premières-classifications-apparaissent"><a class="header" href="#5-les-premières-classifications-apparaissent">5. Les premières classifications apparaissent</a></h2>
-<p>Le système a alors commencé à chercher :</p>
+<p>Le vrai problème était :</p>
 <blockquote>
-<p>des comportements.</p>
+<p>“comment permettre à plusieurs modules indépendants de réagir au même événement ?”</p>
 </blockquote>
-<p>Pas seulement :</p>
-<pre><code class="language-text id=&quot;h7mdgc&quot;">des montants.
+<p>Prenons un nouveau bloc Bitcoin.</p>
+<p>Ce bloc peut intéresser :</p>
+<ul>
+<li>Cluster,</li>
+<li>Exchange Flow,</li>
+<li>Whale Detection,</li>
+<li>Metrics,</li>
+<li>Alerts,</li>
+<li>Dashboard live,</li>
+<li>Analytics,</li>
+<li>futurs modules IA.</li>
+</ul>
+<p>Avant Redis Streams, une approche naïve aurait été :</p>
+<pre><code class="language-text id=&quot;z8n6kr&quot;">nouveau bloc
+↓
+1 gros job
+↓
+tout recalculer
 </code></pre>
-<p>Les premières heuristiques sont apparues.</p>
+<p>Mais cette architecture devient rapidement :</p>
+<ul>
+<li>difficile à maintenir,</li>
+<li>monolithique,</li>
+<li>peu scalable,</li>
+<li>fragile,</li>
+<li>difficile à superviser.</li>
+</ul>
+<hr>
+<h2 id="pourquoi-sidekiq-ne-suffisait-plus"><a class="header" href="#pourquoi-sidekiq-ne-suffisait-plus">Pourquoi Sidekiq ne suffisait plus</a></h2>
+<p>Une question importante est apparue :</p>
+<blockquote>
+<p>“pourquoi ne pas simplement utiliser une queue Sidekiq ?”</p>
+</blockquote>
+<p>Parce qu’une queue classique n’est pas un bus d’événements.</p>
+<p>C’est une différence fondamentale.</p>
+<hr>
+<h2 id="queue-classique"><a class="header" href="#queue-classique">Queue classique</a></h2>
+<p>Une queue fonctionne généralement comme ceci :</p>
+<pre><code class="language-text id=&quot;kbyl9h&quot;">1 message
+↓
+1 consommateur
+↓
+message supprimé
+</code></pre>
+<p>Exemple :</p>
+<pre><code class="language-text id=&quot;e8xtkg&quot;">job Sidekiq
+↓
+1 worker
+↓
+traitement
+</code></pre>
+<p>C’est parfait pour :</p>
+<ul>
+<li>des tâches asynchrones,</li>
+<li>des traitements unitaires,</li>
+<li>des pipelines simples.</li>
+</ul>
+<p>Mais pas pour :</p>
+<pre><code class="language-text id=&quot;0s3f8u&quot;">1 événement
+↓
+plusieurs réactions indépendantes
+</code></pre>
+<hr>
+<h2 id="event-stream"><a class="header" href="#event-stream">Event stream</a></h2>
+<p>Un stream fonctionne différemment :</p>
+<pre><code class="language-text id=&quot;4k7txg&quot;">1 événement
+↓
+N consommateurs
+</code></pre>
 <p>Par exemple :</p>
-<pre><code class="language-ruby id=&quot;7tb7an&quot;">outputs_nonzero_count &gt;= 80
+<pre><code class="language-text id=&quot;mj0srm&quot;">nouveau bloc Bitcoin
+├── Cluster worker
+├── Exchange worker
+├── Whale worker
+├── Metrics worker
+└── Live UI broadcaster
 </code></pre>
-<p>→ probable batching.</p>
-<p>Ou :</p>
-<pre><code class="language-ruby id=&quot;9dskso&quot;">largest_output_ratio &gt;= 0.95
-</code></pre>
-<p>→ probable transfert unique.</p>
+<p>C’est exactement ce dont Bitcoin Monitor avait besoin.</p>
 <hr>
-<h2 id="6-whale-scan-cesse-dêtre-un-simple-détecteur"><a class="header" href="#6-whale-scan-cesse-dêtre-un-simple-détecteur">6. Whale Scan cesse d’être un simple détecteur</a></h2>
-<p>C’est un moment important.</p>
-<p>Le module ne cherchait plus seulement :</p>
-<pre><code class="language-text id=&quot;8av9sm&quot;">de grosses transactions.
-</code></pre>
-<p>Il cherchait désormais :</p>
-<pre><code class="language-text id=&quot;2d7gzc&quot;">des comportements blockchain.
-</code></pre>
-<p>Et cela change complètement la nature du système.</p>
+<h2 id="pourquoi-redis-streams"><a class="header" href="#pourquoi-redis-streams">Pourquoi Redis Streams</a></h2>
+<p>Plusieurs solutions existaient :</p>
+<ul>
+<li>Kafka,</li>
+<li>RabbitMQ,</li>
+<li>NATS,</li>
+<li>Pulsar,</li>
+<li>Redis Streams.</li>
+</ul>
+<p>Le choix retenu a été Redis Streams.</p>
+<p>Pourquoi ?</p>
+<p>Parce que Redis était déjà présent dans l’architecture via Sidekiq.</p>
+<p>Redis Streams apportait immédiatement :</p>
+<ul>
+<li>faible latence,</li>
+<li>simplicité,</li>
+<li>persistance,</li>
+<li>multi-consommateurs,</li>
+<li>intégration Rails facile,</li>
+<li>overhead opérationnel minimal.</li>
+</ul>
 <hr>
-<h2 id="7-les-catégories-apparaissent"><a class="header" href="#7-les-catégories-apparaissent">7. Les catégories apparaissent</a></h2>
-<p>Progressivement, plusieurs types sont apparus :</p>
-<pre><code class="language-ruby id=&quot;4n2k9o&quot;">consolidation
-distribution
-batching
-single_destination
-other
-</code></pre>
-<p>Ces catégories semblent simples.</p>
-<p>Mais elles représentent en réalité :</p>
+<h2 id="pourquoi-kafka-na-pas-été-choisi"><a class="header" href="#pourquoi-kafka-na-pas-été-choisi">Pourquoi Kafka n’a pas été choisi</a></h2>
+<p>Kafka est extrêmement puissant.</p>
+<p>Mais Kafka implique aussi :</p>
+<ul>
+<li>une infrastructure plus lourde,</li>
+<li>davantage d’opérations système,</li>
+<li>plus de supervision,</li>
+<li>plus de complexité,</li>
+<li>plus de maintenance.</li>
+</ul>
+<p>Pour Bitcoin Monitor, Redis Streams couvrait déjà largement les besoins :</p>
+<ul>
+<li>event bus,</li>
+<li>fan-out,</li>
+<li>replay,</li>
+<li>consommation parallèle,</li>
+<li>découplage,</li>
+<li>faible latence.</li>
+</ul>
+<p>Le choix architectural était donc volontaire :</p>
 <blockquote>
-<p>une tentative d’interprétation probabiliste de comportements réels.</p>
+<p>simplicité maximale pour un gain architectural énorme.</p>
 </blockquote>
 <hr>
-<h2 id="8-le-problème-des-exchanges"><a class="header" href="#8-le-problème-des-exchanges">8. Le problème des exchanges</a></h2>
-<p>Très vite, une autre difficulté est apparue.</p>
-<p>Certaines transactions ressemblaient énormément à :</p>
-<ul>
-<li>des dépôts exchange,</li>
-<li>des retraits,</li>
-<li>des reshuffles internes,</li>
-<li>des cold wallets.</li>
-</ul>
-<p>Mais Bitcoin ne fournit jamais :</p>
-<pre><code class="language-text id=&quot;79a4ta&quot;">type = exchange
+<h2 id="le-premier-stream"><a class="header" href="#le-premier-stream">Le premier stream</a></h2>
+<p>Le premier stream créé :</p>
+<pre><code class="language-text id=&quot;9lm3c4&quot;">bitcoin.blocks
 </code></pre>
-<p>Tout devait être inféré.</p>
-<hr>
-<h2 id="9-les-scores-apparaissent"><a class="header" href="#9-les-scores-apparaissent">9. Les scores apparaissent</a></h2>
-<p>Le système a commencé à produire :</p>
-<ul>
-<li>des scores,</li>
-<li>des probabilités,</li>
-<li>des hints.</li>
-</ul>
-<p>Par exemple :</p>
-<pre><code class="language-ruby id=&quot;3g9e4y&quot;">exchange_likelihood
-exchange_hint
-score
+<p>Sa responsabilité :</p>
+<pre><code class="language-text id=&quot;r7t3pk&quot;">publier les nouveaux blocs Bitcoin
 </code></pre>
-<p>Et là, un changement important est apparu :</p>
-<blockquote>
-<p>Bitcoin Monitor cessait progressivement d’être déterministe.</p>
-</blockquote>
 <hr>
-<h2 id="10-le-système-devient-probabiliste"><a class="header" href="#10-le-système-devient-probabiliste">10. Le système devient probabiliste</a></h2>
-<p>C’est une évolution très importante dans une application d’analyse.</p>
+<h2 id="première-publication"><a class="header" href="#première-publication">Première publication</a></h2>
+<p>Le premier événement réel ressemblait à ceci :</p>
+<pre><code class="language-text id=&quot;r9sh9u&quot;">1777243718434-0
+type
+new_block
+height
+946798
+blockhash
+000000000000000000017c51640fcc139c81c7cc1695f8600978d0d17f44955a
+created_at
+1777243718
+</code></pre>
+<p>C’était un moment important.</p>
+<p>Parce que ce n’était plus :</p>
+<pre><code class="language-text id=&quot;q8ckxj&quot;">un job Rails
+</code></pre>
+<p>C’était :</p>
+<pre><code class="language-text id=&quot;j7q13f&quot;">un événement blockchain vivant
+</code></pre>
+<p>circulant dans l’infrastructure.</p>
+<hr>
+<h2 id="le-premier-producteur"><a class="header" href="#le-premier-producteur">Le premier producteur</a></h2>
+<p>Un nouveau service apparaît :</p>
+<pre><code class="language-text id=&quot;gr93wy&quot;">Realtime::BlockEventProducer
+</code></pre>
+<p>Son rôle :</p>
+<pre><code class="language-text id=&quot;x5u2hv&quot;">écrire dans Redis Stream
+</code></pre>
+<p>Exemple :</p>
+<pre><code class="language-ruby id=&quot;vx4x7q&quot;">redis.xadd(
+  "bitcoin.blocks",
+  {
+    type: "new_block",
+    height: height,
+    blockhash: blockhash,
+    created_at: Time.current.to_i
+  }
+)
+</code></pre>
+<p>Le système commence alors à produire des événements blockchain internes.</p>
+<hr>
+<h2 id="ce-que-le-stream-représente-réellement"><a class="header" href="#ce-que-le-stream-représente-réellement">Ce que le stream représente réellement</a></h2>
+<p>Le stream n’est pas :</p>
+<pre><code class="language-text id=&quot;g6hvsy&quot;">le traitement
+</code></pre>
+<p>Le stream est :</p>
+<pre><code class="language-text id=&quot;r0f9nd&quot;">la source d’événements
+</code></pre>
+<p>C’est une distinction fondamentale.</p>
+<p>Le stream représente :</p>
+<ul>
+<li>ce qui s’est produit,</li>
+<li>indépendamment de ce qui va le consommer.</li>
+</ul>
+<p>Autrement dit :</p>
+<pre><code class="language-text id=&quot;nh1g7l&quot;">événement
+≠
+traitement
+</code></pre>
+<hr>
+<h2 id="le-découplage-devient-réel"><a class="header" href="#le-découplage-devient-réel">Le découplage devient réel</a></h2>
 <p>Avant :</p>
-<pre><code class="language-text id=&quot;gdn5ff&quot;">true / false
+<pre><code class="language-text id=&quot;sy8fob&quot;">watcher
+↓
+job spécifique
+↓
+traitement spécifique
+</code></pre>
+<p>Après Redis Streams :</p>
+<pre><code class="language-text id=&quot;4hjc0m&quot;">watcher
+↓
+stream
+↓
+plusieurs consommateurs indépendants
+</code></pre>
+<p>Le système devient :</p>
+<ul>
+<li>découplé,</li>
+<li>extensible,</li>
+<li>modulaire,</li>
+<li>scalable.</li>
+</ul>
+<hr>
+<h2 id="le-premier-consommateur"><a class="header" href="#le-premier-consommateur">Le premier consommateur</a></h2>
+<p>Le premier consommateur réel du stream fut :</p>
+<pre><code class="language-text id=&quot;trhrsm&quot;">Realtime::ProcessLatestBlockJob
+</code></pre>
+<p>Son rôle :</p>
+<pre><code class="language-text id=&quot;vr2vxg&quot;">traiter le dernier bloc
+</code></pre>
+<p>Puis déclencher :</p>
+<pre><code class="language-text id=&quot;ktt57n&quot;">ClusterScanner
+↓
+dirty clusters
+↓
+refresh async
+↓
+metrics
+↓
+signals
+</code></pre>
+<hr>
+<h2 id="pourquoi-cest-un-tournant-majeur"><a class="header" href="#pourquoi-cest-un-tournant-majeur">Pourquoi c’est un tournant majeur</a></h2>
+<p>Avant Redis Streams, Bitcoin Monitor ressemblait surtout à :</p>
+<pre><code class="language-text id=&quot;k1fslg&quot;">une application Rails batch
+</code></pre>
+<p>Après Redis Streams, le projet commence à ressembler à :</p>
+<pre><code class="language-text id=&quot;7b7w2f&quot;">une plateforme événementielle blockchain
+</code></pre>
+<p>Le changement est énorme.</p>
+<hr>
+<h1 id="les-futurs-streams"><a class="header" href="#les-futurs-streams">Les futurs streams</a></h1>
+<p>Très vite, l’idée apparaît :</p>
+<pre><code class="language-text id=&quot;xv0mwb&quot;">un stream par type d’événement
+</code></pre>
+<p>Architecture cible :</p>
+<div class="table-wrapper">
+<table>
+<thead>
+<tr><th>Stream</th><th>Rôle</th></tr>
+</thead>
+<tbody>
+<tr><td><code>bitcoin.blocks</code></td><td>nouveaux blocs</td></tr>
+<tr><td><code>bitcoin.transactions</code></td><td>transactions</td></tr>
+<tr><td><code>bitcoin.whales</code></td><td>whales détectées</td></tr>
+<tr><td><code>bitcoin.exchange_flows</code></td><td>inflow/outflow</td></tr>
+<tr><td><code>bitcoin.alerts</code></td><td>alertes</td></tr>
+<tr><td><code>bitcoin.metrics</code></td><td>analytics</td></tr>
+<tr><td><code>bitcoin.system</code></td><td>monitoring interne</td></tr>
+</tbody>
+</table>
+</div>
+<p>Bitcoin Monitor commence alors à se transformer en :</p>
+<pre><code class="language-text id=&quot;jz3p34&quot;">système événementiel modulaire
+</code></pre>
+<hr>
+<h2 id="la-naissance-des-micro-pipelines"><a class="header" href="#la-naissance-des-micro-pipelines">La naissance des micro pipelines</a></h2>
+<p>L’introduction des streams change aussi la façon de penser les modules.</p>
+<p>Avant :</p>
+<pre><code class="language-text id=&quot;20jlwm&quot;">gros jobs monolithiques
 </code></pre>
 <p>Après :</p>
-<pre><code class="language-text id=&quot;hxtm4v&quot;">probablement
-possiblement
-fortement suspect
+<pre><code class="language-text id=&quot;ckqkfa&quot;">petits pipelines spécialisés
 </code></pre>
-<p>Le système commençait à accepter :</p>
-<blockquote>
-<p>l’incertitude.</p>
-</blockquote>
-<hr>
-<h2 id="11-les-datasets-commencent-à-exploser"><a class="header" href="#11-les-datasets-commencent-à-exploser">11. Les datasets commencent à exploser</a></h2>
-<p>Au départ :
-quelques alertes suffisaient.</p>
-<p>Mais progressivement :</p>
-<ul>
-<li>les scans deviennent continus,</li>
-<li>les blocs s’accumulent,</li>
-<li>les transactions grossissent,</li>
-<li>les historiques deviennent énormes.</li>
-</ul>
-<p>Le système devait maintenant stocker :</p>
-<ul>
-<li>les scores,</li>
-<li>les catégories,</li>
-<li>les timestamps,</li>
-<li>les comportements,</li>
-<li>les métadonnées.</li>
-</ul>
-<hr>
-<h2 id="12-la-table-whalealert-devient-centrale"><a class="header" href="#12-la-table-whalealert-devient-centrale">12. La table WhaleAlert devient centrale</a></h2>
-<p>Une nouvelle structure devient progressivement critique :</p>
-<pre><code class="language-ruby id=&quot;t6kgnt&quot;">WhaleAlert
+<p>Exemple :</p>
+<pre><code class="language-text id=&quot;4z4v26&quot;">bitcoin.blocks
+↓
+ClusterConsumer
+↓
+scan incrémental
 </code></pre>
-<p>Avec des colonnes comme :</p>
-<ul>
-<li>txid,</li>
-<li>block_height,</li>
-<li>total_out_btc,</li>
-<li>outputs_nonzero_count,</li>
-<li>largest_output_ratio,</li>
-<li>exchange_likelihood,</li>
-<li>alert_type,</li>
-<li>meta.</li>
-</ul>
-<p>Le module cessait progressivement d’être :</p>
-<pre><code class="language-text id=&quot;a3nny7&quot;">un scanner temporaire.
+<p>ou :</p>
+<pre><code class="language-text id=&quot;n2z72m&quot;">bitcoin.blocks
+↓
+ExchangeFlowConsumer
+↓
+analyse inflow/outflow
 </code></pre>
-<p>Il devenait :</p>
-<pre><code class="language-text id=&quot;5fcf9g&quot;">une base comportementale historique.
+<p>ou encore :</p>
+<pre><code class="language-text id=&quot;q92hvy&quot;">bitcoin.transactions
+↓
+WhaleConsumer
+↓
+détection gros transferts
 </code></pre>
 <hr>
-<h2 id="13-les-performances-deviennent-un-sujet"><a class="header" href="#13-les-performances-deviennent-un-sujet">13. Les performances deviennent un sujet</a></h2>
-<p>Puis un autre problème est apparu.</p>
-<p>Le scanner devait maintenant :</p>
-<ul>
-<li>lire énormément de blocs,</li>
-<li>parser énormément de transactions,</li>
-<li>calculer énormément d’heuristiques.</li>
-</ul>
-<p>Et surtout :</p>
-<pre><code class="language-text id=&quot;u9msaq&quot;">faire cela continuellement.
+<h2 id="larchitecture-cible"><a class="header" href="#larchitecture-cible">L’architecture cible</a></h2>
+<p>Progressivement, l’architecture devient :</p>
+<pre><code class="language-text id=&quot;5x0df6&quot;">Bitcoin Core
+↓
+ZMQ
+↓
+Redis Streams
+↓
+Workers spécialisés
+↓
+DB + cache + WebSocket
+↓
+UI live
 </code></pre>
-<p>Les premiers symptômes sont apparus :</p>
+<p>Cette architecture possède plusieurs avantages majeurs :</p>
 <ul>
-<li>scans longs,</li>
-<li>CPU élevé,</li>
-<li>jobs qui dérivent,</li>
-<li>requêtes SQL lourdes.</li>
-</ul>
-<hr>
-<h2 id="14-le-mode-pruned-change-les-règles"><a class="header" href="#14-le-mode-pruned-change-les-règles">14. Le mode pruned change les règles</a></h2>
-<p>Bitcoin Monitor utilisait un nœud Bitcoin Core en mode pruned.</p>
-<p>Et cela change énormément de choses.</p>
-<p>Pourquoi ?</p>
-<p>Parce que :</p>
-<ul>
-<li>certaines données anciennes disparaissent,</li>
-<li>certains prevouts ne sont plus accessibles,</li>
-<li>certaines stratégies deviennent impossibles.</li>
-</ul>
-<p>Le scanner devait donc devenir :</p>
-<blockquote>
-<p>pruned-safe.</p>
-</blockquote>
-<hr>
-<h2 id="15-les-blocs-deviennent-des-ressources-coûteuses"><a class="header" href="#15-les-blocs-deviennent-des-ressources-coûteuses">15. Les blocs deviennent des ressources coûteuses</a></h2>
-<p>Le système a commencé à comprendre quelque chose d’important :</p>
-<blockquote>
-<p>chaque appel RPC a un coût.</p>
-</blockquote>
-<p>Lire :</p>
-<ul>
-<li>des blocs,</li>
-<li>des transactions,</li>
-<li>des prevouts,</li>
-<li>des scripts,</li>
-<li>en boucle,
-peut rapidement devenir très cher.</li>
-</ul>
-<hr>
-<h2 id="16-le-scanner-devient-incrémental"><a class="header" href="#16-le-scanner-devient-incrémental">16. Le scanner devient incrémental</a></h2>
-<p>Au début :
-le système rescannait énormément.</p>
-<p>Mais cela devenait impossible.</p>
-<p>Bitcoin Monitor a alors introduit :</p>
-<ul>
-<li>des curseurs,</li>
-<li>des last scanned blocks,</li>
-<li>des scans incrémentaux,</li>
-<li>des safety cutoffs,</li>
-<li>des confirmations minimales.</li>
-</ul>
-<p>Le scanner devenait :</p>
-<pre><code class="language-text id=&quot;5gx9k2&quot;">un pipeline vivant.
-</code></pre>
-<hr>
-<h2 id="17-le-système-commence-à-apprendre-des-comportements"><a class="header" href="#17-le-système-commence-à-apprendre-des-comportements">17. Le système commence à apprendre des comportements</a></h2>
-<p>Puis un autre déclic est apparu.</p>
-<p>Whale Scan pouvait servir à :</p>
-<ul>
-<li>enrichir Exchange Like,</li>
-<li>alimenter Inflow / Outflow,</li>
-<li>détecter des signaux,</li>
-<li>apprendre des comportements exchange.</li>
-</ul>
-<p>Le module cessait d’être isolé.</p>
-<hr>
-<h2 id="18-whale-scan-devient-une-fondation"><a class="header" href="#18-whale-scan-devient-une-fondation">18. Whale Scan devient une fondation</a></h2>
-<p>Progressivement :</p>
-<pre><code class="language-text id=&quot;crltc6&quot;">Whale Scan
-     ↓
-Exchange Like
-     ↓
-Observed UTXO
-     ↓
-Inflow / Outflow
-     ↓
-Market interpretation
-</code></pre>
-<p>Le système devenait :</p>
-<blockquote>
-<p>interconnecté.</p>
-</blockquote>
-<hr>
-<h2 id="19-le-vrai-problème-nétait-plus-la-détection"><a class="header" href="#19-le-vrai-problème-nétait-plus-la-détection">19. Le vrai problème n’était plus la détection</a></h2>
-<p>Le vrai problème devenait :</p>
-<blockquote>
-<p>comment interpréter correctement les mouvements ?</p>
-</blockquote>
-<p>Parce qu’un énorme transfert peut représenter :</p>
-<ul>
-<li>une vente,</li>
-<li>une accumulation,</li>
-<li>une consolidation,</li>
-<li>un transfert interne,</li>
-<li>un mouvement OTC,</li>
-<li>un simple déplacement de cold wallet.</li>
-</ul>
-<p>Le contexte devenait plus important que :</p>
-<pre><code class="language-text id=&quot;c6of7m&quot;">la taille brute.
-</code></pre>
-<hr>
-<h2 id="20-les-scanners-deviennent-des-systèmes"><a class="header" href="#20-les-scanners-deviennent-des-systèmes">20. Les scanners deviennent des systèmes</a></h2>
-<p>À ce stade :
-Whale Scan n’était plus :</p>
-<pre><code class="language-text id=&quot;mjtyrm&quot;">un job cron.
-</code></pre>
-<p>Il devenait :</p>
-<ul>
-<li>un pipeline,</li>
-<li>un dataset,</li>
-<li>un moteur comportemental,</li>
-<li>une source transverse d’intelligence.</li>
-</ul>
-<p>Et cela change complètement la manière de concevoir l’architecture.</p>
-<hr>
-<h2 id="21-les-futurs-problèmes-deviennent-visibles"><a class="header" href="#21-les-futurs-problèmes-deviennent-visibles">21. Les futurs problèmes deviennent visibles</a></h2>
-<p>À ce moment-là :
-plusieurs tensions futures apparaissaient déjà :</p>
-<ul>
-<li>Redis,</li>
-<li>batch processing,</li>
-<li>parallélisation,</li>
-<li>queues,</li>
-<li>observabilité,</li>
-<li>backfills,</li>
-<li>stockage massif.</li>
-</ul>
-<p>Mais cette fois :</p>
-<blockquote>
-<p>les problèmes étaient compris.</p>
-</blockquote>
-<hr>
-<h2 id="22-le-système-commence-à-lire-le-marché-autrement"><a class="header" href="#22-le-système-commence-à-lire-le-marché-autrement">22. Le système commence à lire le marché autrement</a></h2>
-<p>Avant Whale Scan :
-Bitcoin Monitor observait surtout :</p>
-<ul>
-<li>le prix,</li>
-<li>les indicateurs,</li>
-<li>les chandeliers.</li>
-</ul>
-<p>Après Whale Scan :
-le système commençait à observer :</p>
-<ul>
-<li>les comportements,</li>
-<li>les acteurs,</li>
-<li>les flux massifs,</li>
-<li>les structures du marché.</li>
-</ul>
-<p>Et cette différence est énorme.</p>
-<hr>
-<h2 id="23-les-leçons-apprises"><a class="header" href="#23-les-leçons-apprises">23. Les leçons apprises</a></h2>
-<h3 id="les-gros-montants-seuls-ne-suffisent-pas"><a class="header" href="#les-gros-montants-seuls-ne-suffisent-pas">Les gros montants seuls ne suffisent pas</a></h3>
-<p>Le contexte comportemental est essentiel.</p>
-<hr>
-<h3 id="les-heuristiques-deviennent-inévitables"><a class="header" href="#les-heuristiques-deviennent-inévitables">Les heuristiques deviennent inévitables</a></h3>
-<p>Bitcoin ne fournit presque jamais :</p>
-<pre><code class="language-text id=&quot;c8wz9t&quot;">la vérité métier.
-</code></pre>
-<p>Tout doit être inféré.</p>
-<hr>
-<h3 id="les-systèmes-deviennent-rapidement-probabilistes"><a class="header" href="#les-systèmes-deviennent-rapidement-probabilistes">Les systèmes deviennent rapidement probabilistes</a></h3>
-<p>Les scores remplacent progressivement :</p>
-<pre><code class="language-text id=&quot;kr4cfr&quot;">les booléens simples.
-</code></pre>
-<hr>
-<h3 id="les-scanners-blockchain-deviennent-des-pipelines-vivants"><a class="header" href="#les-scanners-blockchain-deviennent-des-pipelines-vivants">Les scanners blockchain deviennent des pipelines vivants</a></h3>
-<p>Ils nécessitent :</p>
-<ul>
-<li>observabilité,</li>
-<li>progression,</li>
+<li>temps réel,</li>
+<li>découplage,</li>
+<li>extensibilité,</li>
 <li>supervision,</li>
-<li>reprise,</li>
-<li>monitoring.</li>
+<li>parallélisation,</li>
+<li>observabilité.</li>
 </ul>
 <hr>
-<h3 id="les-datasets-historiques-deviennent-précieux"><a class="header" href="#les-datasets-historiques-deviennent-précieux">Les datasets historiques deviennent précieux</a></h3>
-<p>Car ils permettent :</p>
+<h2 id="redis-streams-et-turbo-streams"><a class="header" href="#redis-streams-et-turbo-streams">Redis Streams et Turbo Streams</a></h2>
+<p>Une autre conséquence importante apparaît rapidement :</p>
+<pre><code class="language-text id=&quot;u4l4xt&quot;">les événements backend peuvent maintenant alimenter directement l’UI
+</code></pre>
+<p>Architecture :</p>
+<pre><code class="language-text id=&quot;avfqj3&quot;">Redis Stream
+↓
+Broadcaster
+↓
+Turbo Stream
+↓
+WebSocket
+↓
+Dashboard live
+</code></pre>
+<p>Le dashboard <code>/system</code> devient alors :</p>
+<pre><code class="language-text id=&quot;uhj8jx&quot;">vivant
+</code></pre>
+<p>sans refresh navigateur.</p>
+<hr>
+<h2 id="ce-que-redis-streams-change-réellement"><a class="header" href="#ce-que-redis-streams-change-réellement">Ce que Redis Streams change réellement</a></h2>
+<p>Redis Streams change la manière de penser l’application.</p>
+<p>Avant :</p>
+<pre><code class="language-text id=&quot;2r00b5&quot;">“quel cron lance quel job ?”
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text id=&quot;mjlwm2&quot;">“quel événement produit quelle réaction ?”
+</code></pre>
+<p>C’est exactement le modèle des systèmes modernes :</p>
 <ul>
-<li>l’apprentissage,</li>
-<li>les corrélations,</li>
-<li>les signaux,</li>
-<li>les comportements long terme.</li>
+<li>plateformes de trading,</li>
+<li>exchanges,</li>
+<li>systèmes blockchain,</li>
+<li>monitoring temps réel,</li>
+<li>pipelines analytiques.</li>
 </ul>
 <hr>
-<h2 id="24-conclusion"><a class="header" href="#24-conclusion">24. Conclusion</a></h2>
-<p>Le module Whale Scan a profondément changé Bitcoin Monitor.</p>
-<p>Avant lui :</p>
+<h2 id="les-leçons-apprises"><a class="header" href="#les-leçons-apprises">Les leçons apprises</a></h2>
+<h3 id="un-stream-nest-pas-une-queue"><a class="header" href="#un-stream-nest-pas-une-queue">Un stream n’est pas une queue</a></h3>
+<p>Une queue distribue du travail.</p>
+<p>Un stream diffuse des événements.</p>
+<hr>
+<h3 id="les-événements-doivent-être-indépendants"><a class="header" href="#les-événements-doivent-être-indépendants">Les événements doivent être indépendants</a></h3>
+<p>Le producteur ne doit pas connaître les consommateurs.</p>
+<p>Il doit seulement publier.</p>
+<hr>
+<h3 id="le-découplage-simplifie-énormément-larchitecture"><a class="header" href="#le-découplage-simplifie-énormément-larchitecture">Le découplage simplifie énormément l’architecture</a></h3>
+<p>Chaque module peut évoluer indépendamment.</p>
+<hr>
+<h3 id="redis-streams-est-une-étape-intermédiaire-extrêmement-puissante"><a class="header" href="#redis-streams-est-une-étape-intermédiaire-extrêmement-puissante">Redis Streams est une étape intermédiaire extrêmement puissante</a></h3>
+<p>Kafka viendra peut-être un jour.</p>
+<p>Mais Redis Streams permet déjà :</p>
 <ul>
-<li>l’application observait principalement des données marché.</li>
+<li>une architecture moderne,</li>
+<li>avec une complexité minimale.</li>
 </ul>
-<p>Après lui :</p>
+<hr>
+<h2 id="conclusion"><a class="header" href="#conclusion">Conclusion</a></h2>
+<p>L’introduction de Redis Streams représente l’un des plus grands tournants techniques de Bitcoin Monitor.</p>
+<p>Le projet est passé :</p>
+<pre><code class="language-text id=&quot;d3m6ec&quot;">d’une application pilotée par des jobs
+</code></pre>
+<p>à :</p>
+<pre><code class="language-text id=&quot;0opk3w&quot;">une plateforme pilotée par des événements
+</code></pre>
+<p>Bitcoin Monitor ne se contente plus d’exécuter des traitements.</p>
+<p>L’application possède désormais :</p>
 <ul>
-<li>elle commençait à surveiller les comportements réels du capital sur la blockchain.</li>
+<li>un flux,</li>
+<li>des événements,</li>
+<li>des producteurs,</li>
+<li>des consommateurs,</li>
+<li>des pipelines,</li>
+<li>une architecture temps réel.</li>
 </ul>
-<p>Et ce changement a transformé :</p>
-<ul>
-<li>les pipelines,</li>
-<li>les datasets,</li>
-<li>les scanners,</li>
-<li>les heuristiques,</li>
-<li>et la manière même d’interpréter le marché.</li>
-</ul>
-<p>Parce qu’au final :</p>
-<blockquote>
-<p>observer les whales revient souvent à essayer de comprendre les mouvements invisibles du système financier Bitcoin.</p>
-</blockquote>
+<p>Et ce changement ouvre la voie à tout le reste.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="cluster.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="recovery.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="cron.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -640,13 +646,10 @@ le système commençait à observer :</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="cluster.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="recovery.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="cron.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                    </a>
             </nav>
 
         </div>
