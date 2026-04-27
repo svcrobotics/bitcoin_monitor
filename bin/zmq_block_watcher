@@ -57,24 +57,9 @@ loop do
     "event_id=#{event_id} height=#{height} hash=#{blockhash}"
   )
 
-  require "sidekiq/api"
+  Realtime::BlockStreamConsumerJob.perform_later
 
-  realtime_queue_size = Sidekiq::Queue.new("realtime").size
-
-  realtime_running =
-    Sidekiq::Workers.new.any? do |_, _, work|
-      payload = work.payload
-      work.queue == "realtime" &&
-        (payload["wrapped"] == "Realtime::ProcessLatestBlockJob" ||
-         payload["class"] == "Realtime::ProcessLatestBlockJob")
-    end
-
-  if realtime_queue_size.zero? && !realtime_running
-    Realtime::ProcessLatestBlockJob.perform_later
-  else
-    Rails.logger.info(
-      "[realtime] skip_enqueue already_pending " \
-      "queue=#{realtime_queue_size} running=#{realtime_running}"
-    )
-  end
+  Rails.logger.info(
+    "[zmq] block_stream_consumer_enqueued height=#{height} event_id=#{event_id}"
+  )
 end

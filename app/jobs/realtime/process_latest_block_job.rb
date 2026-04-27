@@ -5,30 +5,29 @@ module Realtime
     queue_as :realtime
 
     CURSOR_NAME = "realtime_block_stream"
-    LOCK_NAME   = "realtime_processing_lock"
+    LOCK_KEY    = "lock:realtime_processor"
+    LOCK_TTL    = 15.minutes.to_i
 
     MAX_BLOCKS_PER_RUN = Integer(ENV.fetch("REALTIME_MAX_BLOCKS_PER_RUN", "5"))
 
     def perform
-      lock = ScannerCursor.find_or_create_by!(name: LOCK_NAME)
+      redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
 
-      locked = lock.with_lock do
-        if lock.updated_at.present? && lock.updated_at > 30.seconds.ago
-          false
-        else
-          lock.touch
-          true
-        end
-      end
+      locked = redis.set(
+        LOCK_KEY,
+        "#{Process.pid}:#{Time.current.to_i}",
+        nx: true,
+        ex: LOCK_TTL
+      )
 
       unless locked
-        Rails.logger.info("[realtime] skip_processing_lock_active")
+        Rails.logger.info("[realtime] skip already_running redis_lock=#{LOCK_KEY}")
         return { ok: true, skipped: true, reason: "lock_active" }
       end
 
       process_pending_blocks
     ensure
-      lock&.update!(updated_at: 1.minute.ago)
+      redis&.del(LOCK_KEY)
     end
 
     private
@@ -76,9 +75,7 @@ module Realtime
         "dirty_clusters_count=#{result[:dirty_clusters_count]}"
       )
 
-      if end_height < best_height
-        self.class.perform_later
-      end
+      self.class.perform_later if end_height < best_height
 
       result.merge(
         realtime_from: start_height,

@@ -3,23 +3,21 @@
 class ExchangeObservedScanJob < ApplicationJob
   queue_as :p1_exchange
 
-  LOCK_NAME = "exchange_observed_scan_lock"
-  LOCK_TTL  = 30.minutes
+  LOCK_KEY = "lock:exchange_observed_scan"
+  LOCK_TTL = 30.minutes.to_i
 
   def perform
-    lock = ScannerCursor.find_or_create_by!(name: LOCK_NAME)
+    redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
 
-    locked = lock.with_lock do
-      if lock.updated_at.present? && lock.updated_at > LOCK_TTL.ago
-        false
-      else
-        lock.touch
-        true
-      end
-    end
+    locked = redis.set(
+      LOCK_KEY,
+      "#{Process.pid}:#{Time.current.to_i}",
+      nx: true,
+      ex: LOCK_TTL
+    )
 
     unless locked
-      Rails.logger.info("[exchange_observed_scan] skip lock_active")
+      Rails.logger.info("[exchange_observed_scan] skip already_running redis_lock=#{LOCK_KEY}")
       return { ok: true, skipped: true, reason: "lock_active" }
     end
 
@@ -37,6 +35,6 @@ class ExchangeObservedScanJob < ApplicationJob
       result
     end
   ensure
-    lock&.update!(updated_at: LOCK_TTL.ago - 1.second)
+    redis&.del(LOCK_KEY)
   end
 end
