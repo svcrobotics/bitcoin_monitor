@@ -1,0 +1,2 @@
+class ClusterPipelineEvent < ApplicationRecord
+end

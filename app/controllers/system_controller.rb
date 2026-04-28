@@ -25,6 +25,7 @@ class SystemController < ApplicationController
     }
 
     @tables = build_tables_health
+    @cluster_realtime = System::ClusterRealtimePipelineStatus.call
   end
 
   def normalize_system_status(value)

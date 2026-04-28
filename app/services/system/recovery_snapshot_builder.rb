@@ -27,6 +27,7 @@ module System
 
     JOB_NAMES = [
       "recovery_orchestrator",
+      "clusters_realtime_pipeline",
       "exchange_observed_scan",
       "inflow_outflow_build",
       "inflow_outflow_details_build",

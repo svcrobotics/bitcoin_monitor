@@ -1,0 +1,78 @@
+<% job = cluster_realtime[:job] %>
+
+<div id="cluster_realtime_pipeline">
+  <div class="mb-5">
+    <div class="<%= label_class %>">Cluster realtime</div>
+    <h2 class="mt-1 text-xl font-semibold text-gray-100">ZMQ, Redis et ClusterScanner</h2>
+    <p class="mt-2 <%= muted_class %>">
+      Supervision du pipeline temps réel : stream blocs, pending buffer, write buffer, SQL flusher et curseur cluster.
+    </p>
+  </div>
+
+  <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-5 gap-4">
+    <div class="<%= panel_class %>">
+      <div class="flex items-start justify-between gap-3">
+        <div>
+          <div class="<%= label_class %>">Job</div>
+          <div class="mt-1 text-lg font-semibold text-gray-100">Realtime pipeline</div>
+        </div>
+
+        <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= job&.status == "ok" ? "text-emerald-300 bg-emerald-500/10 border border-emerald-500/20" : "text-amber-300 bg-amber-500/10 border border-amber-500/20" %>">
+          <%= (job&.status || "missing").to_s.upcase %>
+        </span>
+      </div>
+
+      <div class="mt-4 space-y-2 text-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">Progress</span>
+          <span class="font-mono text-gray-200"><%= job&.progress_pct || "—" %>%</span>
+        </div>
+        <div class="text-xs text-gray-500 truncate">
+          <%= job&.progress_label || "—" %>
+        </div>
+      </div>
+    </div>
+
+    <div class="<%= panel_class %>">
+      <div class="<%= label_class %>">Redis stream</div>
+      <div class="mt-3 text-2xl font-bold text-gray-100"><%= cluster_realtime[:bitcoin_stream_size] || 0 %></div>
+      <div class="mt-2 text-xs text-gray-500 font-mono">bitcoin:blocks</div>
+    </div>
+
+    <div class="<%= panel_class %>">
+      <div class="<%= label_class %>">Pending buffer</div>
+      <div class="mt-3 text-2xl font-bold <%= cluster_realtime[:pending_blocks].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= cluster_realtime[:pending_blocks] || 0 %>
+      </div>
+      <div class="mt-2 text-xs text-gray-500 font-mono">cluster:pending_blocks</div>
+    </div>
+
+    <div class="<%= panel_class %>">
+      <div class="<%= label_class %>">Write buffer</div>
+      <div class="mt-3 text-2xl font-bold text-gray-100"><%= cluster_realtime[:write_stream_size] || 0 %></div>
+      <div class="mt-2 text-xs text-gray-500 font-mono">cluster:writes</div>
+    </div>
+
+    <div class="<%= panel_class %>">
+      <div class="<%= label_class %>">Cluster state</div>
+      <div class="mt-2 text-lg font-semibold <%= cluster_realtime[:cluster_lag].to_i > 3 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= cluster_realtime[:cluster_lag].to_i <= 0 ? "SYNCHRONIZED" : cluster_realtime[:cluster_lag].to_i <= 3 ? "MINOR LAG" : "RECOVERING" %>
+      </div>
+
+      <div class="mt-4 space-y-2 text-sm">
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">Best</span>
+          <span class="font-mono text-gray-200"><%= cluster_realtime[:best_height] || "—" %></span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">Cursor</span>
+          <span class="font-mono text-gray-200"><%= cluster_realtime[:cluster_cursor_height] || "—" %></span>
+        </div>
+        <div class="flex items-center justify-between">
+          <span class="text-gray-500">Lag</span>
+          <span class="font-mono text-gray-200"><%= cluster_realtime[:cluster_lag] || "—" %></span>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>

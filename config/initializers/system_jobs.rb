@@ -119,6 +119,20 @@ SYSTEM_JOBS = {
     order: 100
   },
 
+  "clusters_realtime_pipeline" => {
+    label: "Clusters realtime pipeline",
+    cron: "* * * * *",
+    expected_every: 1.minute,
+    late_after: 3.minutes,
+    max_runtime: 2.minutes,
+    critical: true,
+    category: "cluster",
+    lock_file: "/tmp/clusters_realtime_pipeline.lock",
+    command: "bin/cron_clusters_realtime_pipeline.sh",
+    active: true,
+    order: 111
+  },
+
   "cluster_scan" => {
     label: "Cluster scan",
     cron: "*/15 * * * *",

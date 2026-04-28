@@ -430,6 +430,17 @@
     </div>
   </section>
 
+  <!-- Cluster realtime pipeline -->
+  <section class="<%= section_class %>">
+    <%= turbo_stream_from "cluster_realtime" %>
+
+    <%= render "system/realtime/cluster_pipeline",
+        cluster_realtime: @cluster_realtime,
+        panel_class: panel_class,
+        label_class: label_class,
+        muted_class: muted_class %>
+  </section>
+
   <!-- Sidekiq -->
   <section class="<%= section_class %>">
     <div class="mb-5">
