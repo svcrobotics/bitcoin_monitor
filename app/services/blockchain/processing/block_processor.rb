@@ -7,12 +7,14 @@ module Blockchain
         rpc: BitcoinRpc.new,
         logger: Rails.logger,
         tx_processor: TxProcessor.new,
-        flush_after_block: true
+        flush_after_block: true,
+        fast_layer1: ENV.fetch("LAYER1_FAST_PATH", "true") == "true"
       )
         @rpc = rpc
         @logger = logger
         @tx_processor = tx_processor
         @flush_after_block = flush_after_block
+        @fast_layer1 = fast_layer1
       end
 
       def call(block_buffer)
@@ -29,17 +31,6 @@ module Blockchain
         block = fetch_block(block_buffer.block_hash)
         rpc_duration_ms = monotonic_ms - rpc_started_at
 
-        prevout_cache_started_at = monotonic_ms
-        prevout_cache = Blockchain::Processing::BulkPrevoutResolver.new.call(block["tx"])
-        prevout_cache_duration_ms = monotonic_ms - prevout_cache_started_at
-
-        @tx_processor = TxProcessor.new(prevout_cache: prevout_cache)
-
-        @logger.info(
-          "[block_processor] prevout_cache height=#{block_buffer.height} " \
-          "size=#{prevout_cache.size} duration_ms=#{prevout_cache_duration_ms}"
-        )
-
         heartbeat(
           block_buffer,
           metrics: {
@@ -47,12 +38,38 @@ module Blockchain
           }
         )
 
-        parse_started_at = monotonic_ms
-        stats = process_transactions(
-          block,
-          block_buffer,
-          parse_started_at: parse_started_at
+        prevout_cache_started_at = monotonic_ms
+        prevout_cache = Blockchain::Processing::BulkPrevoutResolver.new.call(block["tx"])
+        prevout_cache_duration_ms = monotonic_ms - prevout_cache_started_at
+
+        @logger.info(
+          "[block_processor] prevout_cache height=#{block_buffer.height} " \
+          "size=#{prevout_cache.size} duration_ms=#{prevout_cache_duration_ms}"
         )
+
+        utxo_result = write_block_utxos(block, block_buffer, prevout_cache)
+
+        parse_started_at = monotonic_ms
+
+        stats =
+          if @fast_layer1
+            {
+              txs: block.fetch("tx").size,
+              errors: 0,
+              mode: "fast_layer1",
+              outputs: utxo_result[:outputs],
+              spent_outputs: utxo_result[:spent_outputs]
+            }
+          else
+            @tx_processor = TxProcessor.new(prevout_cache: prevout_cache, write_utxos: false)
+
+            process_transactions(
+              block,
+              block_buffer,
+              parse_started_at: parse_started_at
+            )
+          end
+
         parse_duration_ms = monotonic_ms - parse_started_at
 
         heartbeat(
@@ -82,6 +99,7 @@ module Blockchain
 
         @logger.info(
           "[block_processor] done height=#{block_buffer.height} " \
+          "mode=#{stats[:mode] || 'full'} " \
           "txs=#{stats[:txs]} errors=#{stats[:errors]} " \
           "duration_ms=#{duration_ms} rpc_ms=#{rpc_duration_ms} " \
           "parse_ms=#{parse_duration_ms} flush_ms=#{flush_duration_ms}"
@@ -91,8 +109,11 @@ module Blockchain
           ok: true,
           height: block_buffer.height,
           block_hash: block_buffer.block_hash,
+          mode: stats[:mode] || "full",
           txs: stats[:txs],
           errors: stats[:errors],
+          outputs: stats[:outputs],
+          spent_outputs: stats[:spent_outputs],
           duration_ms: duration_ms,
           rpc_duration_ms: rpc_duration_ms,
           parse_duration_ms: parse_duration_ms,
@@ -121,6 +142,32 @@ module Blockchain
       end
 
       private
+
+      def write_block_utxos(block, block_buffer, prevout_cache)
+        started_at = monotonic_ms
+
+        batch =
+          Blockchain::Processing::BlockUtxoBatchBuilder
+            .new(prevout_cache: prevout_cache)
+            .call(block, block_buffer)
+
+        outputs_count = Blockchain::Buffers::OutputBuffer.new.push_many(batch[:output_rows])
+        spent_count = Blockchain::Buffers::SpentOutputBuffer.new.push_many(batch[:spent_rows])
+
+        duration_ms = monotonic_ms - started_at
+
+        @logger.info(
+          "[block_processor] block_utxos height=#{block_buffer.height} " \
+          "txs=#{batch[:tx_count]} inputs=#{batch[:input_count]} outputs=#{outputs_count} " \
+          "spent=#{spent_count} duration_ms=#{duration_ms}"
+        )
+
+        {
+          outputs: outputs_count,
+          spent_outputs: spent_count,
+          duration_ms: duration_ms
+        }
+      end
 
       def monotonic_ms
         (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000).round
@@ -173,10 +220,7 @@ module Blockchain
 
       def flush_buffers
         Blockchain::Flushers::OutputFlusher.new.call
-        # bientôt :
-        # Blockchain::Flushers::EventFlusher.new.call
-        # Blockchain::Flushers::EdgeFlusher.new.call
-        # Blockchain::Flushers::SpentFlusher.new.call
+        Blockchain::Flushers::SpentOutputFlusher.new.call
       end
 
       def mark_processing(block_buffer)
