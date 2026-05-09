@@ -123,7 +123,7 @@ module System
         redis_buffers: redis_buffer_sizes,
         process_queue_size: Sidekiq::Queue.new("process").size,
         current_processing_blocks: current_processing_blocks,
-        slowest_recent_blocks: slowest_recent_blocks,
+        recent_blocks: recent_blocks,
         recent_failed_blocks: recent_failed_blocks,
         recovery_speed: layer1_recovery_speed,
         eta_minutes: eta_minutes(lag, layer1_recovery_speed)
@@ -413,24 +413,6 @@ module System
         end
     end
 
-    def slowest_recent_blocks
-      BlockBufferModel
-        .where(status: "processed")
-        .where.not(duration_ms: nil)
-        .order(duration_ms: :desc)
-        .limit(10)
-        .map do |block|
-          {
-            height: block.height,
-            duration_ms: block.duration_ms,
-            rpc_duration_ms: block.rpc_duration_ms,
-            parse_duration_ms: block.parse_duration_ms,
-            flush_duration_ms: block.flush_duration_ms,
-            processed_at: block.processed_at
-          }
-        end
-    end
-
     def recent_failed_blocks
       BlockBufferModel
         .where(status: "failed")
@@ -456,6 +438,30 @@ module System
       return nil if processed.zero?
 
       (processed / 30.0).round(2)
+    end
+
+    def recent_blocks
+      limit = Integer(ENV.fetch("LAYER1_RECOVERY_RECENT_BLOCKS", "25"))
+
+      BlockBufferModel
+        .where(status: ["processed", "failed"])
+        .order(height: :desc)
+        .limit(limit)
+        .map do |block|
+          {
+            height: block.height,
+            status: block.status,
+            attempts: block.try(:attempts),
+            duration_ms: block.try(:duration_ms),
+            rpc_duration_ms: block.try(:rpc_duration_ms),
+            parse_duration_ms: block.try(:parse_duration_ms),
+            flush_duration_ms: block.try(:flush_duration_ms),
+            processed_at: block.try(:processed_at),
+            failed_at: block.try(:failed_at),
+            error_class: block.try(:error_class),
+            error_message: block.try(:error_message)
+          }
+        end
     end
   end
 end

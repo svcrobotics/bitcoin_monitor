@@ -74,21 +74,12 @@
     end
 
   bottleneck =
-    if layer1[:slowest_recent_blocks].present?
-      slow = layer1[:slowest_recent_blocks].first
-      rpc = slow[:rpc_duration_ms].to_i
-      parse = slow[:parse_duration_ms].to_i
-      flush = slow[:flush_duration_ms].to_i
-
-      if parse > rpc && parse > flush
-        "Goulot principal : TxProcessor / parsing transactionnel."
-      elsif flush > rpc && flush > parse
-        "Goulot principal : flush Redis/PostgreSQL."
-      else
-        "Goulot principal : RPC bitcoind."
-      end
+    if layer1[:current_processing_blocks].present?
+      "Traitement Layer 1 actif : #{layer1[:current_processing_blocks].size} bloc(s) en cours."
+    elsif lag > 0
+      "Recovery en attente : #{lag} blocs à rattraper."
     else
-      "Pas encore assez de métriques pour identifier le goulot."
+      "Layer 1 synchronisé."
     end
 %>
 
@@ -247,37 +238,64 @@
     </section>
 
     <section class="<%= section_class %> mt-8">
-      <div class="<%= label_class %>">Slow blocks</div>
-      <h2 class="mt-1 text-xl font-semibold">Blocs Layer 1 les plus lents</h2>
+      <div class="<%= label_class %>">Recent blocks</div>
+      <h2 class="mt-1 text-xl font-semibold">Derniers blocs Layer 1 traités</h2>
+
+      <p class="mt-2 <%= muted_class %>">
+        Les derniers blocs processed/failed, dans l’ordre décroissant de hauteur. Par défaut : 25 blocs.
+      </p>
 
       <div class="mt-4 overflow-x-auto rounded-2xl border border-gray-800">
         <table class="w-full text-left text-sm">
           <thead class="bg-gray-900 text-gray-400">
             <tr>
               <th class="px-4 py-3">Height</th>
+              <th class="px-4 py-3">Status</th>
               <th class="px-4 py-3">Total</th>
               <th class="px-4 py-3">RPC</th>
               <th class="px-4 py-3">Parse</th>
               <th class="px-4 py-3">Flush</th>
-              <th class="px-4 py-3">Processed at</th>
+              <th class="px-4 py-3">Attempts</th>
+              <th class="px-4 py-3">Finished at</th>
             </tr>
           </thead>
 
           <tbody class="divide-y divide-gray-800 bg-gray-950">
-            <% if layer1[:slowest_recent_blocks].blank? %>
+            <% if layer1[:recent_blocks].blank? %>
               <tr>
-                <td colspan="6" class="px-4 py-4 text-gray-500">Aucun bloc lent mesuré.</td>
+                <td colspan="8" class="px-4 py-4 text-gray-500">
+                  Aucun bloc récent disponible.
+                </td>
               </tr>
             <% else %>
-              <% layer1[:slowest_recent_blocks].to_a.each do |b| %>
+              <% layer1[:recent_blocks].to_a.each do |b| %>
                 <tr>
                   <td class="px-4 py-3 font-semibold"><%= b[:height] %></td>
+
+                  <td class="px-4 py-3">
+                    <span class="rounded-full border px-2 py-1 text-xs font-semibold <%= status_classes.call(b[:status]) %>">
+                      <%= b[:status].to_s.upcase %>
+                    </span>
+                  </td>
+
                   <td class="px-4 py-3"><%= ms_to_label.call(b[:duration_ms]) %></td>
                   <td class="px-4 py-3"><%= ms_to_label.call(b[:rpc_duration_ms]) %></td>
                   <td class="px-4 py-3 text-amber-300"><%= ms_to_label.call(b[:parse_duration_ms]) %></td>
                   <td class="px-4 py-3"><%= ms_to_label.call(b[:flush_duration_ms]) %></td>
-                  <td class="px-4 py-3 text-gray-400"><%= b[:processed_at] || "—" %></td>
+                  <td class="px-4 py-3"><%= b[:attempts] || 0 %></td>
+
+                  <td class="px-4 py-3 text-gray-400">
+                    <%= b[:processed_at] || b[:failed_at] || "—" %>
+                  </td>
                 </tr>
+
+                <% if b[:status].to_s == "failed" && (b[:error_class].present? || b[:error_message].present?) %>
+                  <tr>
+                    <td colspan="8" class="bg-rose-950/20 px-4 py-3 text-xs text-rose-300">
+                      <%= truncate("#{b[:error_class]} #{b[:error_message]}", length: 220) %>
+                    </td>
+                  </tr>
+                <% end %>
               <% end %>
             <% end %>
           </tbody>
