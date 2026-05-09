@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "sidekiq/api"
+require "set"
 
 module System
   class RecoverySnapshotBuilder
@@ -13,16 +14,23 @@ module System
     LOCKS = [
       "realtime_processing_lock",
       "exchange_observed_scan_lock",
-      "recovery_orchestrator_lock"
+      "recovery_orchestrator_lock",
+      "lock:cluster_scan",
+      "cluster_scan_lock"
     ].freeze
 
     QUEUES = [
       "realtime",
+      "ingest",
+      "process",
       "p1_exchange",
       "p2_flows",
+      "p3_clusters_scan",
+      "p3_clusters_refresh",
       "p3_clusters",
       "p4_analytics",
-      "default"
+      "default",
+      "low"
     ].freeze
 
     JOB_NAMES = [
@@ -56,6 +64,7 @@ module System
         generated_at: now,
         best_height: best_height,
         state: System::RecoveryStateBuilder.call,
+        layer1_diagnostics: layer1_diagnostics,
         estimated_blocks_per_minute: cluster_blocks_per_minute,
         eta_minutes: eta_minutes(cluster_lag, cluster_blocks_per_minute),
         current_job_name: progress[:current_job_name],
@@ -66,7 +75,8 @@ module System
         queues: build_queues,
         workers: build_workers,
         locks: build_locks,
-        recent_job_runs: build_recent_job_runs
+        recent_job_runs: build_recent_job_runs,
+        redis_buffers: redis_buffer_sizes
       }
     rescue StandardError => e
       {
@@ -78,6 +88,49 @@ module System
     private
 
     attr_reader :now
+
+    def redis_buffer_sizes
+      redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
+
+      {
+        outputs_buffer: redis.llen("blockchain:outputs:buffer"),
+        spent_outputs_buffer: redis.llen("blockchain:spent_outputs:buffer")
+      }
+    rescue StandardError => e
+      {
+        error: "#{e.class}: #{e.message}"
+      }
+    end
+
+    def layer1_diagnostics
+      process_jobs =
+        Sidekiq::Queue.new("process")
+          .select { |job| job.klass == "Blockchain::Jobs::BlockProcessJob" }
+
+      queued_heights = process_jobs.map { |job| job.args.first.to_i }
+
+      counts = Hash.new(0)
+      queued_heights.each { |height| counts[height] += 1 }
+
+      enqueued_heights = BlockBufferModel.where(status: "enqueued").pluck(:height).map(&:to_i)
+
+      oldest_enqueued = BlockBufferModel.where(status: "enqueued").minimum(:updated_at)
+      oldest_processing = BlockBufferModel.where(status: "processing").minimum(:updated_at)
+
+      {
+        best_height: BlockBufferModel.maximum(:height),
+        processed_height: BlockBufferModel.where(status: "processed").maximum(:height),
+        buffers: BlockBufferModel.group(:status).count,
+        process_queue_size: Sidekiq::Queue.new("process").size,
+        oldest_enqueued_age: oldest_enqueued ? (now - oldest_enqueued).round : nil,
+        oldest_processing_age: oldest_processing ? (now - oldest_processing).round : nil,
+        orphan_enqueued_count: (enqueued_heights - queued_heights).size,
+        orphan_enqueued_heights: (enqueued_heights - queued_heights).sort.first(20),
+        process_duplicates_count: counts.count { |_, count| count > 1 },
+        process_duplicate_heights: counts.select { |_, count| count > 1 }.keys.sort.first(20),
+        redis_pipeline: System::BlockchainPipelineStatus.call
+      }
+    end
 
     def build_pipelines(best_height)
       {
@@ -201,10 +254,12 @@ module System
     end
 
     def build_workers
-      Sidekiq::Workers.new.map do |_, _, work|
+      Sidekiq::Workers.new.map do |process_id, thread_id, work|
         payload = work.payload
 
         {
+          process_id: process_id,
+          thread_id: thread_id,
           queue: work.queue,
           job_class: payload["wrapped"] || payload["class"],
           run_at: work.run_at
