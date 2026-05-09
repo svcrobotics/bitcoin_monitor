@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_04_28_202834) do
+ActiveRecord::Schema[8.0].define(version: 2026_05_09_080527) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -56,6 +56,40 @@ ActiveRecord::Schema[8.0].define(version: 2026_04_28_202834) do
     t.datetime "updated_at", null: false
     t.index ["input_digest"], name: "index_ai_insights_on_input_digest"
     t.index ["key"], name: "index_ai_insights_on_key"
+  end
+
+  create_table "block_buffers", force: :cascade do |t|
+    t.integer "height", null: false
+    t.string "block_hash", null: false
+    t.string "previous_hash"
+    t.integer "tx_count"
+    t.integer "size_bytes"
+    t.string "status", default: "pending", null: false
+    t.datetime "block_time"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.boolean "is_orphan", default: false, null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "processing_started_at"
+    t.datetime "processed_at"
+    t.datetime "failed_at"
+    t.datetime "last_heartbeat_at"
+    t.integer "duration_ms"
+    t.integer "rpc_duration_ms"
+    t.integer "parse_duration_ms"
+    t.integer "db_duration_ms"
+    t.integer "flush_duration_ms"
+    t.string "error_class"
+    t.text "error_message"
+    t.index ["block_hash"], name: "index_block_buffers_on_block_hash", unique: true
+    t.index ["failed_at"], name: "index_block_buffers_on_failed_at"
+    t.index ["height", "status"], name: "index_block_buffers_on_height_and_status"
+    t.index ["height"], name: "index_block_buffers_on_height"
+    t.index ["is_orphan", "height"], name: "index_block_buffers_on_is_orphan_and_height"
+    t.index ["last_heartbeat_at"], name: "index_block_buffers_on_last_heartbeat_at"
+    t.index ["processed_at"], name: "index_block_buffers_on_processed_at"
+    t.index ["processing_started_at"], name: "index_block_buffers_on_processing_started_at"
+    t.index ["status"], name: "index_block_buffers_on_status"
   end
 
   create_table "brc20_balances", force: :cascade do |t|
@@ -259,6 +293,37 @@ ActiveRecord::Schema[8.0].define(version: 2026_04_28_202834) do
     t.datetime "updated_at", null: false
     t.index ["first_seen_height"], name: "index_clusters_on_first_seen_height"
     t.index ["last_seen_height"], name: "index_clusters_on_last_seen_height"
+  end
+
+  create_table "edges", force: :cascade do |t|
+    t.string "txid", null: false
+    t.string "address_a", null: false
+    t.string "address_b", null: false
+    t.integer "block_height"
+    t.string "block_hash"
+    t.datetime "block_time"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["address_a", "address_b"], name: "index_edges_on_address_a_and_address_b"
+    t.index ["block_height"], name: "index_edges_on_block_height"
+    t.index ["txid", "address_a", "address_b"], name: "index_edges_unique_triplet", unique: true
+    t.index ["txid"], name: "index_edges_on_txid"
+  end
+
+  create_table "events", force: :cascade do |t|
+    t.string "event_type", null: false
+    t.string "txid"
+    t.integer "block_height"
+    t.string "block_hash"
+    t.datetime "block_time"
+    t.jsonb "data", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["block_hash"], name: "index_events_on_block_hash"
+    t.index ["block_height"], name: "index_events_on_block_height"
+    t.index ["data"], name: "index_events_on_data", using: :gin
+    t.index ["event_type"], name: "index_events_on_event_type"
+    t.index ["txid"], name: "index_events_on_txid"
   end
 
   create_table "exchange_addresses", force: :cascade do |t|
@@ -756,6 +821,26 @@ ActiveRecord::Schema[8.0].define(version: 2026_04_28_202834) do
     t.string "status", default: "open", null: false
     t.decimal "buy_amount_eur", precision: 20, scale: 8
     t.index ["status"], name: "index_trade_simulations_on_status"
+  end
+
+  create_table "tx_outputs", force: :cascade do |t|
+    t.string "txid", null: false
+    t.integer "vout", null: false
+    t.string "address"
+    t.decimal "amount_btc", precision: 20, scale: 8
+    t.integer "block_height"
+    t.string "block_hash"
+    t.datetime "block_time"
+    t.boolean "spent", default: false, null: false
+    t.string "spent_txid"
+    t.integer "spent_block_height"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_tx_outputs_on_address"
+    t.index ["block_height"], name: "index_tx_outputs_on_block_height"
+    t.index ["spent"], name: "index_tx_outputs_on_spent"
+    t.index ["spent_txid"], name: "index_tx_outputs_on_spent_txid"
+    t.index ["txid", "vout"], name: "index_tx_outputs_on_txid_and_vout", unique: true
   end
 
   create_table "vault_addresses", force: :cascade do |t|
