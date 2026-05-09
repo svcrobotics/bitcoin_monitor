@@ -29,6 +29,17 @@ module Blockchain
         block = fetch_block(block_buffer.block_hash)
         rpc_duration_ms = monotonic_ms - rpc_started_at
 
+        prevout_cache_started_at = monotonic_ms
+        prevout_cache = Blockchain::Processing::BulkPrevoutResolver.new.call(block["tx"])
+        prevout_cache_duration_ms = monotonic_ms - prevout_cache_started_at
+
+        @tx_processor = TxProcessor.new(prevout_cache: prevout_cache)
+
+        @logger.info(
+          "[block_processor] prevout_cache height=#{block_buffer.height} " \
+          "size=#{prevout_cache.size} duration_ms=#{prevout_cache_duration_ms}"
+        )
+
         heartbeat(
           block_buffer,
           metrics: {
