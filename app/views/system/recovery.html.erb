@@ -24,8 +24,10 @@
   ms_to_label = lambda do |ms|
     value = ms.to_i
 
-    if value <= 0
+    if ms.nil?
       "—"
+    elsif value <= 0
+      "0 ms"
     elsif value < 1_000
       "#{value} ms"
     elsif value < 60_000
@@ -238,11 +240,11 @@
     </section>
 
     <section class="<%= section_class %> mt-8">
-      <div class="<%= label_class %>">Recent blocks</div>
-      <h2 class="mt-1 text-xl font-semibold">Derniers blocs Layer 1 traités</h2>
+      <div class="<%= label_class %>">Recovery window</div>
+      <h2 class="mt-1 text-xl font-semibold">Fenêtre actuelle du recovery Layer 1</h2>
 
       <p class="mt-2 <%= muted_class %>">
-        Les derniers blocs processed/failed, dans l’ordre décroissant de hauteur. Par défaut : 25 blocs.
+        Vue continue des blocs autour du rattrapage : processed, processing, enqueued, pending et failed.
       </p>
 
       <div class="mt-4 overflow-x-auto rounded-2xl border border-gray-800">
@@ -255,21 +257,23 @@
               <th class="px-4 py-3">RPC</th>
               <th class="px-4 py-3">Parse</th>
               <th class="px-4 py-3">Flush</th>
+              <th class="px-4 py-3">Age</th>
+              <th class="px-4 py-3">Heartbeat</th>
               <th class="px-4 py-3">Attempts</th>
-              <th class="px-4 py-3">Finished at</th>
+              <th class="px-4 py-3">Updated / finished</th>
             </tr>
           </thead>
 
           <tbody class="divide-y divide-gray-800 bg-gray-950">
-            <% if layer1[:recent_blocks].blank? %>
+            <% if layer1[:recovery_window].blank? %>
               <tr>
-                <td colspan="8" class="px-4 py-4 text-gray-500">
-                  Aucun bloc récent disponible.
+                <td colspan="10" class="px-4 py-4 text-gray-500">
+                  Aucune fenêtre recovery disponible.
                 </td>
               </tr>
             <% else %>
-              <% layer1[:recent_blocks].to_a.each do |b| %>
-                <tr>
+              <% layer1[:recovery_window].to_a.each do |b| %>
+                <tr class="<%= b[:status].to_s == "processing" ? "bg-amber-500/5" : b[:status].to_s == "failed" ? "bg-rose-500/5" : "" %>">
                   <td class="px-4 py-3 font-semibold"><%= b[:height] %></td>
 
                   <td class="px-4 py-3">
@@ -282,16 +286,18 @@
                   <td class="px-4 py-3"><%= ms_to_label.call(b[:rpc_duration_ms]) %></td>
                   <td class="px-4 py-3 text-amber-300"><%= ms_to_label.call(b[:parse_duration_ms]) %></td>
                   <td class="px-4 py-3"><%= ms_to_label.call(b[:flush_duration_ms]) %></td>
+                  <td class="px-4 py-3"><%= seconds_to_label.call(b[:age_seconds]) %></td>
+                  <td class="px-4 py-3"><%= seconds_to_label.call(b[:heartbeat_age_seconds]) %></td>
                   <td class="px-4 py-3"><%= b[:attempts] || 0 %></td>
 
                   <td class="px-4 py-3 text-gray-400">
-                    <%= b[:processed_at] || b[:failed_at] || "—" %>
+                    <%= b[:processed_at] || b[:failed_at] || b[:updated_at] || "—" %>
                   </td>
                 </tr>
 
                 <% if b[:status].to_s == "failed" && (b[:error_class].present? || b[:error_message].present?) %>
                   <tr>
-                    <td colspan="8" class="bg-rose-950/20 px-4 py-3 text-xs text-rose-300">
+                    <td colspan="10" class="bg-rose-950/20 px-4 py-3 text-xs text-rose-300">
                       <%= truncate("#{b[:error_class]} #{b[:error_message]}", length: 220) %>
                     </td>
                   </tr>

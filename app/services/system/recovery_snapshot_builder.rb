@@ -106,12 +106,11 @@ module System
     def layer1_status(best_height)
       highest_buffered_height = BlockBufferModel.maximum(:height)
       last_processed_height = BlockBufferModel.where(status: "processed").maximum(:height)
+      speed = layer1_recovery_speed
 
       lag =
         if last_processed_height.present?
           [best_height.to_i - last_processed_height.to_i, 0].max
-        else
-          nil
         end
 
       {
@@ -123,11 +122,42 @@ module System
         redis_buffers: redis_buffer_sizes,
         process_queue_size: Sidekiq::Queue.new("process").size,
         current_processing_blocks: current_processing_blocks,
-        recent_blocks: recent_blocks,
+        recovery_window: recovery_window(best_height, last_processed_height),
         recent_failed_blocks: recent_failed_blocks,
-        recovery_speed: layer1_recovery_speed,
-        eta_minutes: eta_minutes(lag, layer1_recovery_speed)
+        recovery_speed: speed,
+        eta_minutes: eta_minutes(lag, speed)
       }
+    end
+
+    def recovery_window(best_height, last_processed_height)
+      limit = Integer(ENV.fetch("LAYER1_RECOVERY_WINDOW_SIZE", "25"))
+
+      upper_bound = best_height.to_i
+      lower_bound = [upper_bound - limit + 1, 0].max
+
+      BlockBufferModel
+        .where(height: lower_bound..upper_bound)
+        .order(height: :desc)
+        .map do |block|
+          {
+            height: block.height,
+            status: block.status,
+            attempts: block.attempts,
+            duration_ms: block.duration_ms,
+            rpc_duration_ms: block.rpc_duration_ms,
+            parse_duration_ms: block.parse_duration_ms,
+            flush_duration_ms: block.flush_duration_ms,
+            processing_started_at: block.processing_started_at,
+            last_heartbeat_at: block.last_heartbeat_at,
+            age_seconds: block.processing_started_at ? (now - block.processing_started_at).to_i : nil,
+            heartbeat_age_seconds: block.last_heartbeat_at ? (now - block.last_heartbeat_at).to_i : nil,
+            updated_at: block.updated_at,
+            processed_at: block.processed_at,
+            failed_at: block.failed_at,
+            error_class: block.error_class,
+            error_message: block.error_message
+          }
+        end
     end
 
     def layer1_diagnostics
@@ -401,14 +431,14 @@ module System
         .map do |block|
           {
             height: block.height,
-            attempts: block.try(:attempts),
-            processing_started_at: block.try(:processing_started_at),
-            last_heartbeat_at: block.try(:last_heartbeat_at),
+            attempts: block.attempts,
+            processing_started_at: block.processing_started_at,
+            last_heartbeat_at: block.last_heartbeat_at,
             age_seconds: block.processing_started_at ? (now - block.processing_started_at).to_i : nil,
             heartbeat_age_seconds: block.last_heartbeat_at ? (now - block.last_heartbeat_at).to_i : nil,
-            rpc_duration_ms: block.try(:rpc_duration_ms),
-            parse_duration_ms: block.try(:parse_duration_ms),
-            flush_duration_ms: block.try(:flush_duration_ms)
+            rpc_duration_ms: block.rpc_duration_ms,
+            parse_duration_ms: block.parse_duration_ms,
+            flush_duration_ms: block.flush_duration_ms
           }
         end
     end
@@ -421,10 +451,10 @@ module System
         .map do |block|
           {
             height: block.height,
-            attempts: block.try(:attempts),
-            failed_at: block.try(:failed_at),
-            error_class: block.try(:error_class),
-            error_message: block.try(:error_message)
+            attempts: block.attempts,
+            failed_at: block.failed_at,
+            error_class: block.error_class,
+            error_message: block.error_message
           }
         end
     end
@@ -438,30 +468,6 @@ module System
       return nil if processed.zero?
 
       (processed / 30.0).round(2)
-    end
-
-    def recent_blocks
-      limit = Integer(ENV.fetch("LAYER1_RECOVERY_RECENT_BLOCKS", "25"))
-
-      BlockBufferModel
-        .where(status: ["processed", "failed"])
-        .order(height: :desc)
-        .limit(limit)
-        .map do |block|
-          {
-            height: block.height,
-            status: block.status,
-            attempts: block.try(:attempts),
-            duration_ms: block.try(:duration_ms),
-            rpc_duration_ms: block.try(:rpc_duration_ms),
-            parse_duration_ms: block.try(:parse_duration_ms),
-            flush_duration_ms: block.try(:flush_duration_ms),
-            processed_at: block.try(:processed_at),
-            failed_at: block.try(:failed_at),
-            error_class: block.try(:error_class),
-            error_message: block.try(:error_message)
-          }
-        end
     end
   end
 end
