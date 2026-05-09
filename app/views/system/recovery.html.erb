@@ -1,58 +1,98 @@
 <% snapshot = @recovery_snapshot || {} %>
 <% state = @recovery_state || snapshot[:state] || {} %>
+<% layer1 = snapshot[:layer1] || {} %>
+<% redis_buffers = layer1[:redis_buffers] || {} %>
+<% status_counts = layer1[:status_counts] || {} %>
 
 <%
+  section_class = "rounded-2xl border border-white/10 bg-gray-950/70 p-5 shadow-sm"
+  panel_class = "rounded-xl border border-white/10 bg-black/20 p-4"
+  label_class = "text-xs font-semibold uppercase tracking-wide text-gray-500"
+  muted_class = "text-sm text-gray-400"
+
   status_classes = lambda do |status|
     case status.to_s
-    when "ok", "healthy"
+    when "ok", "healthy", "processed"
       "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-    when "critical", "stalled", "fail", "failing"
+    when "critical", "stalled", "fail", "failed"
       "border-rose-500/20 bg-rose-500/10 text-rose-300"
     else
       "border-amber-500/20 bg-amber-500/10 text-amber-300"
     end
   end
 
+  ms_to_label = lambda do |ms|
+    value = ms.to_i
+
+    if value <= 0
+      "—"
+    elsif value < 1_000
+      "#{value} ms"
+    elsif value < 60_000
+      "#{(value / 1_000.0).round(1)} s"
+    else
+      "#{(value / 60_000.0).round(1)} min"
+    end
+  end
+
+  seconds_to_label = lambda do |seconds|
+    value = seconds.to_i
+
+    if value <= 0
+      "—"
+    elsif value < 60
+      "#{value}s"
+    elsif value < 3_600
+      "#{(value / 60.0).round(1)} min"
+    else
+      "#{(value / 3_600.0).round(1)} h"
+    end
+  end
+
   progress_pct = lambda do |pipe|
     best = pipe[:best_height].to_i
     last = pipe[:last_height].to_i
+
     best <= 0 ? 100 : [[(last.to_f / best * 100).round(2), 100].min, 0].max
   end
 
-  lag_label = lambda do |lag|
-    lag.to_i <= 0 ? "À jour" : "#{lag.to_i} blocs de retard"
+  lag_label = lambda do |lag_value|
+    lag_value.to_i <= 0 ? "À jour" : "#{lag_value.to_i} blocs de retard"
   end
 
-  global_state = state[:state].to_s.presence || "unknown"
+  lag = layer1[:lag].to_i
+  eta = layer1[:eta_minutes]
+  speed = layer1[:recovery_speed]
 
-  blocking_reason =
-    if state[:cluster_lag].to_i > 20
-      "Blocage principal : cluster scan en retard de #{state[:cluster_lag]} blocs."
-    elsif state[:exchange_lag].to_i > 5
-      "Blocage principal : exchange observed scan en retard de #{state[:exchange_lag]} blocs."
-    elsif state[:realtime_lag].to_i > 0
-      "Blocage principal : realtime processor en retard de #{state[:realtime_lag]} blocs."
+  layer1_state =
+    if status_counts["failed"].to_i > 0
+      "critical"
+    elsif lag > 0 || status_counts["processing"].to_i > 0 || status_counts["enqueued"].to_i > 0
+      "recovering"
     else
-      "Aucun blocage critique détecté."
+      "healthy"
     end
 
-  action_message =
-    case global_state
-    when "healthy"
-      "Système synchronisé."
-    when "degraded"
-      "Système dégradé : un pipeline est en retard ou instable."
-    when "stalled"
-      "Action recommandée : relancer le pipeline critique avant de reconstruire les agrégats."
-    when "recovering"
-      "Recovery en cours : surveiller la baisse progressive des lags."
+  bottleneck =
+    if layer1[:slowest_recent_blocks].present?
+      slow = layer1[:slowest_recent_blocks].first
+      rpc = slow[:rpc_duration_ms].to_i
+      parse = slow[:parse_duration_ms].to_i
+      flush = slow[:flush_duration_ms].to_i
+
+      if parse > rpc && parse > flush
+        "Goulot principal : TxProcessor / parsing transactionnel."
+      elsif flush > rpc && flush > parse
+        "Goulot principal : flush Redis/PostgreSQL."
+      else
+        "Goulot principal : RPC bitcoind."
+      end
     else
-      "État système à vérifier."
+      "Pas encore assez de métriques pour identifier le goulot."
     end
 %>
 
 <div class="mx-auto max-w-7xl px-6 py-8 text-gray-100">
-
   <div class="mb-8 rounded-3xl border border-gray-800 bg-gradient-to-br from-gray-900 to-gray-950 p-6">
     <div class="flex flex-col gap-6 lg:flex-row lg:items-start lg:justify-between">
       <div>
@@ -60,71 +100,28 @@
         <h1 class="mt-2 text-3xl font-bold">Recovery control center</h1>
 
         <p class="mt-2 max-w-3xl text-gray-400">
-          Suivi de la reprise après redémarrage, panne, backlog Sidekiq ou retard blockchain.
+          Suivi du rattrapage blockchain, des jobs Sidekiq, des buffers Redis et des blocs lents.
         </p>
 
         <div class="mt-5 rounded-2xl border border-gray-800 bg-gray-950/70 p-4">
-          <div class="text-sm uppercase tracking-wide text-gray-500">Diagnostic</div>
-          <div class="mt-1 text-lg font-semibold"><%= blocking_reason %></div>
-          <div class="mt-2 text-sm text-gray-400"><%= action_message %></div>
+          <div class="text-sm uppercase tracking-wide text-gray-500">Diagnostic principal</div>
+          <div class="mt-1 text-lg font-semibold"><%= bottleneck %></div>
+          <div class="mt-2 text-sm text-gray-400">
+            Layer 1 lag : <%= lag %> blocs ·
+            vitesse : <%= speed || "—" %> bloc/min ·
+            ETA : <%= eta ? "#{eta} min" : "—" %>
+          </div>
         </div>
       </div>
 
-      <div class="min-w-56 rounded-2xl border <%= status_classes.call(global_state) %> px-5 py-4 text-right">
-        <div class="text-sm opacity-80">État global</div>
-        <div class="mt-1 text-3xl font-bold"><%= global_state.upcase %></div>
+      <div class="min-w-56 rounded-2xl border <%= status_classes.call(layer1_state) %> px-5 py-4 text-right">
+        <div class="text-sm opacity-80">État Layer 1</div>
+        <div class="mt-1 text-3xl font-bold"><%= layer1_state.upcase %></div>
         <div class="mt-2 text-xs opacity-70">
           generated_at: <%= snapshot[:generated_at] || "—" %>
         </div>
       </div>
     </div>
-
-    <% unless snapshot[:error].present? %>
-      <div class="mt-6 grid grid-cols-1 gap-3 md:grid-cols-3">
-        <div class="rounded-2xl border border-gray-800 bg-gray-950 p-4">
-          <div class="text-xs uppercase tracking-wide text-gray-500">Job actif</div>
-          <div class="mt-2 text-lg font-semibold"><%= snapshot[:current_job_name] || "Aucun" %></div>
-          <div class="mt-1 text-sm text-gray-500"><%= snapshot[:current_job_progress_label] || "—" %></div>
-          <% if snapshot[:current_job_progress_meta].present? %>
-              <div class="mt-2 text-xs text-gray-600">
-                blocks=<%= snapshot[:current_job_progress_meta]["scanned_blocks"] || "—" %> ·
-                txs=<%= snapshot[:current_job_progress_meta]["scanned_txs"] || "—" %> ·
-                links=<%= snapshot[:current_job_progress_meta]["links_created"] || "—" %>
-              </div>
-          <% end %>
-        </div>
-
-        <div class="rounded-2xl border border-gray-800 bg-gray-950 p-4">
-          <div class="text-xs uppercase tracking-wide text-gray-500">Vitesse estimée</div>
-          <div class="mt-2 text-lg font-semibold">
-            <%= snapshot[:estimated_blocks_per_minute] || "—" %>
-            <span class="text-sm font-normal text-gray-500">blocs/min</span>
-          </div>
-        </div>
-
-        <div class="rounded-2xl border border-gray-800 bg-gray-950 p-4">
-          <div class="text-xs uppercase tracking-wide text-gray-500">ETA recovery</div>
-          <div class="mt-2 text-lg font-semibold">
-            <%= snapshot[:eta_minutes] ? "#{snapshot[:eta_minutes]} min" : "—" %>
-          </div>
-        </div>
-      </div>
-
-      <% if snapshot[:current_job_progress_pct].present? %>
-        <% active_pct = [[snapshot[:current_job_progress_pct].to_f, 0].max, 100].min %>
-
-        <div class="mt-5">
-          <div class="mb-2 flex justify-between text-xs text-gray-500">
-            <span>Progression job actif</span>
-            <span><%= active_pct.round(1) %>%</span>
-          </div>
-
-          <div class="h-2 overflow-hidden rounded-full bg-gray-800">
-            <div class="h-full rounded-full bg-sky-400" style="width: <%= active_pct %>%"></div>
-          </div>
-        </div>
-      <% end %>
-    <% end %>
   </div>
 
   <% if snapshot[:error].present? %>
@@ -133,20 +130,193 @@
     </div>
   <% else %>
 
-    <div class="grid grid-cols-1 gap-4 md:grid-cols-4">
-      <% [
-        ["Best height", snapshot[:best_height], "Hauteur blockchain actuelle"],
-        ["Realtime lag", state[:realtime_lag], lag_label.call(state[:realtime_lag])],
-        ["Exchange lag", state[:exchange_lag], lag_label.call(state[:exchange_lag])],
-        ["Cluster lag", state[:cluster_lag], lag_label.call(state[:cluster_lag])]
-      ].each do |label, value, sub| %>
-        <div class="rounded-2xl border border-gray-800 bg-gray-900 p-4">
-          <div class="text-sm text-gray-400"><%= label %></div>
-          <div class="mt-1 text-2xl font-semibold"><%= value || "—" %></div>
-          <div class="mt-1 text-xs text-gray-500"><%= sub %></div>
+    <section class="<%= section_class %>">
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div class="<%= label_class %>">Layer 1</div>
+          <h2 class="mt-1 text-xl font-semibold">Blockchain recovery</h2>
+          <p class="mt-2 <%= muted_class %>">
+            État réel du rattrapage : buffer, processing, métriques par bloc et backlog Redis.
+          </p>
         </div>
-      <% end %>
-    </div>
+
+        <span class="inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold <%= status_classes.call(layer1_state) %>">
+          <%= layer1_state.upcase %>
+        </span>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-4">
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Best height</div>
+          <div class="mt-3 text-3xl font-bold"><%= layer1[:best_height] || "—" %></div>
+          <p class="mt-2 <%= muted_class %>">
+            buffered <%= layer1[:highest_buffered_height] || "—" %>
+          </p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Last processed</div>
+          <div class="mt-3 text-3xl font-bold"><%= layer1[:last_processed_height] || "—" %></div>
+          <p class="mt-2 <%= muted_class %>">
+            lag <%= layer1[:lag] || "—" %> blocs
+          </p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Recovery speed</div>
+          <div class="mt-3 text-3xl font-bold"><%= layer1[:recovery_speed] || "—" %></div>
+          <p class="mt-2 <%= muted_class %>">blocs/min sur 30 minutes</p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">ETA</div>
+          <div class="mt-3 text-3xl font-bold"><%= layer1[:eta_minutes] ? "#{layer1[:eta_minutes]}m" : "—" %></div>
+          <p class="mt-2 <%= muted_class %>">estimation recovery</p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-5">
+        <% ["pending", "enqueued", "processing", "processed", "failed"].each do |status| %>
+          <div class="<%= panel_class %>">
+            <div class="<%= label_class %>"><%= status %></div>
+            <div class="mt-3 text-2xl font-bold"><%= status_counts[status].to_i %></div>
+          </div>
+        <% end %>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-3">
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Process queue</div>
+          <div class="mt-3 text-3xl font-bold"><%= layer1[:process_queue_size] || 0 %></div>
+          <p class="mt-2 <%= muted_class %>">jobs BlockProcessJob en attente</p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Outputs Redis</div>
+          <div class="mt-3 text-3xl font-bold"><%= redis_buffers[:outputs_buffer] || 0 %></div>
+          <p class="mt-2 <%= muted_class %>">blockchain:outputs:buffer</p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Spent outputs Redis</div>
+          <div class="mt-3 text-3xl font-bold"><%= redis_buffers[:spent_outputs_buffer] || 0 %></div>
+          <p class="mt-2 <%= muted_class %>">blockchain:spent_outputs:buffer</p>
+        </div>
+      </div>
+    </section>
+
+    <section class="<%= section_class %> mt-8">
+      <div class="<%= label_class %>">Processing blocks</div>
+      <h2 class="mt-1 text-xl font-semibold">Blocs en cours</h2>
+
+      <div class="mt-4 overflow-x-auto rounded-2xl border border-gray-800">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-gray-900 text-gray-400">
+            <tr>
+              <th class="px-4 py-3">Height</th>
+              <th class="px-4 py-3">Age</th>
+              <th class="px-4 py-3">Heartbeat</th>
+              <th class="px-4 py-3">RPC</th>
+              <th class="px-4 py-3">Parse</th>
+              <th class="px-4 py-3">Flush</th>
+              <th class="px-4 py-3">Attempts</th>
+            </tr>
+          </thead>
+
+          <tbody class="divide-y divide-gray-800 bg-gray-950">
+            <% if layer1[:current_processing_blocks].blank? %>
+              <tr>
+                <td colspan="7" class="px-4 py-4 text-gray-500">Aucun bloc en processing.</td>
+              </tr>
+            <% else %>
+              <% layer1[:current_processing_blocks].to_a.each do |b| %>
+                <tr>
+                  <td class="px-4 py-3 font-semibold"><%= b[:height] %></td>
+                  <td class="px-4 py-3"><%= seconds_to_label.call(b[:age_seconds]) %></td>
+                  <td class="px-4 py-3"><%= seconds_to_label.call(b[:heartbeat_age_seconds]) %></td>
+                  <td class="px-4 py-3"><%= ms_to_label.call(b[:rpc_duration_ms]) %></td>
+                  <td class="px-4 py-3 text-amber-300"><%= ms_to_label.call(b[:parse_duration_ms]) %></td>
+                  <td class="px-4 py-3"><%= ms_to_label.call(b[:flush_duration_ms]) %></td>
+                  <td class="px-4 py-3"><%= b[:attempts] || 0 %></td>
+                </tr>
+              <% end %>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section class="<%= section_class %> mt-8">
+      <div class="<%= label_class %>">Slow blocks</div>
+      <h2 class="mt-1 text-xl font-semibold">Blocs Layer 1 les plus lents</h2>
+
+      <div class="mt-4 overflow-x-auto rounded-2xl border border-gray-800">
+        <table class="w-full text-left text-sm">
+          <thead class="bg-gray-900 text-gray-400">
+            <tr>
+              <th class="px-4 py-3">Height</th>
+              <th class="px-4 py-3">Total</th>
+              <th class="px-4 py-3">RPC</th>
+              <th class="px-4 py-3">Parse</th>
+              <th class="px-4 py-3">Flush</th>
+              <th class="px-4 py-3">Processed at</th>
+            </tr>
+          </thead>
+
+          <tbody class="divide-y divide-gray-800 bg-gray-950">
+            <% if layer1[:slowest_recent_blocks].blank? %>
+              <tr>
+                <td colspan="6" class="px-4 py-4 text-gray-500">Aucun bloc lent mesuré.</td>
+              </tr>
+            <% else %>
+              <% layer1[:slowest_recent_blocks].to_a.each do |b| %>
+                <tr>
+                  <td class="px-4 py-3 font-semibold"><%= b[:height] %></td>
+                  <td class="px-4 py-3"><%= ms_to_label.call(b[:duration_ms]) %></td>
+                  <td class="px-4 py-3"><%= ms_to_label.call(b[:rpc_duration_ms]) %></td>
+                  <td class="px-4 py-3 text-amber-300"><%= ms_to_label.call(b[:parse_duration_ms]) %></td>
+                  <td class="px-4 py-3"><%= ms_to_label.call(b[:flush_duration_ms]) %></td>
+                  <td class="px-4 py-3 text-gray-400"><%= b[:processed_at] || "—" %></td>
+                </tr>
+              <% end %>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <% if layer1[:recent_failed_blocks].present? %>
+      <section class="<%= section_class %> mt-8">
+        <div class="<%= label_class %>">Failed blocks</div>
+        <h2 class="mt-1 text-xl font-semibold">Blocs Layer 1 en erreur</h2>
+
+        <div class="mt-4 overflow-x-auto rounded-2xl border border-gray-800">
+          <table class="w-full text-left text-sm">
+            <thead class="bg-gray-900 text-gray-400">
+              <tr>
+                <th class="px-4 py-3">Height</th>
+                <th class="px-4 py-3">Attempts</th>
+                <th class="px-4 py-3">Failed at</th>
+                <th class="px-4 py-3">Error</th>
+              </tr>
+            </thead>
+
+            <tbody class="divide-y divide-gray-800 bg-gray-950">
+              <% layer1[:recent_failed_blocks].to_a.each do |b| %>
+                <tr>
+                  <td class="px-4 py-3 font-semibold"><%= b[:height] %></td>
+                  <td class="px-4 py-3"><%= b[:attempts] || 0 %></td>
+                  <td class="px-4 py-3"><%= b[:failed_at] || "—" %></td>
+                  <td class="px-4 py-3 text-rose-300">
+                    <%= truncate("#{b[:error_class]} #{b[:error_message]}", length: 160) %>
+                  </td>
+                </tr>
+              <% end %>
+            </tbody>
+          </table>
+        </div>
+      </section>
+    <% end %>
 
     <div class="mt-10 flex items-center justify-between">
       <h2 class="text-xl font-semibold">Pipelines de recovery</h2>
@@ -154,7 +324,7 @@
     </div>
 
     <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <% snapshot[:pipelines].each do |_key, pipe| %>
+      <% snapshot[:pipelines].to_h.each do |_key, pipe| %>
         <% pct = progress_pct.call(pipe) %>
 
         <div class="rounded-2xl border border-gray-800 bg-gray-900 p-5">
@@ -209,7 +379,7 @@
 
           <% if pipe[:tables].present? %>
             <div class="mt-5 space-y-2">
-              <% pipe[:tables].each do |t| %>
+              <% pipe[:tables].to_a.each do |t| %>
                 <div class="flex items-center justify-between rounded-xl bg-gray-950 px-3 py-2 text-sm">
                   <span class="text-gray-300"><%= t[:name] %></span>
                   <span class="<%= t[:status] == "ok" ? "text-emerald-300" : t[:status] == "critical" ? "text-rose-300" : "text-amber-300" %>">
@@ -237,7 +407,7 @@
         </thead>
 
         <tbody class="divide-y divide-gray-800 bg-gray-950">
-          <% snapshot[:queues].each do |q| %>
+          <% snapshot[:queues].to_a.each do |q| %>
             <% busy = q[:size].to_i > 0 || q[:latency].to_f > 30 %>
 
             <tr>
@@ -265,7 +435,7 @@
               Aucun worker actif.
             </div>
           <% else %>
-            <% snapshot[:workers].each do |w| %>
+            <% snapshot[:workers].to_a.each do |w| %>
               <div class="rounded-2xl border border-gray-800 bg-gray-900 p-4">
                 <div class="font-semibold"><%= w[:job_class] %></div>
                 <div class="mt-1 text-sm text-gray-400">
@@ -281,7 +451,7 @@
         <h2 class="text-xl font-semibold">Locks</h2>
 
         <div class="mt-4 space-y-2">
-          <% snapshot[:locks].each do |lock| %>
+          <% snapshot[:locks].to_a.each do |lock| %>
             <%
               age = lock[:age_seconds].to_i
 
@@ -331,18 +501,6 @@
                 else
                   "STALE"
                 end
-
-              lock_hint =
-                case lock_state
-                when :active
-                  "Lock récemment mis à jour."
-                when :idle
-                  "Repos normal : aucun retard critique."
-                when :waiting
-                  "Retard détecté, mais lock encore récent."
-                else
-                  "Retard détecté et lock ancien : à surveiller."
-                end
             %>
 
             <div class="rounded-2xl border border-gray-800 bg-gray-900 p-4">
@@ -357,10 +515,6 @@
                 updated_at: <%= lock[:updated_at] || "missing" %><br>
                 age: <%= lock[:age_seconds] || "—" %>s<br>
                 lag lié: <%= relevant_lag %>
-              </div>
-
-              <div class="mt-2 text-xs text-gray-500">
-                <%= lock_hint %>
               </div>
             </div>
           <% end %>
@@ -384,7 +538,7 @@
         </thead>
 
         <tbody class="divide-y divide-gray-800 bg-gray-950">
-          <% snapshot[:recent_job_runs].each do |jr| %>
+          <% snapshot[:recent_job_runs].to_a.each do |jr| %>
             <tr class="align-top">
               <td class="px-4 py-3 font-medium"><%= jr[:name] %></td>
 

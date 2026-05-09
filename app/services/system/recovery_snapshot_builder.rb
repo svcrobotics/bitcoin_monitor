@@ -64,6 +64,7 @@ module System
         generated_at: now,
         best_height: best_height,
         state: System::RecoveryStateBuilder.call,
+        layer1: layer1_status(best_height),
         layer1_diagnostics: layer1_diagnostics,
         estimated_blocks_per_minute: cluster_blocks_per_minute,
         eta_minutes: eta_minutes(cluster_lag, cluster_blocks_per_minute),
@@ -99,6 +100,33 @@ module System
     rescue StandardError => e
       {
         error: "#{e.class}: #{e.message}"
+      }
+    end
+
+    def layer1_status(best_height)
+      highest_buffered_height = BlockBufferModel.maximum(:height)
+      last_processed_height = BlockBufferModel.where(status: "processed").maximum(:height)
+
+      lag =
+        if last_processed_height.present?
+          [best_height.to_i - last_processed_height.to_i, 0].max
+        else
+          nil
+        end
+
+      {
+        best_height: best_height,
+        highest_buffered_height: highest_buffered_height,
+        last_processed_height: last_processed_height,
+        lag: lag,
+        status_counts: BlockBufferModel.group(:status).count,
+        redis_buffers: redis_buffer_sizes,
+        process_queue_size: Sidekiq::Queue.new("process").size,
+        current_processing_blocks: current_processing_blocks,
+        slowest_recent_blocks: slowest_recent_blocks,
+        recent_failed_blocks: recent_failed_blocks,
+        recovery_speed: layer1_recovery_speed,
+        eta_minutes: eta_minutes(lag, layer1_recovery_speed)
       }
     end
 
@@ -363,6 +391,71 @@ module System
       return nil if blocks_per_minute.to_f <= 0
 
       (lag.to_f / blocks_per_minute.to_f).ceil
+    end
+
+    def current_processing_blocks
+      BlockBufferModel
+        .where(status: "processing")
+        .order(:height)
+        .limit(20)
+        .map do |block|
+          {
+            height: block.height,
+            attempts: block.try(:attempts),
+            processing_started_at: block.try(:processing_started_at),
+            last_heartbeat_at: block.try(:last_heartbeat_at),
+            age_seconds: block.processing_started_at ? (now - block.processing_started_at).to_i : nil,
+            heartbeat_age_seconds: block.last_heartbeat_at ? (now - block.last_heartbeat_at).to_i : nil,
+            rpc_duration_ms: block.try(:rpc_duration_ms),
+            parse_duration_ms: block.try(:parse_duration_ms),
+            flush_duration_ms: block.try(:flush_duration_ms)
+          }
+        end
+    end
+
+    def slowest_recent_blocks
+      BlockBufferModel
+        .where(status: "processed")
+        .where.not(duration_ms: nil)
+        .order(duration_ms: :desc)
+        .limit(10)
+        .map do |block|
+          {
+            height: block.height,
+            duration_ms: block.duration_ms,
+            rpc_duration_ms: block.rpc_duration_ms,
+            parse_duration_ms: block.parse_duration_ms,
+            flush_duration_ms: block.flush_duration_ms,
+            processed_at: block.processed_at
+          }
+        end
+    end
+
+    def recent_failed_blocks
+      BlockBufferModel
+        .where(status: "failed")
+        .order(updated_at: :desc)
+        .limit(10)
+        .map do |block|
+          {
+            height: block.height,
+            attempts: block.try(:attempts),
+            failed_at: block.try(:failed_at),
+            error_class: block.try(:error_class),
+            error_message: block.try(:error_message)
+          }
+        end
+    end
+
+    def layer1_recovery_speed
+      processed = BlockBufferModel
+        .where(status: "processed")
+        .where("processed_at > ?", 30.minutes.ago)
+        .count
+
+      return nil if processed.zero?
+
+      (processed / 30.0).round(2)
     end
   end
 end
