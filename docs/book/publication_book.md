@@ -7,7 +7,7 @@ mdbook build
 cd ../..
 
 git add docs/book
-git commit -m "Chapter updated Redis Stream"
+git commit -m "Update Redis Streams chapter with recovery architecture"
 
 git push
 

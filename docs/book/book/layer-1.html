@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Recovery - Construire une application Rails professionnelle</title>
+        <title>Layer 1 - Construire une application Rails professionnelle</title>
 
 
         <!-- Custom HTML head -->
@@ -174,445 +174,325 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="recovery"><a class="header" href="#recovery">Recovery</a></h1>
-<p>Bitcoin Monitor ne traite pas uniquement des données blockchain.</p>
-<p>L’application doit aussi survivre :</p>
-<ul>
-<li>à un redémarrage serveur,</li>
-<li>à une coupure électrique,</li>
-<li>à un crash Sidekiq,</li>
-<li>à une désynchronisation de <code>bitcoind</code>,</li>
-<li>à une interruption réseau,</li>
-<li>à un arrêt prolongé des workers,</li>
-<li>à un backlog massif de jobs,</li>
-<li>ou à une perte temporaire du temps réel.</li>
-</ul>
-<p>À mesure que l’architecture est devenue plus temps réel, plus incrémentale et plus asynchrone, une nouvelle problématique est apparue :</p>
+                        <h1 id="layer-1--le-moment-où-bitcoin-monitor-a-séparé-la-collecte-de-lintelligence"><a class="header" href="#layer-1--le-moment-où-bitcoin-monitor-a-séparé-la-collecte-de-lintelligence">Layer 1 : le moment où Bitcoin Monitor a séparé la collecte de l’intelligence</a></h1>
 <blockquote>
-<p>Comment garantir que le système puisse reprendre automatiquement sans corruption, sans double traitement et sans rescan massif ?</p>
+<p>Au début, chaque module voulait lire la blockchain à sa manière.</p>
+<p>Puis une évidence est apparue :</p>
+<blockquote>
+<p>si chaque module rescane Bitcoin Core, l’application finit par devenir lente, fragile et impossible à maintenir.</p>
 </blockquote>
-<p>Ce problème est devenu central lorsque l’architecture Cluster a progressivement évolué :</p>
-<pre><code class="language-text">cron simple
-↓
-scan massif
-↓
-pipeline incrémental
-↓
-Sidekiq
-↓
-temps réel
-↓
-watchers ZMQ
-↓
-refresh async
-↓
-recovery orchestration
-</code></pre>
-<p>À partir de ce moment-là, le système ne pouvait plus simplement “redémarrer”.</p>
-<p>Il fallait concevoir une véritable architecture de recovery.</p>
+</blockquote>
+<p>Ce chapitre raconte comment Bitcoin Monitor a commencé à construire son propre <strong>Layer 1</strong> : une couche centrale responsable de récupérer les blocs, extraire les données brutes, les stocker proprement, puis les rendre disponibles aux modules métiers.</p>
 <hr>
-<h2 id="pourquoi-le-recovery-est-devenu-critique"><a class="header" href="#pourquoi-le-recovery-est-devenu-critique">Pourquoi le recovery est devenu critique</a></h2>
-<p>Au début, Bitcoin Monitor reposait principalement sur des cron jobs :</p>
-<pre><code class="language-text">cron
-↓
-scan blockchain
-↓
-mise à jour SQL
-</code></pre>
-<p>Le modèle était simple :</p>
+<h2 id="1-le-problème-initial"><a class="header" href="#1-le-problème-initial">1. Le problème initial</a></h2>
+<p>Bitcoin Monitor avait plusieurs modules :</p>
 <ul>
-<li>un cron échoue,</li>
-<li>il sera relancé plus tard.</li>
+<li>Cluster,</li>
+<li>Exchange-like,</li>
+<li>Whale,</li>
+<li>Inflow / Outflow,</li>
+<li>Recovery,</li>
+<li>Realtime.</li>
 </ul>
-<p>Mais avec l’arrivée du temps réel, les dépendances se sont multipliées :</p>
+<p>Chacun avait besoin de données blockchain.</p>
+<p>Mais progressivement, un problème est apparu :</p>
+<pre><code class="language-text">chaque module voulait interroger bitcoind
+</code></pre>
+<p>Cela semblait pratique au début.</p>
+<p>Mais à mesure que le projet grandissait, cette approche créait plusieurs risques :</p>
+<ul>
+<li>appels RPC répétés,</li>
+<li>scans redondants,</li>
+<li>logique dupliquée,</li>
+<li>lenteur,</li>
+<li>difficulté de recovery,</li>
+<li>difficulté de monitoring,</li>
+<li>dépendances floues entre modules.</li>
+</ul>
+<p>Autrement dit :</p>
+<blockquote>
+<p>la blockchain était lue plusieurs fois, par plusieurs chemins différents, sans source officielle unique.</p>
+</blockquote>
+<hr>
+<h2 id="2-le-déclic-architectural"><a class="header" href="#2-le-déclic-architectural">2. Le déclic architectural</a></h2>
+<p>Le vrai déclic a été de comprendre que Bitcoin Monitor ne devait plus être organisé autour des modules uniquement.</p>
+<p>Il fallait d’abord construire une base commune :</p>
+<pre><code class="language-text">Bitcoin Core
+↓
+Layer 1
+↓
+Modules métier
+</code></pre>
+<p>Le Layer 1 devient alors :</p>
+<blockquote>
+<p>la source officielle des données blockchain dans l’application.</p>
+</blockquote>
+<p>Son rôle n’est pas d’analyser.</p>
+<p>Son rôle est de :</p>
+<ul>
+<li>collecter,</li>
+<li>bufferiser,</li>
+<li>parser,</li>
+<li>persister,</li>
+<li>exposer des données propres.</li>
+</ul>
+<p>L’intelligence vient ensuite.</p>
+<hr>
+<h2 id="3-séparer-collecte-et-traitement"><a class="header" href="#3-séparer-collecte-et-traitement">3. Séparer collecte et traitement</a></h2>
+<p>La règle principale est devenue :</p>
+<pre><code class="language-text">Layer 1 collecte les données.
+Les modules interprètent les données.
+</code></pre>
+<p>Cela change profondément l’architecture.</p>
+<p>Avant :</p>
+<pre><code class="language-text">Cluster → bitcoind
+Exchange-like → bitcoind
+Whale → bitcoind
+Inflow / Outflow → tables intermédiaires
+</code></pre>
+<p>Après :</p>
 <pre><code class="language-text">bitcoind
 ↓
-ZMQ watcher
+Layer 1
 ↓
-Realtime::ProcessLatestBlockJob
+tx_outputs / events / edges / block_buffers
 ↓
-Sidekiq
-↓
-ClusterScanner
-↓
-Cluster refresh
-↓
-Signals
-↓
-Dashboard
+Cluster / Exchange-like / Whale / Inflow-Outflow
 </code></pre>
-<p>Un seul maillon bloqué pouvait provoquer :</p>
+<p>Cette séparation est importante parce qu’elle évite de mélanger :</p>
 <ul>
-<li>du retard,</li>
-<li>des données incohérentes,</li>
-<li>des jobs en boucle,</li>
-<li>un backlog Redis,</li>
-<li>des clusters non rafraîchis,</li>
-<li>des signaux obsolètes,</li>
-<li>une fausse impression de temps réel.</li>
-</ul>
-<p>Le recovery n’était plus un “bonus”.</p>
-<p>C’était devenu une nécessité d’architecture.</p>
-<hr>
-<h2 id="le-principe-fondamental"><a class="header" href="#le-principe-fondamental">Le principe fondamental</a></h2>
-<p>Le système devait devenir :</p>
-<pre><code class="language-text">résilient
-</code></pre>
-<p>C’est-à-dire capable de :</p>
-<ul>
-<li>détecter son état réel,</li>
-<li>mesurer les retards,</li>
-<li>mesurer la fraîcheur,</li>
-<li>reprendre automatiquement,</li>
-<li>éviter les doubles traitements,</li>
-<li>éviter les boucles infinies,</li>
-<li>continuer même après panne,</li>
-<li>expliquer clairement ce qui est bloqué.</li>
+<li>extraction brute,</li>
+<li>logique métier,</li>
+<li>scoring,</li>
+<li>visualisation,</li>
+<li>recovery.</li>
 </ul>
 <hr>
-<h2 id="les-curseurs-comme-fondation-du-recovery"><a class="header" href="#les-curseurs-comme-fondation-du-recovery">Les curseurs comme fondation du recovery</a></h2>
-<p>La base du recovery dans Bitcoin Monitor repose sur un élément extrêmement simple :</p>
-<pre><code class="language-ruby">ScannerCursor
-</code></pre>
-<p>Chaque pipeline possède un curseur dédié :</p>
-<pre><code class="language-text">cluster_scan
-exchange_observed_scan
-exchange_address_builder
-realtime_block_watcher
-realtime_block_stream
-</code></pre>
-<p>Chaque curseur stocke :</p>
-<pre><code class="language-text">last_blockheight
-last_blockhash
-updated_at
-</code></pre>
-<p>Cela permet au système de savoir :</p>
+<h2 id="4-les-responsabilités-du-layer-1"><a class="header" href="#4-les-responsabilités-du-layer-1">4. Les responsabilités du Layer 1</a></h2>
+<p>Le Layer 1 ne doit pas tout faire.</p>
+<p>Il doit rester une couche basse.</p>
+<p>Ses responsabilités principales sont :</p>
 <ul>
-<li>ce qui a déjà été traité,</li>
-<li>où reprendre,</li>
-<li>si un module est bloqué,</li>
-<li>si les données sont fraîches,</li>
-<li>si un pipeline est en retard,</li>
-<li>si un traitement est réellement actif.</li>
+<li>écouter ou récupérer les nouveaux blocs,</li>
+<li>stocker leur état dans <code>block_buffers</code>,</li>
+<li>extraire les outputs,</li>
+<li>détecter les outputs dépensés,</li>
+<li>bufferiser les écritures dans Redis,</li>
+<li>flusher vers PostgreSQL,</li>
+<li>suivre la progression,</li>
+<li>exposer un état de recovery.</li>
 </ul>
+<p>Dans Bitcoin Monitor, cette logique se retrouve dans :</p>
+<pre><code class="language-text">app/services/blockchain/
+</code></pre>
+<p>avec des sous-parties comme :</p>
+<pre><code class="language-text">ingest/
+processing/
+buffers/
+flushers/
+orchestration/
+state/
+utxo/
+events/
+edges/
+</code></pre>
+<p>Ce découpage rend le système beaucoup plus lisible.</p>
 <hr>
-<h2 id="exemple--protection-contre-le-double-traitement"><a class="header" href="#exemple--protection-contre-le-double-traitement">Exemple : protection contre le double traitement</a></h2>
-<p>Le passage au temps réel a rapidement révélé un problème classique :</p>
-<pre><code class="language-text">même bloc traité plusieurs fois
+<h2 id="5-le-rôle-de-block_buffers"><a class="header" href="#5-le-rôle-de-block_buffers">5. Le rôle de <code>block_buffers</code></a></h2>
+<p>La table <code>block_buffers</code> devient le journal de progression du Layer 1.</p>
+<p>Chaque bloc peut être dans un état :</p>
+<pre><code class="language-text">pending
+enqueued
+processing
+processed
+failed
 </code></pre>
-<p>Les logs montraient :</p>
-<pre><code class="language-text">latest_block_processed height=946547
-</code></pre>
-<p>puis immédiatement :</p>
-<pre><code class="language-text">already_linked_txs=100
-links_created=0
-</code></pre>
-<p>Le système retraitait donc les mêmes données.</p>
-<p>La solution a été d’ajouter une protection basée sur le curseur :</p>
-<pre><code class="language-ruby">if cursor.last_blockheight.to_i &gt;= height &amp;&amp;
-   cursor.last_blockhash == blockhash
-
-  Rails.logger.info(
-    "[realtime] skip_already_processed"
-  )
-
-  return
-end
-</code></pre>
-<p>Ce mécanisme simple est devenu une brique centrale du recovery.</p>
-<hr>
-<h2 id="reprendre-automatiquement-après-interruption"><a class="header" href="#reprendre-automatiquement-après-interruption">Reprendre automatiquement après interruption</a></h2>
-<p>Lorsqu’un watcher redémarre, il ne repart pas “à zéro”.</p>
-<p>Il lit son curseur :</p>
-<pre><code class="language-ruby">ScannerCursor.find_by(
-  name: "realtime_block_stream"
-)
-</code></pre>
-<p>Puis reprend automatiquement :</p>
-<pre><code class="language-text">dernier bloc connu
-↓
-best height actuel
-↓
-scan incrémental
-↓
-rattrapage progressif
-</code></pre>
-<p>Cela permet :</p>
+<p>Ce modèle est très important.</p>
+<p>Il permet de savoir :</p>
 <ul>
-<li>de redémarrer après panne,</li>
-<li>de reprendre après maintenance,</li>
-<li>d’éviter les rescans complets,</li>
-<li>de limiter la charge CPU,</li>
-<li>de protéger Redis,</li>
-<li>de préserver PostgreSQL.</li>
+<li>quel bloc est arrivé,</li>
+<li>quel bloc attend un worker,</li>
+<li>quel bloc est en traitement,</li>
+<li>quel bloc est terminé,</li>
+<li>quel bloc a échoué.</li>
 </ul>
+<p>Sans cette table, le système serait aveugle.</p>
+<p>Avec elle, le recovery devient possible.</p>
 <hr>
-<h2 id="sidekiq-et-la-reprise-automatique"><a class="header" href="#sidekiq-et-la-reprise-automatique">Sidekiq et la reprise automatique</a></h2>
-<p>Le passage à Sidekiq a profondément transformé la stratégie de recovery.</p>
+<h2 id="6-redis-comme-zone-tampon"><a class="header" href="#6-redis-comme-zone-tampon">6. Redis comme zone tampon</a></h2>
+<p>Un autre changement important a été l’introduction de buffers Redis.</p>
+<p>Au lieu d’écrire chaque donnée immédiatement en base :</p>
+<pre><code class="language-text">BlockProcessor
+↓
+PostgreSQL
+</code></pre>
+<p>le système peut faire :</p>
+<pre><code class="language-text">BlockProcessor
+↓
+Redis buffers
+↓
+Flusher
+↓
+PostgreSQL
+</code></pre>
+<p>Ce choix est important pour les performances.</p>
+<p>Il permet de :</p>
+<ul>
+<li>réduire la pression sur PostgreSQL,</li>
+<li>écrire par batch,</li>
+<li>séparer parsing et persistence,</li>
+<li>mieux absorber les pics,</li>
+<li>rendre le pipeline plus résilient.</li>
+</ul>
+<p>Dans une architecture de données, cette séparation est fondamentale.</p>
+<hr>
+<h2 id="7-le-rôle-de-lorchestrateur"><a class="header" href="#7-le-rôle-de-lorchestrateur">7. Le rôle de l’orchestrateur</a></h2>
+<p>Le Layer 1 ne dépend pas uniquement d’un job isolé.</p>
+<p>Il possède un orchestrateur.</p>
+<p>Son rôle est de coordonner :</p>
+<ul>
+<li>backfill des blocs manquants,</li>
+<li>requeue des blocs bloqués,</li>
+<li>retry des blocs échoués,</li>
+<li>enqueue des blocs pending,</li>
+<li>état global du pipeline.</li>
+</ul>
+<p>L’orchestrateur transforme le système en pipeline contrôlable.</p>
+<p>Ce n’est plus seulement :</p>
+<pre><code class="language-text">un job qui tourne
+</code></pre>
+<p>mais :</p>
+<pre><code class="language-text">un système qui sait où il en est
+</code></pre>
+<p>Et c’est précisément ce qui permet le recovery.</p>
+<hr>
+<h2 id="8-le-bug-de-ladapter-supprimé"><a class="header" href="#8-le-bug-de-ladapter-supprimé">8. Le bug de l’adapter supprimé</a></h2>
+<p>Pendant le nettoyage, une erreur intéressante est apparue.</p>
+<p>Un fichier legacy a été supprimé :</p>
+<pre><code class="language-text">Blockchain::Buffer::BlockBuffer
+</code></pre>
+<p>Le système ne traitait plus les blocs.</p>
+<p>Le dashboard montrait :</p>
+<pre><code class="language-text">pending: 16
+enqueued: 1
+processing: 0
+process queue: 0
+</code></pre>
+<p>Cela voulait dire :</p>
+<pre><code class="language-text">les blocs arrivaient
+mais le processing ne partait plus
+</code></pre>
+<p>Le diagnostic a permis de trouver rapidement le problème :</p>
+<pre><code class="language-text">l’ancien adapter était encore utilisé par le nouveau pipeline
+</code></pre>
+<p>Ce bug est important pédagogiquement.</p>
+<p>Il montre qu’en phase de refactor, tout ne peut pas être supprimé immédiatement.</p>
+<p>Parfois, il faut garder des adapters de compatibilité.</p>
+<p>Ils permettent de faire évoluer l’architecture sans casser le système.</p>
+<hr>
+<h2 id="9-pourquoi-cette-architecture-est-plus-professionnelle"><a class="header" href="#9-pourquoi-cette-architecture-est-plus-professionnelle">9. Pourquoi cette architecture est plus professionnelle</a></h2>
+<p>Le Layer 1 apporte plusieurs gains majeurs.</p>
+<h3 id="lisibilité"><a class="header" href="#lisibilité">Lisibilité</a></h3>
+<p>Chaque partie a un rôle clair.</p>
+<pre><code class="language-text">ingest = recevoir les blocs
+processing = parser les blocs
+buffers = absorber les écritures
+flushers = écrire en base
+orchestration = coordonner
+state = observer
+</code></pre>
+<h3 id="performance"><a class="header" href="#performance">Performance</a></h3>
+<p>Les écritures peuvent être batchées.</p>
+<p>Les appels RPC sont mieux contrôlés.</p>
+<p>Les modules ne refont pas tous le même travail.</p>
+<h3 id="recovery"><a class="header" href="#recovery">Recovery</a></h3>
+<p>Le système sait quels blocs sont :</p>
+<ul>
+<li>en attente,</li>
+<li>en cours,</li>
+<li>traités,</li>
+<li>échoués.</li>
+</ul>
+<p>Il peut reprendre après un crash.</p>
+<h3 id="modularité"><a class="header" href="#modularité">Modularité</a></h3>
+<p>Les modules métier n’ont plus besoin de connaître tous les détails RPC.</p>
+<p>Ils peuvent consommer les données Layer 1.</p>
+<h3 id="observabilité"><a class="header" href="#observabilité">Observabilité</a></h3>
+<p>Le dashboard <code>/system/recovery</code> peut montrer précisément où le pipeline bloque.</p>
+<hr>
+<h2 id="10-la-règle-architecturale-finale"><a class="header" href="#10-la-règle-architecturale-finale">10. La règle architecturale finale</a></h2>
+<p>La règle à retenir est simple :</p>
+<pre><code class="language-text">Aucun module métier ne doit rescanner la blockchain
+si les données existent déjà dans Layer 1.
+</code></pre>
+<p>Cela signifie :</p>
+<pre><code class="language-text">Cluster lit Layer 1
+Exchange-like lit Layer 1
+Whale lit Layer 1
+Inflow / Outflow lit les données dérivées d’Exchange-like
+BTC reste séparé car il vient de sources marché externes
+</code></pre>
+<p>Le module BTC est un cas différent.</p>
+<p>Il ne dépend pas de Bitcoin Core.</p>
+<p>Il récupère ses données depuis :</p>
+<ul>
+<li>Coinbase,</li>
+<li>Binance,</li>
+<li>CoinGecko,</li>
+<li>ou d’autres APIs marché.</li>
+</ul>
+<p>Il appartient donc à une autre famille :</p>
+<pre><code class="language-text">Market Data
+</code></pre>
+<p>et non :</p>
+<pre><code class="language-text">Blockchain Data Engine
+</code></pre>
+<hr>
+<h2 id="11-le-vrai-changement-de-pensée"><a class="header" href="#11-le-vrai-changement-de-pensée">11. Le vrai changement de pensée</a></h2>
+<p>Ce refactor Layer 1 n’est pas seulement technique.</p>
+<p>Il marque un changement de manière de penser.</p>
+<p>Avant, on construisait des modules.</p>
+<p>Après, on construit une plateforme.</p>
 <p>Avant :</p>
-<pre><code class="language-text">cron
-↓
-traitement synchrone
+<pre><code class="language-text">je veux une feature
 </code></pre>
 <p>Après :</p>
-<pre><code class="language-text">watcher
-↓
-enqueue Sidekiq
-↓
-worker async
-↓
-retry
-↓
-dead queue
+<pre><code class="language-text">je veux un pipeline fiable sur lequel plusieurs features peuvent s’appuyer
 </code></pre>
-<p>Cela a apporté plusieurs mécanismes essentiels.</p>
+<p>C’est une différence majeure.</p>
+<p>C’est précisément ce qui transforme Bitcoin Monitor :</p>
+<pre><code class="language-text">d’une application Rails
+</code></pre>
+<p>en :</p>
+<pre><code class="language-text">une plateforme d’analyse blockchain
+</code></pre>
 <hr>
-<h3 id="retry-automatique"><a class="header" href="#retry-automatique">Retry automatique</a></h3>
-<p>Un job échoue :</p>
-<pre><code class="language-text">réessai automatique
-</code></pre>
-<p>sans intervention manuelle.</p>
-<hr>
-<h3 id="backlog-observable"><a class="header" href="#backlog-observable">Backlog observable</a></h3>
-<p>Le système peut mesurer :</p>
-<pre><code class="language-text">queue_size
-latency
-retry_size
-dead_size
-</code></pre>
-<p>et afficher ces métriques dans <code>/system/recovery</code>.</p>
-<hr>
-<h3 id="reprise-après-reboot"><a class="header" href="#reprise-après-reboot">Reprise après reboot</a></h3>
-<p>Si Redis ou Sidekiq redémarrent :</p>
-<pre><code class="language-text">les jobs reprennent
-</code></pre>
-<p>au lieu d’être perdus.</p>
-<hr>
-<h2 id="une-leçon-importante--les-jobs-ne-doivent-jamais-sauto-boucler"><a class="header" href="#une-leçon-importante--les-jobs-ne-doivent-jamais-sauto-boucler">Une leçon importante : les jobs ne doivent jamais s’auto-boucler</a></h2>
-<p>Une erreur critique découverte pendant le développement concernait les jobs auto-relancés.</p>
-<p>Exemple réel :</p>
-<pre><code class="language-ruby">InflowOutflowDetailsBuildJob.perform_later
-</code></pre>
-<p>appelé directement à l’intérieur du job lui-même.</p>
-<p>Conséquence :</p>
-<pre><code class="language-text">job
-↓
-enqueue lui-même
-↓
-re-exécution
-↓
-nouvel enqueue
-↓
-boucle infinie
-</code></pre>
-<p>Le résultat :</p>
+<h2 id="12-conclusion"><a class="header" href="#12-conclusion">12. Conclusion</a></h2>
+<p>Le Layer 1 est devenu le socle de Bitcoin Monitor.</p>
+<p>Il ne produit pas directement l’intelligence finale.</p>
+<p>Mais sans lui, aucun module avancé ne peut être fiable.</p>
+<p>Il apporte :</p>
 <ul>
-<li>explosion du backlog Sidekiq,</li>
-<li>workers saturés,</li>
-<li>duplication des traitements,</li>
-<li>recovery bloqué.</li>
+<li>une source officielle blockchain,</li>
+<li>une séparation claire des responsabilités,</li>
+<li>une meilleure performance,</li>
+<li>un recovery contrôlable,</li>
+<li>une base pour les modules futurs.</li>
 </ul>
-<p>La correction a consisté à :</p>
-<ul>
-<li>supprimer les auto-enqueue,</li>
-<li>centraliser l’orchestration,</li>
-<li>empêcher les doublons,</li>
-<li>contrôler les pipelines depuis un orchestrateur unique.</li>
-</ul>
-<p>Cette erreur a fortement influencé l’architecture recovery finale.</p>
-<hr>
-<h2 id="le-rôle-des-locks"><a class="header" href="#le-rôle-des-locks">Le rôle des locks</a></h2>
-<p>Le système utilise plusieurs locks :</p>
-<pre><code class="language-text">realtime_processing_lock
-exchange_observed_scan_lock
-recovery_orchestrator_lock
-</code></pre>
-<p>Ces locks permettent de :</p>
-<ul>
-<li>empêcher les doubles exécutions,</li>
-<li>protéger les pipelines critiques,</li>
-<li>superviser les workers,</li>
-<li>détecter les traitements inactifs.</li>
-</ul>
-<p>Mais une leçon importante est apparue :</p>
+<p>Et surtout, il impose une discipline architecturale :</p>
 <blockquote>
-<p>un lock ancien n’est pas forcément un problème.</p>
+<p>collecter d’abord proprement, analyser ensuite.</p>
 </blockquote>
-<p>Au début, tout lock “vieux” apparaissait comme :</p>
-<pre><code class="language-text">OLD
-</code></pre>
-<p>même lorsque le système était parfaitement synchronisé.</p>
-<p>Le dashboard a ensuite été amélioré avec une logique contextuelle :</p>
-<pre><code class="language-text">ACTIVE
-IDLE
-WAITING
-STALE
-</code></pre>
-<p>Le statut dépend maintenant :</p>
-<ul>
-<li>de l’âge du lock,</li>
-<li>ET du lag réel du pipeline associé.</li>
-</ul>
-<p>Exemple :</p>
-<pre><code class="language-text">IDLE
-lag lié: 0
-Repos normal : aucun retard critique.
-</code></pre>
-<p>Cela a permis d’éviter de faux diagnostics.</p>
-<hr>
-<h2 id="systemd-et-la-supervision-linux"><a class="header" href="#systemd-et-la-supervision-linux">systemd et la supervision Linux</a></h2>
-<p>Les watchers temps réel ne pouvaient pas dépendre d’un terminal ouvert.</p>
-<p>Ils ont donc été transformés en services systemd :</p>
-<pre><code class="language-text">zmq-block-watcher.service
-sidekiq-bitcoin-monitor.service
-</code></pre>
-<p>Exemple :</p>
-<pre><code class="language-bash">systemctl --user status zmq-block-watcher
-</code></pre>
-<p>Les watchers deviennent alors :</p>
-<ul>
-<li>supervisés,</li>
-<li>relancés automatiquement,</li>
-<li>observables,</li>
-<li>intégrés au système Linux.</li>
-</ul>
-<hr>
-<h2 id="le-dashboard-systemrecovery"><a class="header" href="#le-dashboard-systemrecovery">Le dashboard <code>/system/recovery</code></a></h2>
-<p>Une étape importante a été la création d’un véritable centre de supervision recovery.</p>
-<p>Le système expose désormais :</p>
-<pre><code class="language-text">best height
-realtime lag
-exchange lag
-cluster lag
-pipeline status
-queues Sidekiq
-workers actifs
-locks
-recovery jobs
-ETA
-vitesse de rattrapage
-</code></pre>
-<p>Exemple :</p>
-<pre><code class="language-text">state: healthy
-realtime_lag: 1
-cluster_lag: 0
-exchange_lag: 0
-</code></pre>
-<p>ou :</p>
-<pre><code class="language-text">STALLED
-</code></pre>
-<p>si un pipeline critique ne progresse plus.</p>
-<hr>
-<h2 id="recovery-orchestration"><a class="header" href="#recovery-orchestration">Recovery orchestration</a></h2>
-<p>Le système possède maintenant une logique d’orchestration recovery.</p>
-<p>Le recovery n’est plus “passif”.</p>
-<p>Le système sait :</p>
-<ul>
-<li>quel pipeline doit repartir en premier,</li>
-<li>quel lag est critique,</li>
-<li>quels jobs sont actifs,</li>
-<li>quels jobs sont bloqués,</li>
-<li>quels modules doivent attendre.</li>
-</ul>
-<p>Exemple :</p>
-<pre><code class="language-text">P0 realtime
-↓
-P1 exchange scan
-↓
-P2 inflow/outflow
-↓
-P3 cluster scan
-↓
-P4 analytics
-</code></pre>
-<p>Cette hiérarchie évite :</p>
-<ul>
-<li>les recalculs inutiles,</li>
-<li>les backlogs massifs,</li>
-<li>les pipelines incohérents.</li>
-</ul>
-<hr>
-<h2 id="recovery-readiness"><a class="header" href="#recovery-readiness">Recovery readiness</a></h2>
-<p>Une idée importante est apparue progressivement :</p>
-<pre><code class="language-text">le système doit expliquer lui-même
-comment il peut redémarrer
-</code></pre>
-<p>C’est la naissance du concept :</p>
-<pre><code class="language-text">Recovery readiness
-</code></pre>
-<p>Le dashboard affiche désormais :</p>
-<ul>
-<li>les problèmes critiques,</li>
-<li>les pipelines en retard,</li>
-<li>les lags,</li>
-<li>les jobs actifs,</li>
-<li>les locks,</li>
-<li>les ETA,</li>
-<li>la progression du recovery,</li>
-<li>les dépendances critiques,</li>
-<li>les vitesses estimées de rattrapage.</li>
-</ul>
-<p>Le dashboard est progressivement devenu :</p>
-<pre><code class="language-text">un centre de supervision opérationnel
-</code></pre>
-<p>et non plus une simple page système.</p>
-<hr>
-<h2 id="le-temps-réel-a-changé-la-philosophie-du-projet"><a class="header" href="#le-temps-réel-a-changé-la-philosophie-du-projet">Le temps réel a changé la philosophie du projet</a></h2>
-<p>Le passage au temps réel a transformé Bitcoin Monitor.</p>
-<p>Avant :</p>
-<pre><code class="language-text">application Rails
-</code></pre>
-<p>Après :</p>
-<pre><code class="language-text">système distribué de traitement blockchain
-</code></pre>
-<p>Le recovery n’est plus une fonctionnalité secondaire.</p>
-<p>C’est devenu :</p>
-<ul>
-<li>une discipline,</li>
-<li>une architecture,</li>
-<li>une philosophie de conception,</li>
-<li>une couche critique de fiabilité.</li>
-</ul>
-<hr>
-<h2 id="ce-que-cette-évolution-a-apporté"><a class="header" href="#ce-que-cette-évolution-a-apporté">Ce que cette évolution a apporté</a></h2>
-<p>Le système est maintenant capable de :</p>
-<ul>
-<li>reprendre automatiquement après panne,</li>
-<li>éviter les doubles traitements,</li>
-<li>détecter les retards,</li>
-<li>mesurer la fraîcheur,</li>
-<li>superviser Sidekiq,</li>
-<li>superviser Redis,</li>
-<li>superviser bitcoind,</li>
-<li>superviser les pipelines,</li>
-<li>superviser les locks,</li>
-<li>afficher l’état réel de la plateforme,</li>
-<li>orchestrer le recovery automatiquement,</li>
-<li>limiter les rescans massifs,</li>
-<li>expliquer les blocages en temps réel.</li>
-</ul>
-<hr>
-<h2 id="une-leçon-importante"><a class="header" href="#une-leçon-importante">Une leçon importante</a></h2>
-<p>Le vrai défi n’était pas :</p>
-<pre><code class="language-text">traiter les blocs
-</code></pre>
-<p>Le vrai défi était :</p>
-<pre><code class="language-text">continuer à traiter correctement
-même après interruption
-</code></pre>
-<p>C’est cette réflexion qui a progressivement transformé Bitcoin Monitor en une architecture beaucoup plus professionnelle.</p>
+<p>C’est l’une des décisions les plus importantes du projet.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="git.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="redis-stream.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="redis-stream.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -620,13 +500,10 @@ même après interruption
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="git.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="redis-stream.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="redis-stream.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                    </a>
             </nav>
 
         </div>
