@@ -35,12 +35,20 @@ module Blockchain
             block_hash: block["hash"],
             previous_hash: block["previousblockhash"],
             tx_count: block["nTx"],
+            size_bytes: block["size"],
+            block_time: block["time"].present? ? Time.zone.at(block["time"].to_i) : nil,
             status: "pending",
             created_at: now,
             updated_at: now
           },
           unique_by: :index_block_buffers_on_block_hash,
-          update_only: [:height, :previous_hash, :tx_count]
+          update_only: [
+            :height,
+            :previous_hash,
+            :tx_count,
+            :size_bytes,
+            :block_time
+          ]
         )
       end
 
