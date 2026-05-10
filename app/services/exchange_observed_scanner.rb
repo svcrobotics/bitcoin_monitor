@@ -60,14 +60,14 @@ class ExchangeObservedScanner
       return empty_result("nothing to scan", best_height: best_height, mode: range[:mode])
     end
 
-    exchange_set = scannable.addresses.to_set
+    exchange_addresses = scannable.addresses.to_a
 
-    puts "[exchange_observed_scan] start "\
-         "source=layer1 "\
-         "mode=#{range[:mode]} start_height=#{range[:start_height]} end_height=#{range[:end_height]} "\
-         "exchange_set_size=#{scannable.count}"
+    puts "[exchange_observed_scan] start " \
+         "source=layer1 " \
+         "mode=#{range[:mode]} start_height=#{range[:start_height]} end_height=#{range[:end_height]} " \
+         "exchange_set_size=#{exchange_addresses.size}"
 
-    scan_range(range, exchange_set)
+    scan_range(range, exchange_addresses)
 
     flush_seen!
     flush_spent!
@@ -86,7 +86,7 @@ class ExchangeObservedScanner
       start_height: range[:start_height],
       end_height: range[:end_height],
       best_height: best_height,
-      exchange_set_size: scannable.count
+      exchange_set_size: exchange_addresses.size
     }
   end
 
@@ -95,6 +95,9 @@ class ExchangeObservedScanner
   def reset_runtime_state!
     @seen_rows_buffer = []
     @spent_rows_buffer = []
+
+    @block_hash_cache = {}
+    @block_time_cache = {}
 
     @run_stats = {
       scanned_blocks: 0,
@@ -177,13 +180,13 @@ class ExchangeObservedScanner
   # Main scan loop
   # ---------------------------------------------------------------------------
 
-  def scan_range(range, exchange_set)
+  def scan_range(range, exchange_addresses)
     start_height = range[:start_height].to_i
     end_height   = range[:end_height].to_i
     total_blocks = end_height - start_height + 1
 
     (start_height..end_height).each_with_index do |height, index|
-      scan_height(height, exchange_set)
+      scan_height(height, exchange_addresses)
 
       update_job_progress!(
         current: index + 1,
@@ -193,7 +196,7 @@ class ExchangeObservedScanner
     end
   end
 
-  def scan_height(height, exchange_set)
+  def scan_height(height, exchange_addresses)
     @run_stats[:scanned_blocks] += 1
 
     log_progress(
@@ -201,10 +204,10 @@ class ExchangeObservedScanner
       height,
       @seen_rows_buffer.size,
       @spent_rows_buffer.size,
-      exchange_set.size
+      exchange_addresses.size
     )
 
-    process_layer1_height(height, exchange_set)
+    process_layer1_height(height, exchange_addresses)
   end
 
   # ---------------------------------------------------------------------------
@@ -212,46 +215,48 @@ class ExchangeObservedScanner
   # ---------------------------------------------------------------------------
 
   def layer1_best_height
-    ActiveRecord::Base.connection
-      .exec_query("SELECT COALESCE(MAX(height), 0) AS height FROM block_buffers WHERE status = 'processed'")
-      .first["height"]
+    BlockBufferModel
+      .where(status: "processed")
+      .maximum(:height)
       .to_i
   end
 
   def block_hash_for_height(height)
-    ActiveRecord::Base.connection
-      .exec_query(
-        ActiveRecord::Base.sanitize_sql_array([
-          "SELECT block_hash FROM block_buffers WHERE height = ? LIMIT 1",
-          height.to_i
-        ])
-      )
-      .first&.fetch("block_hash", nil)
+    height = height.to_i
+    @block_hash_cache[height] ||= BlockBufferModel.where(height: height).pick(:block_hash)
   end
 
-  def process_layer1_height(height, exchange_set)
+  def block_time_for_height(height)
+    height = height.to_i
+    @block_time_cache[height] ||= BlockBufferModel.where(height: height).pick(:block_time)
+  end
+
+  def process_layer1_height(height, exchange_addresses)
     outputs = TxOutput.where(block_height: height)
 
     @run_stats[:scanned_vouts] += outputs.count
     @run_stats[:scanned_txs] += outputs.distinct.count(:txid)
 
-    process_layer1_seen_outputs(outputs, exchange_set)
+    process_layer1_seen_outputs(outputs, exchange_addresses)
     process_layer1_spent_outputs(height)
 
     flush_seen! if @seen_rows_buffer.size >= BATCH_UPSERT
     flush_spent! if @spent_rows_buffer.size >= BATCH_UPSERT
   end
 
-  def process_layer1_seen_outputs(outputs, exchange_set)
+  def process_layer1_seen_outputs(outputs, exchange_addresses)
     now = Time.current
 
-    outputs.where(address: exchange_set.to_a).find_each(batch_size: 1_000) do |output|
+    outputs.where(address: exchange_addresses).find_each(batch_size: 1_000) do |output|
       @seen_rows_buffer << build_seen_row(output, now)
       @run_stats[:seen_rows] += 1
     end
   end
 
   def build_seen_row(output, now)
+    spent_block_time = output.spent_block_height.present? ? block_time_for_height(output.spent_block_height) : nil
+    spent_blockhash = output.spent_block_height.present? ? block_hash_for_height(output.spent_block_height) : nil
+
     row = {
       txid: output.txid,
       vout: output.vout,
@@ -263,10 +268,11 @@ class ExchangeObservedScanner
       updated_at: now
     }
 
-    row[:spent_at] = output.spent ? now : nil if model_columns.include?("spent_at")
-    row[:spent_day] = output.spent ? Date.current : nil if model_columns.include?("spent_day")
-    row[:spent_by_txid] = output.spent_txid if model_columns.include?("spent_by_txid")
-    row[:spent_blockheight] = output.spent_block_height if model_columns.include?("spent_blockheight")
+    row[:spent_at] = spent_block_time || now if output.spent && model_columns.include?("spent_at")
+    row[:spent_day] = spent_block_time&.in_time_zone(TZ)&.to_date || Date.current if output.spent && model_columns.include?("spent_day")
+    row[:spent_by_txid] = output.spent_txid if output.spent_txid.present? && model_columns.include?("spent_by_txid")
+    row[:spent_blockheight] = output.spent_block_height if output.spent_block_height.present? && model_columns.include?("spent_blockheight")
+    row[:spent_blockhash] = spent_blockhash if spent_blockhash.present? && model_columns.include?("spent_blockhash")
     row[:seen_blockheight] = output.block_height if model_columns.include?("seen_blockheight")
     row[:seen_blockhash] = output.block_hash if model_columns.include?("seen_blockhash")
     row[:seen_at] = output.block_time if model_columns.include?("seen_at")
@@ -276,20 +282,22 @@ class ExchangeObservedScanner
 
   def process_layer1_spent_outputs(height)
     now = Time.current
+    spent_block_time = block_time_for_height(height)
+    spent_day = spent_block_time&.in_time_zone(TZ)&.to_date || Date.current
+    spent_blockhash = block_hash_for_height(height)
 
     TxOutput
       .where(spent: true, spent_block_height: height)
       .where.not(spent_txid: nil)
       .find_each(batch_size: 1_000) do |output|
-
       @spent_rows_buffer << {
         txid: output.txid,
         vout: output.vout,
         spent_by_txid: output.spent_txid,
-        spent_day: Date.current,
-        spent_at: now,
+        spent_day: spent_day,
+        spent_at: spent_block_time || now,
         spent_blockheight: output.spent_block_height,
-        spent_blockhash: model_columns.include?("spent_blockhash") ? output.block_hash : nil
+        spent_blockhash: model_columns.include?("spent_blockhash") ? spent_blockhash : nil
       }.compact
 
       @run_stats[:spent_rows] += 1
@@ -319,7 +327,7 @@ class ExchangeObservedScanner
       progress_label: "block #{height} • #{current} / #{total} blocs",
       heartbeat_at: Time.current
     )
-  rescue => e
+  rescue StandardError => e
     Rails.logger.warn("[exchange_observed_scan] progress update failed: #{e.class} #{e.message}")
   end
 
@@ -333,10 +341,10 @@ class ExchangeObservedScanner
 
     return unless (scanned_blocks % log_every).zero?
 
-    puts "[exchange_observed_scan] progress "\
-         "source=layer1 "\
-         "blocks=#{scanned_blocks} height=#{height} "\
-         "exchange_set_size=#{exchange_set_size} "\
+    puts "[exchange_observed_scan] progress " \
+         "source=layer1 " \
+         "blocks=#{scanned_blocks} height=#{height} " \
+         "exchange_set_size=#{exchange_set_size} " \
          "seen_buffer=#{seen_buf} spent_buffer=#{spent_buf}"
   end
 
@@ -378,10 +386,7 @@ class ExchangeObservedScanner
 
     existing =
       ExchangeObservedUtxo
-        .where(
-          txid: keys.map(&:first),
-          vout: keys.map(&:last)
-        )
+        .where(txid: keys.map(&:first), vout: keys.map(&:last))
         .index_by { |u| [u.txid.to_s, u.vout.to_i] }
 
     upsert_rows = []
@@ -389,6 +394,7 @@ class ExchangeObservedScanner
     @spent_rows_buffer.each do |row|
       key = [row[:txid].to_s, row[:vout].to_i]
       current = existing[key]
+
       next if current.blank?
       next if current.spent_by_txid.present?
 
