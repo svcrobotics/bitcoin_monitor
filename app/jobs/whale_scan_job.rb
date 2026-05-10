@@ -1,23 +1,23 @@
 # frozen_string_literal: true
 
 class WhaleScanJob < ApplicationJob
-  queue_as :default
+  queue_as :p4_analytics
 
-  DEFAULT_BLOCKS = Integer(ENV.fetch("WHALE_SCAN_BLOCKS", "72"))
+  DEFAULT_BLOCKS = Integer(ENV.fetch("WHALE_SCAN_BLOCKS", "144")) rescue 144
 
-  def perform
+  def perform(last_n_blocks: DEFAULT_BLOCKS)
     JobRunner.run!(
       "whale_scan",
-      triggered_by: "sidekiq_cron",
-      scheduled_for: Time.current.strftime("%Y-%m-%d %H:%M:%S")
+      triggered_by: ENV.fetch("TRIGGERED_BY", "cron"),
+      meta: {
+        last_n_blocks: last_n_blocks,
+        source: "layer1"
+      }
     ) do |jr|
-      JobRunner.heartbeat!(jr)
-
-      ScanWhaleAlertsJob.perform_now(last_n_blocks: DEFAULT_BLOCKS)
-
-      JobRunner.heartbeat!(jr)
-
-      { last_n_blocks: DEFAULT_BLOCKS }
+      WhaleLayer1Scanner.call(
+        last_n_blocks: last_n_blocks,
+        job_run: jr
+      )
     end
   end
 end
