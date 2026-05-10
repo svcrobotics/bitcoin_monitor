@@ -39,6 +39,8 @@ module System
         last_metric_day: ClusterMetric.maximum(:snapshot_date),
         last_signal_day: ClusterSignal.maximum(:snapshot_date),
 
+        dirty_queue_size: Clusters::DirtyClusterQueue.size,
+
         status: compute_status(
           lag: cursor&.last_blockheight ? (best - cursor.last_blockheight) : nil,
           refresh_jobs: refresh_jobs

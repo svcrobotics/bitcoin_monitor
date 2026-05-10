@@ -154,7 +154,7 @@
   </section>
 
   <%= render "system/layer1/block_chain_stream", blocks: @recent_blocks %>
-  
+
   <!-- Recovery summary -->
   <section class="<%= section_class %>">
     <div class="flex flex-col lg:flex-row lg:items-center lg:justify-between gap-4">
@@ -602,6 +602,12 @@
             <div class="flex justify-between">
               <span class="text-gray-500">Refresh queue</span>
               <span class="font-mono <%= @cluster_pipeline_status[:refresh_queue].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>"><%= @cluster_pipeline_status[:refresh_queue] || 0 %></span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-gray-500">Dirty queue</span>
+              <span class="font-mono <%= @cluster_pipeline_status[:dirty_queue_size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+                <%= @cluster_pipeline_status[:dirty_queue_size] || 0 %>
+              </span>
             </div>
             <div class="flex justify-between">
               <span class="text-gray-500">Profiles / metrics / signals</span>
