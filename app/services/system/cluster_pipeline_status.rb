@@ -19,8 +19,7 @@ module System
           wrapped = job.item.dig("wrapped")
 
           [
-            "ClusterRefreshDispatchJob",
-            "ClusterRefreshJob"
+            "Clusters::RefreshDirtyClustersJob"
           ].include?(wrapped)
         end
 

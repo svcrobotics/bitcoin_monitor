@@ -61,7 +61,7 @@ module Realtime
       )
 
       if result[:dirty_cluster_ids].present?
-        Clusters::RefreshDirtyClustersJob.perform_later(result[:dirty_cluster_ids])
+        Clusters::RefreshDirtyClustersJob.perform_later
       end
 
       cursor.update!(
