@@ -1,50 +1,309 @@
-#!/usr/bin/env ruby
 # frozen_string_literal: true
 
-require_relative "../config/environment"
-require "redis"
-require "ffi-rzmq"
+require "set"
 
-redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
+class ClusterScanner
+  class Error < StandardError; end
 
-zmq_url = ENV.fetch("BITCOIND_ZMQ_BLOCK_URL", "tcp://127.0.0.1:28332")
-stream  = ENV.fetch("CLUSTER_BLOCK_STREAM", "bitcoin:blocks")
+  def initialize(rpc: BitcoinRpc.new(wallet: nil))
+    @rpc = rpc
 
-context = ZMQ::Context.new
-socket  = context.socket(ZMQ::SUB)
+    # -------------------------
+    # MEMORY BUFFERS
+    # -------------------------
+    @address_rows = []
+    @edges = []
 
-socket.connect(zmq_url)
-socket.setsockopt(ZMQ::SUBSCRIBE, "hashblock")
+    # -------------------------
+    # CACHE
+    # -------------------------
+    @address_cache = {}
+    @seen_txids = Set.new
 
-puts "[cluster-zmq] listening #{zmq_url} → redis stream #{stream}"
+    # -------------------------
+    # STATS
+    # -------------------------
+    @stats = {
+      txs: 0,
+      addresses: 0,
+      clusters: 0,
+      links: 0
+    }
+  end
 
-loop do
-  topic = String.new
-  body  = String.new
-  seq   = String.new
+  # =========================
+  # ENTRY POINT
+  # =========================
+  def scan_blocks(heights)
+    heights.each do |h|
+      scan_block_no_flush(h)
+    end
 
-  socket.recv_string(topic)
-  socket.recv_string(body)
-  socket.recv_string(seq)
+    flush
+  end
 
-  block_hash = body.unpack1("H*")
-  next if block_hash.nil? || block_hash.empty?
+  # =========================
+  # TX PROCESSING (NO DB HERE)
+  # =========================
+  def process_tx(tx)
+    txid = tx["txid"]
+    return if txid.blank?
+    return if @seen_txids.include?(txid)
 
-  height = BitcoinRpc.new.getblockheader(block_hash)["height"]
+    grouped_inputs = Clusters::InputExtractor.call(tx)
+    return if grouped_inputs.size < 2
 
-  redis.xadd(
-    stream, {
-      type: "block.connected",
-      height: height,
-      block_hash: block_hash,
-      received_at: Time.current.iso8601
-    },
-    maxlen: 10_000,
-    approximate: true
-  )
+    addresses = grouped_inputs.map { |g| g[:address] }.compact.uniq
+    return if addresses.size < 2
 
-  puts "[cluster-zmq] block height=#{height} hash=#{block_hash}"
-rescue => e
-  warn "[cluster-zmq] error=#{e.class}: #{e.message}"
-  sleep 2
+    # -------------------------
+    # ADDRESS BUFFER
+    # -------------------------
+    addresses.each do |addr|
+      next if @address_cache[addr]
+
+      @address_cache[addr] = true
+    end
+
+    # -------------------------
+    # UNION-FIND EDGES
+    # -------------------------
+    base = addresses.first
+    addresses[1..].each do |addr|
+      @edges << [base, addr]
+    end
+
+    @seen_txids << txid
+    @stats[:txs] += 1
+  end
+
+  # =========================
+  # FLUSH (ALL DB WORK HERE)
+  # =========================
+  def flush
+    return if @address_cache.empty?
+
+    now = Time.now
+
+    ActiveRecord::Base.transaction do
+      # -------------------------
+      # INSERT ADDRESSES
+      # -------------------------
+      bulk_insert_addresses(now)
+
+      # -------------------------
+      # LOAD ADDRESS MAP (1 SELECT)
+      # -------------------------
+      address_rows = Address
+        .where(address: @address_cache.keys)
+        .pluck(:address, :id, :cluster_id)
+
+      address_map = {}
+      cluster_map = {}
+
+      address_rows.each do |addr, id, cid|
+        address_map[addr] = id
+        cluster_map[addr] = cid
+      end
+
+      # -------------------------
+      # BUILD CLUSTERS (UNION-FIND)
+      # -------------------------
+      groups = build_clusters
+
+      # -------------------------
+      # UPDATE CLUSTERS (BULK SQL)
+      # -------------------------
+      bulk_update_clusters(groups, cluster_map)
+
+      # -------------------------
+      # INSERT LINKS (IDS)
+      # -------------------------
+      bulk_insert_links(groups, address_map, now)
+    end
+
+    clear
+  end
+
+  # =========================
+  # BULK INSERT ADDRESSES
+  # =========================
+  def bulk_insert_addresses(now)
+    rows = @address_cache.keys.map do |addr|
+      {
+        address: addr,
+        created_at: now,
+        updated_at: now
+      }
+    end
+
+    return if rows.empty?
+
+    Address.insert_all(rows, unique_by: :address)
+    @stats[:addresses] += rows.size
+  end
+
+  # =========================
+  # BULK INSERT LINKS
+  # =========================
+  def bulk_insert_links(groups, address_map, now)
+    rows = []
+
+    groups.each do |addresses|
+      base = addresses.first
+      base_id = address_map[base]
+
+      addresses[1..].each do |addr|
+        addr_id = address_map[addr]
+        next unless base_id && addr_id
+
+        rows << {
+          address_a_id: base_id,
+          address_b_id: addr_id,
+          link_type: "multi_input",
+          created_at: now,
+          updated_at: now
+        }
+      end
+    end
+
+    return if rows.empty?
+
+    AddressLink.insert_all(rows)
+    @stats[:links] += rows.size
+  end
+
+  # =========================
+  # UNION-FIND (IN MEMORY)
+  # =========================
+  def build_clusters
+    parent = {}
+
+    # 🔥 inclure toutes les adresses
+    @address_cache.keys.each do |addr|
+      parent[addr] = addr
+    end
+
+    find = lambda do |x|
+      parent[x] ||= x
+      parent[x] == x ? x : parent[x] = find.call(parent[x])
+    end
+
+    union = lambda do |a, b|
+      parent[find.call(a)] = find.call(b)
+    end
+
+    @edges.each do |a, b|
+      union.call(a, b)
+    end
+
+    groups = Hash.new { |h, k| h[k] = [] }
+
+    parent.keys.each do |node|
+      groups[find.call(node)] << node
+    end
+
+    groups.values
+  end
+
+  # =========================
+  # BULK CLUSTER UPDATE
+  # =========================
+  def bulk_update_clusters(groups, cluster_map)
+    rows = []
+    new_clusters_needed = 0
+
+    cluster_ids = groups.map do |addresses|
+      existing = addresses.map { |a| cluster_map[a] }.compact.first
+
+      if existing
+        existing
+      else
+        new_clusters_needed += 1
+        nil
+      end
+    end
+
+    # 🔥 créer tous les clusters d'un coup
+    new_cluster_ids = []
+    if new_clusters_needed > 0
+      now = Time.now
+
+      inserted = Cluster.insert_all!(
+        Array.new(new_clusters_needed) { { created_at: now, updated_at: now } },
+        returning: %w[id]
+      )
+
+      new_cluster_ids = inserted.rows.flatten
+    end
+
+    # 🔥 assigner cluster_id
+    cluster_index = 0
+
+    groups.each_with_index do |addresses, i|
+      existing_clusters = addresses.map { |a| cluster_map[a] }.compact.uniq
+
+      cluster_id =
+        if existing_clusters.empty?
+          new_cluster_ids[cluster_index].tap { cluster_index += 1 }
+        else
+          main = existing_clusters.first
+
+          if existing_clusters.size > 1
+            Cluster.where(id: existing_clusters - [main]).delete_all
+          end
+
+          main
+        end
+
+      addresses.each do |addr|
+        rows << [addr, cluster_id]
+      end
+    end
+
+    return if rows.empty?
+
+    rows.each_slice(1000) do |slice|
+      values_sql = slice.map do |addr, cid|
+        "(#{ActiveRecord::Base.connection.quote(addr)}, #{cid})"
+      end.join(",")
+
+      sql = <<~SQL
+        UPDATE addresses
+        SET cluster_id = mapping.cluster_id
+        FROM (VALUES #{values_sql}) AS mapping(address, cluster_id)
+        WHERE addresses.address = mapping.address
+      SQL
+
+      ActiveRecord::Base.connection.execute(sql)
+    end
+
+    @stats[:clusters] += groups.size
+  end
+
+  # =========================
+  # HELPERS
+  # =========================
+  def coinbase_tx?(tx)
+    Array(tx["vin"]).any? { |vin| vin["coinbase"].present? }
+  end
+
+  def clear
+    @address_rows.clear
+    @edges.clear
+    @address_cache.clear
+    @seen_txids.clear
+  end
+
+  def scan_block_no_flush(height)
+    blockhash = @rpc.getblockhash(height)
+    block = @rpc.getblock(blockhash, 2)
+
+    txs = block["tx"]
+
+    txs.each do |tx|
+      next if coinbase_tx?(tx)
+      process_tx(tx)
+    end
+  end
 end

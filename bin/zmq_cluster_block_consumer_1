@@ -1,0 +1,50 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require_relative "../config/environment"
+require "redis"
+require "ffi-rzmq"
+
+redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
+
+zmq_url = ENV.fetch("BITCOIND_ZMQ_BLOCK_URL", "tcp://127.0.0.1:28332")
+stream  = ENV.fetch("CLUSTER_BLOCK_STREAM", "bitcoin:blocks")
+
+context = ZMQ::Context.new
+socket  = context.socket(ZMQ::SUB)
+
+socket.connect(zmq_url)
+socket.setsockopt(ZMQ::SUBSCRIBE, "hashblock")
+
+puts "[cluster-zmq] listening #{zmq_url} → redis stream #{stream}"
+
+loop do
+  topic = String.new
+  body  = String.new
+  seq   = String.new
+
+  socket.recv_string(topic)
+  socket.recv_string(body)
+  socket.recv_string(seq)
+
+  block_hash = body.unpack1("H*")
+  next if block_hash.nil? || block_hash.empty?
+
+  height = BitcoinRpc.new.getblockheader(block_hash)["height"]
+
+  redis.xadd(
+    stream, {
+      type: "block.connected",
+      height: height,
+      block_hash: block_hash,
+      received_at: Time.current.iso8601
+    },
+    maxlen: 10_000,
+    approximate: true
+  )
+
+  puts "[cluster-zmq] block height=#{height} hash=#{block_hash}"
+rescue => e
+  warn "[cluster-zmq] error=#{e.class}: #{e.message}"
+  sleep 2
+end

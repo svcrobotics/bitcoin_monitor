@@ -1,13 +1,21 @@
 # frozen_string_literal: true
 
 class ClusterScanJob < ApplicationJob
-  queue_as :p3_clusters
+  queue_as :p3_clusters_scan
 
   LOCK_KEY = "lock:cluster_scan"
   LOCK_TTL = 30.minutes.to_i
 
   def perform
     redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
+
+    layer1_lag = BlockBufferModel.maximum(:height).to_i -
+             BlockBufferModel.where(status: "processed").maximum(:height).to_i
+
+    if layer1_lag > Integer(ENV.fetch("CLUSTER_SKIP_IF_LAYER1_LAG_GT", "10"))
+      Rails.logger.info("[cluster_scan] skip layer1_lag=#{layer1_lag}")
+      return { ok: true, skipped: true, reason: "layer1_lag", layer1_lag: layer1_lag }
+    end
 
     locked = redis.set(
       LOCK_KEY,
