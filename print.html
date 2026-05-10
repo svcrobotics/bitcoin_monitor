@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-29121e87.js";
+            window.path_to_searchindex_js = "searchindex-dd9a9f14.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-39d582e9.js"></script>
+        <script src="toc-89da91d8.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -5153,6 +5153,317 @@ et un recovery complet.
 <p>C’est ce moment où une application Rails commence à devenir :</p>
 <pre><code class="language-text">un véritable système temps réel.
 </code></pre>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="layer-1--le-moment-où-bitcoin-monitor-a-séparé-la-collecte-de-lintelligence"><a class="header" href="#layer-1--le-moment-où-bitcoin-monitor-a-séparé-la-collecte-de-lintelligence">Layer 1 : le moment où Bitcoin Monitor a séparé la collecte de l’intelligence</a></h1>
+<blockquote>
+<p>Au début, chaque module voulait lire la blockchain à sa manière.</p>
+<p>Puis une évidence est apparue :</p>
+<blockquote>
+<p>si chaque module rescane Bitcoin Core, l’application finit par devenir lente, fragile et impossible à maintenir.</p>
+</blockquote>
+</blockquote>
+<p>Ce chapitre raconte comment Bitcoin Monitor a commencé à construire son propre <strong>Layer 1</strong> : une couche centrale responsable de récupérer les blocs, extraire les données brutes, les stocker proprement, puis les rendre disponibles aux modules métiers.</p>
+<hr>
+<h2 id="1-le-problème-initial-1"><a class="header" href="#1-le-problème-initial-1">1. Le problème initial</a></h2>
+<p>Bitcoin Monitor avait plusieurs modules :</p>
+<ul>
+<li>Cluster,</li>
+<li>Exchange-like,</li>
+<li>Whale,</li>
+<li>Inflow / Outflow,</li>
+<li>Recovery,</li>
+<li>Realtime.</li>
+</ul>
+<p>Chacun avait besoin de données blockchain.</p>
+<p>Mais progressivement, un problème est apparu :</p>
+<pre><code class="language-text">chaque module voulait interroger bitcoind
+</code></pre>
+<p>Cela semblait pratique au début.</p>
+<p>Mais à mesure que le projet grandissait, cette approche créait plusieurs risques :</p>
+<ul>
+<li>appels RPC répétés,</li>
+<li>scans redondants,</li>
+<li>logique dupliquée,</li>
+<li>lenteur,</li>
+<li>difficulté de recovery,</li>
+<li>difficulté de monitoring,</li>
+<li>dépendances floues entre modules.</li>
+</ul>
+<p>Autrement dit :</p>
+<blockquote>
+<p>la blockchain était lue plusieurs fois, par plusieurs chemins différents, sans source officielle unique.</p>
+</blockquote>
+<hr>
+<h2 id="2-le-déclic-architectural"><a class="header" href="#2-le-déclic-architectural">2. Le déclic architectural</a></h2>
+<p>Le vrai déclic a été de comprendre que Bitcoin Monitor ne devait plus être organisé autour des modules uniquement.</p>
+<p>Il fallait d’abord construire une base commune :</p>
+<pre><code class="language-text">Bitcoin Core
+↓
+Layer 1
+↓
+Modules métier
+</code></pre>
+<p>Le Layer 1 devient alors :</p>
+<blockquote>
+<p>la source officielle des données blockchain dans l’application.</p>
+</blockquote>
+<p>Son rôle n’est pas d’analyser.</p>
+<p>Son rôle est de :</p>
+<ul>
+<li>collecter,</li>
+<li>bufferiser,</li>
+<li>parser,</li>
+<li>persister,</li>
+<li>exposer des données propres.</li>
+</ul>
+<p>L’intelligence vient ensuite.</p>
+<hr>
+<h2 id="3-séparer-collecte-et-traitement"><a class="header" href="#3-séparer-collecte-et-traitement">3. Séparer collecte et traitement</a></h2>
+<p>La règle principale est devenue :</p>
+<pre><code class="language-text">Layer 1 collecte les données.
+Les modules interprètent les données.
+</code></pre>
+<p>Cela change profondément l’architecture.</p>
+<p>Avant :</p>
+<pre><code class="language-text">Cluster → bitcoind
+Exchange-like → bitcoind
+Whale → bitcoind
+Inflow / Outflow → tables intermédiaires
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">bitcoind
+↓
+Layer 1
+↓
+tx_outputs / events / edges / block_buffers
+↓
+Cluster / Exchange-like / Whale / Inflow-Outflow
+</code></pre>
+<p>Cette séparation est importante parce qu’elle évite de mélanger :</p>
+<ul>
+<li>extraction brute,</li>
+<li>logique métier,</li>
+<li>scoring,</li>
+<li>visualisation,</li>
+<li>recovery.</li>
+</ul>
+<hr>
+<h2 id="4-les-responsabilités-du-layer-1"><a class="header" href="#4-les-responsabilités-du-layer-1">4. Les responsabilités du Layer 1</a></h2>
+<p>Le Layer 1 ne doit pas tout faire.</p>
+<p>Il doit rester une couche basse.</p>
+<p>Ses responsabilités principales sont :</p>
+<ul>
+<li>écouter ou récupérer les nouveaux blocs,</li>
+<li>stocker leur état dans <code>block_buffers</code>,</li>
+<li>extraire les outputs,</li>
+<li>détecter les outputs dépensés,</li>
+<li>bufferiser les écritures dans Redis,</li>
+<li>flusher vers PostgreSQL,</li>
+<li>suivre la progression,</li>
+<li>exposer un état de recovery.</li>
+</ul>
+<p>Dans Bitcoin Monitor, cette logique se retrouve dans :</p>
+<pre><code class="language-text">app/services/blockchain/
+</code></pre>
+<p>avec des sous-parties comme :</p>
+<pre><code class="language-text">ingest/
+processing/
+buffers/
+flushers/
+orchestration/
+state/
+utxo/
+events/
+edges/
+</code></pre>
+<p>Ce découpage rend le système beaucoup plus lisible.</p>
+<hr>
+<h2 id="5-le-rôle-de-block_buffers"><a class="header" href="#5-le-rôle-de-block_buffers">5. Le rôle de <code>block_buffers</code></a></h2>
+<p>La table <code>block_buffers</code> devient le journal de progression du Layer 1.</p>
+<p>Chaque bloc peut être dans un état :</p>
+<pre><code class="language-text">pending
+enqueued
+processing
+processed
+failed
+</code></pre>
+<p>Ce modèle est très important.</p>
+<p>Il permet de savoir :</p>
+<ul>
+<li>quel bloc est arrivé,</li>
+<li>quel bloc attend un worker,</li>
+<li>quel bloc est en traitement,</li>
+<li>quel bloc est terminé,</li>
+<li>quel bloc a échoué.</li>
+</ul>
+<p>Sans cette table, le système serait aveugle.</p>
+<p>Avec elle, le recovery devient possible.</p>
+<hr>
+<h2 id="6-redis-comme-zone-tampon"><a class="header" href="#6-redis-comme-zone-tampon">6. Redis comme zone tampon</a></h2>
+<p>Un autre changement important a été l’introduction de buffers Redis.</p>
+<p>Au lieu d’écrire chaque donnée immédiatement en base :</p>
+<pre><code class="language-text">BlockProcessor
+↓
+PostgreSQL
+</code></pre>
+<p>le système peut faire :</p>
+<pre><code class="language-text">BlockProcessor
+↓
+Redis buffers
+↓
+Flusher
+↓
+PostgreSQL
+</code></pre>
+<p>Ce choix est important pour les performances.</p>
+<p>Il permet de :</p>
+<ul>
+<li>réduire la pression sur PostgreSQL,</li>
+<li>écrire par batch,</li>
+<li>séparer parsing et persistence,</li>
+<li>mieux absorber les pics,</li>
+<li>rendre le pipeline plus résilient.</li>
+</ul>
+<p>Dans une architecture de données, cette séparation est fondamentale.</p>
+<hr>
+<h2 id="7-le-rôle-de-lorchestrateur"><a class="header" href="#7-le-rôle-de-lorchestrateur">7. Le rôle de l’orchestrateur</a></h2>
+<p>Le Layer 1 ne dépend pas uniquement d’un job isolé.</p>
+<p>Il possède un orchestrateur.</p>
+<p>Son rôle est de coordonner :</p>
+<ul>
+<li>backfill des blocs manquants,</li>
+<li>requeue des blocs bloqués,</li>
+<li>retry des blocs échoués,</li>
+<li>enqueue des blocs pending,</li>
+<li>état global du pipeline.</li>
+</ul>
+<p>L’orchestrateur transforme le système en pipeline contrôlable.</p>
+<p>Ce n’est plus seulement :</p>
+<pre><code class="language-text">un job qui tourne
+</code></pre>
+<p>mais :</p>
+<pre><code class="language-text">un système qui sait où il en est
+</code></pre>
+<p>Et c’est précisément ce qui permet le recovery.</p>
+<hr>
+<h2 id="8-le-bug-de-ladapter-supprimé"><a class="header" href="#8-le-bug-de-ladapter-supprimé">8. Le bug de l’adapter supprimé</a></h2>
+<p>Pendant le nettoyage, une erreur intéressante est apparue.</p>
+<p>Un fichier legacy a été supprimé :</p>
+<pre><code class="language-text">Blockchain::Buffer::BlockBuffer
+</code></pre>
+<p>Le système ne traitait plus les blocs.</p>
+<p>Le dashboard montrait :</p>
+<pre><code class="language-text">pending: 16
+enqueued: 1
+processing: 0
+process queue: 0
+</code></pre>
+<p>Cela voulait dire :</p>
+<pre><code class="language-text">les blocs arrivaient
+mais le processing ne partait plus
+</code></pre>
+<p>Le diagnostic a permis de trouver rapidement le problème :</p>
+<pre><code class="language-text">l’ancien adapter était encore utilisé par le nouveau pipeline
+</code></pre>
+<p>Ce bug est important pédagogiquement.</p>
+<p>Il montre qu’en phase de refactor, tout ne peut pas être supprimé immédiatement.</p>
+<p>Parfois, il faut garder des adapters de compatibilité.</p>
+<p>Ils permettent de faire évoluer l’architecture sans casser le système.</p>
+<hr>
+<h2 id="9-pourquoi-cette-architecture-est-plus-professionnelle"><a class="header" href="#9-pourquoi-cette-architecture-est-plus-professionnelle">9. Pourquoi cette architecture est plus professionnelle</a></h2>
+<p>Le Layer 1 apporte plusieurs gains majeurs.</p>
+<h3 id="lisibilité"><a class="header" href="#lisibilité">Lisibilité</a></h3>
+<p>Chaque partie a un rôle clair.</p>
+<pre><code class="language-text">ingest = recevoir les blocs
+processing = parser les blocs
+buffers = absorber les écritures
+flushers = écrire en base
+orchestration = coordonner
+state = observer
+</code></pre>
+<h3 id="performance"><a class="header" href="#performance">Performance</a></h3>
+<p>Les écritures peuvent être batchées.</p>
+<p>Les appels RPC sont mieux contrôlés.</p>
+<p>Les modules ne refont pas tous le même travail.</p>
+<h3 id="recovery-1"><a class="header" href="#recovery-1">Recovery</a></h3>
+<p>Le système sait quels blocs sont :</p>
+<ul>
+<li>en attente,</li>
+<li>en cours,</li>
+<li>traités,</li>
+<li>échoués.</li>
+</ul>
+<p>Il peut reprendre après un crash.</p>
+<h3 id="modularité"><a class="header" href="#modularité">Modularité</a></h3>
+<p>Les modules métier n’ont plus besoin de connaître tous les détails RPC.</p>
+<p>Ils peuvent consommer les données Layer 1.</p>
+<h3 id="observabilité-2"><a class="header" href="#observabilité-2">Observabilité</a></h3>
+<p>Le dashboard <code>/system/recovery</code> peut montrer précisément où le pipeline bloque.</p>
+<hr>
+<h2 id="10-la-règle-architecturale-finale"><a class="header" href="#10-la-règle-architecturale-finale">10. La règle architecturale finale</a></h2>
+<p>La règle à retenir est simple :</p>
+<pre><code class="language-text">Aucun module métier ne doit rescanner la blockchain
+si les données existent déjà dans Layer 1.
+</code></pre>
+<p>Cela signifie :</p>
+<pre><code class="language-text">Cluster lit Layer 1
+Exchange-like lit Layer 1
+Whale lit Layer 1
+Inflow / Outflow lit les données dérivées d’Exchange-like
+BTC reste séparé car il vient de sources marché externes
+</code></pre>
+<p>Le module BTC est un cas différent.</p>
+<p>Il ne dépend pas de Bitcoin Core.</p>
+<p>Il récupère ses données depuis :</p>
+<ul>
+<li>Coinbase,</li>
+<li>Binance,</li>
+<li>CoinGecko,</li>
+<li>ou d’autres APIs marché.</li>
+</ul>
+<p>Il appartient donc à une autre famille :</p>
+<pre><code class="language-text">Market Data
+</code></pre>
+<p>et non :</p>
+<pre><code class="language-text">Blockchain Data Engine
+</code></pre>
+<hr>
+<h2 id="11-le-vrai-changement-de-pensée"><a class="header" href="#11-le-vrai-changement-de-pensée">11. Le vrai changement de pensée</a></h2>
+<p>Ce refactor Layer 1 n’est pas seulement technique.</p>
+<p>Il marque un changement de manière de penser.</p>
+<p>Avant, on construisait des modules.</p>
+<p>Après, on construit une plateforme.</p>
+<p>Avant :</p>
+<pre><code class="language-text">je veux une feature
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">je veux un pipeline fiable sur lequel plusieurs features peuvent s’appuyer
+</code></pre>
+<p>C’est une différence majeure.</p>
+<p>C’est précisément ce qui transforme Bitcoin Monitor :</p>
+<pre><code class="language-text">d’une application Rails
+</code></pre>
+<p>en :</p>
+<pre><code class="language-text">une plateforme d’analyse blockchain
+</code></pre>
+<hr>
+<h2 id="12-conclusion"><a class="header" href="#12-conclusion">12. Conclusion</a></h2>
+<p>Le Layer 1 est devenu le socle de Bitcoin Monitor.</p>
+<p>Il ne produit pas directement l’intelligence finale.</p>
+<p>Mais sans lui, aucun module avancé ne peut être fiable.</p>
+<p>Il apporte :</p>
+<ul>
+<li>une source officielle blockchain,</li>
+<li>une séparation claire des responsabilités,</li>
+<li>une meilleure performance,</li>
+<li>un recovery contrôlable,</li>
+<li>une base pour les modules futurs.</li>
+</ul>
+<p>Et surtout, il impose une discipline architecturale :</p>
+<blockquote>
+<p>collecter d’abord proprement, analyser ensuite.</p>
+</blockquote>
+<p>C’est l’une des décisions les plus importantes du projet.</p>
 
                     </main>
 
