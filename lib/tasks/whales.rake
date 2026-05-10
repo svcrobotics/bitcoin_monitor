@@ -10,7 +10,7 @@ namespace :whales do
       JobRunner.heartbeat!(jr)
 
       puts "🐋 Whale scan starting (last #{n} blocks)…"
-      ScanWhaleAlertsJob.perform_now(last_n_blocks: n, job_run_id: jr.id)
+      WhaleLayer1Scanner.call(last_n_blocks: n, job_run: jr)
       puts "✅ Whale scan done (last #{n} blocks)"
 
       JobRunner.heartbeat!(jr)
@@ -49,7 +49,7 @@ namespace :whales do
 
       puts "▶ scanning blocks #{chunk_from}..#{chunk_to}"
 
-      ScanWhaleAlertsJob.perform_now(from_height: chunk_from, to_height: chunk_to)
+      WhaleLayer1Scanner.call(from_height: chunk_from, to_height: chunk_to)
 
       h = chunk_to + 1
     end
