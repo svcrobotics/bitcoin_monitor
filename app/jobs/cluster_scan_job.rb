@@ -9,8 +9,7 @@ class ClusterScanJob < ApplicationJob
   def perform
     redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
 
-    layer1_lag = BlockBufferModel.maximum(:height).to_i -
-             BlockBufferModel.where(status: "processed").maximum(:height).to_i
+    layer1_lag = Blockchain::State::Layer1Lag.call
 
     if layer1_lag > Integer(ENV.fetch("CLUSTER_SKIP_IF_LAYER1_LAG_GT", "10"))
       Rails.logger.info("[cluster_scan] skip layer1_lag=#{layer1_lag}")

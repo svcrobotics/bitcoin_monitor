@@ -1,8 +1,11 @@
 # frozen_string_literal: true
+
 require "sidekiq/api"
 
 module Clusters
   class ScanAndDispatch
+    REFRESH_QUEUE = "p3_clusters_refresh"
+
     def self.call(**kwargs)
       new(**kwargs).call
     end
@@ -14,10 +17,8 @@ module Clusters
     def call
       result = ClusterScanner.call(**kwargs.merge(refresh: false))
 
-      dirty_cluster_ids = Array(result[:dirty_cluster_ids]).compact.uniq
-
-      if dirty_cluster_ids.any? && !refresh_already_pending?
-        ClusterRefreshDispatchJob.perform_later(dirty_cluster_ids)
+      if Clusters::DirtyClusterQueue.size.positive? && !refresh_already_pending?
+        Clusters::RefreshDirtyClustersJob.perform_later
       end
 
       result
@@ -28,8 +29,8 @@ module Clusters
     attr_reader :kwargs
 
     def refresh_already_pending?
-      queue_has_job?("default", "ClusterRefreshDispatchJob") ||
-        queue_has_job?("default", "ClusterRefreshJob")
+      queue_has_job?(REFRESH_QUEUE, "Clusters::RefreshDirtyClustersJob") ||
+        queue_has_job?("default", "Clusters::RefreshDirtyClustersJob")
     end
 
     def queue_has_job?(queue_name, klass_name)

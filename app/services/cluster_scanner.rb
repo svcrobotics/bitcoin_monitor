@@ -27,7 +27,7 @@ class ClusterScanner
     @job_run     = job_run
     @refresh     = refresh
 
-    @dirty_cluster_ids = Set.new
+    @dirty_clusters_count = 0
     @known_linked_txids = Set.new
 
     @stats = default_stats
@@ -147,21 +147,11 @@ class ClusterScanner
   # -------------------------
 
   def layer1_best_height
-    ActiveRecord::Base.connection
-      .exec_query("SELECT COALESCE(MAX(height), 0) AS height FROM block_buffers WHERE status = 'processed'")
-      .first["height"]
-      .to_i
+    BlockBufferModel.where(status: "processed").maximum(:height).to_i
   end
 
   def block_hash_for_height(height)
-    ActiveRecord::Base.connection
-      .exec_query(
-        ActiveRecord::Base.sanitize_sql_array([
-          "SELECT block_hash FROM block_buffers WHERE height = ? LIMIT 1",
-          height.to_i
-        ])
-      )
-      .first&.fetch("block_hash", nil)
+    BlockBufferModel.where(height: height.to_i).pick(:block_hash)
   end
 
   def layer1_spending_txids_for_height(height)
@@ -282,13 +272,17 @@ class ClusterScanner
   # -------------------------
 
   def mark_cluster_dirty!(cluster)
-    @dirty_cluster_ids << cluster.id if cluster.present?
+    if cluster.present?
+      Clusters::DirtyClusterQueue.add(cluster.id)
+      @dirty_clusters_count += 1
+    end
   end
 
   def refresh_dirty_clusters!
-    return if @dirty_cluster_ids.empty?
+    cluster_ids = Clusters::DirtyClusterQueue.pop(limit: 500)
+    return if cluster_ids.empty?
 
-    Clusters::DirtyClusterRefresher.call(cluster_ids: @dirty_cluster_ids.to_a)
+    Clusters::DirtyClusterRefresher.call(cluster_ids: cluster_ids)
   end
 
   # -------------------------
@@ -360,8 +354,9 @@ class ClusterScanner
       start_height: range[:start_height],
       end_height: range[:end_height],
       refresh: @refresh,
-      dirty_clusters_count: @dirty_cluster_ids.size,
-      dirty_cluster_ids: @refresh ? [] : @dirty_cluster_ids.to_a
+      dirty_clusters_count: @dirty_clusters_count,
+      dirty_queue_size: Clusters::DirtyClusterQueue.size,
+      dirty_cluster_ids: []
     }.merge(@stats)
   end
 
