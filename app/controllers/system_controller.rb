@@ -1,6 +1,5 @@
 # app/controllers/system_controller.rb
 class SystemController < ApplicationController
-  before_action :ensure_local_or_development!, only: [:run_tests]
   before_action :catch_up_btc_price_days_in_development, only: [:index]
 
   def index
@@ -37,6 +36,12 @@ class SystemController < ApplicationController
 
     @tables = build_tables_health
     @cluster_realtime = System::ClusterRealtimePipelineStatus.call
+
+    @recent_blocks =
+      BlockBufferModel
+        .order(height: :desc)
+        .limit(12)
+        .to_a
   end
 
   def normalize_system_status(value)
