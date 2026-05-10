@@ -28,30 +28,6 @@ if Sidekiq.server?
       "description" => "Build inflow/outflow V1"
     },
 
-    "inflow_outflow_details_build" => {
-      "cron" => "35 * * * *",
-      "class" => "InflowOutflowDetailsBuildJob",
-      "queue" => "p2_flows",
-      "active_job" => true,
-      "description" => "Build inflow/outflow V2 details"
-    },
-
-    "inflow_outflow_behavior_build" => {
-      "cron" => "45 * * * *",
-      "class" => "InflowOutflowBehaviorBuildJob",
-      "queue" => "p2_flows",
-      "active_job" => true,
-      "description" => "Build inflow/outflow V3 behavior"
-    },
-
-    "inflow_outflow_capital_behavior_build" => {
-      "cron" => "50 * * * *",
-      "class" => "InflowOutflowCapitalBehaviorBuildJob",
-      "queue" => "p2_flows",
-      "active_job" => true,
-      "description" => "Build inflow/outflow V4 capital behavior"
-    },
-
     "whale_scan" => {
       "cron" => "15 * * * *",
       "class" => "WhaleScanJob",
