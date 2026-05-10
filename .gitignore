@@ -38,4 +38,7 @@ venv-ledger/
 
 # --- Misc ---
 
-.DS_Storebitcoin_monitor.zip
+.DS_Store
+bitcoin_monitor.zip
+*.tar.gz
+*.zip

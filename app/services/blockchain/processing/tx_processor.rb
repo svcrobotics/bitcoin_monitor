@@ -5,10 +5,21 @@ module Blockchain
     class TxProcessor
       EVENTS = Blockchain::Events::EventEmitter
 
-      def initialize(logger: Rails.logger, prevout_resolver: nil, prevout_cache: nil)
+      def initialize(
+        logger: Rails.logger,
+        prevout_resolver: nil,
+        prevout_cache: nil,
+        output_writer: nil,
+        spent_output_writer: nil,
+        write_utxos: true
+      )
         @logger = logger
         @prevout_resolver =
           prevout_resolver || PrevoutResolver.new(cache: prevout_cache)
+
+        @output_writer = output_writer || Blockchain::Utxo::OutputWriter.new
+        @spent_output_writer = spent_output_writer || Blockchain::Utxo::SpentOutputWriter.new
+        @write_utxos = write_utxos
       end
 
       def call(tx, block_height:, block_hash:, block_time: nil, tx_index: nil)
@@ -27,8 +38,10 @@ module Blockchain
         real_inputs = inputs.reject { |i| i[:coinbase] }
 
         emit_input_events(normalized, inputs, context)
-        write_outputs(normalized, context)
-        write_spent_outputs(normalized, real_inputs, context)
+        if @write_utxos
+          write_outputs(normalized, context)
+          write_spent_outputs(normalized, real_inputs, context)
+        end
         emit_output_events(normalized, context)
         emit_edges(normalized, real_inputs, context)
 
@@ -97,11 +110,11 @@ module Blockchain
       end
 
       def write_outputs(tx, context)
-        Blockchain::Utxo::OutputWriter.new.call(tx, context)
+        @output_writer.call(tx, context)
       end
 
       def write_spent_outputs(tx, inputs, context)
-        Blockchain::Utxo::SpentOutputWriter.new.call(tx, inputs, context)
+        @spent_output_writer.call(tx, inputs, context)
       end
 
       def emit_edges(tx, inputs, context)
