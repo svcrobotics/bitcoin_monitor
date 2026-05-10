@@ -100,8 +100,5 @@ Rails.application.routes.draw do
   get "/cluster_signals", to: "cluster_signals#index"
   get "/cluster_signals/top", to: "cluster_signals#top", as: :top_cluster_signals
 
-  get "/system/tests", to: "system#tests", as: :system_tests
-  post "/system/tests/run", to: "system#run_tests", as: :run_system_tests
-
 
 end

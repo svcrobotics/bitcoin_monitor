@@ -4,6 +4,16 @@ class SystemController < ApplicationController
   before_action :catch_up_btc_price_days_in_development, only: [:index]
 
   def index
+    @blockchain_pipeline = System::BlockchainPipelineStatus.call
+    @layer1_ingestion = Blockchain::State::IngestionState.new.call
+    @layer1_processing = Blockchain::State::ProcessingState.new.call
+
+    @layer1_tables = {
+      block_buffers: BlockBufferModel.count,
+      tx_outputs: TxOutput.count,
+      events: Event.count,
+      edges: Edge.count
+    }
     @realtime = System::RealtimeSnapshotBuilder.call
     @cluster_pipeline_status = System::ClusterPipelineStatus.call
     @sidekiq_status = System::SidekiqStatus.call
@@ -17,6 +27,7 @@ class SystemController < ApplicationController
     @anomalies = @snapshot[:anomalies]
     @job_health = @snapshot[:jobs]
     @recovery  = @snapshot[:recovery]
+    @recovery_snapshot = System::RecoverySnapshotBuilder.call
 
     @checks = {
       bitcoind: bitcoind_check,
@@ -43,38 +54,22 @@ class SystemController < ApplicationController
     end
   end
 
-  def tests
-    @qa_groups  = SystemTestStatus.groups
-    @qa_summary = SystemTestStatus.summary
-    @qa_stats   = SystemTestStatus.new.global_stats
-
-    log_path = Rails.root.join("tmp/qa/cluster_v3_last_run.log")
-    @last_test_output = File.exist?(log_path) ? File.read(log_path).truncate(5000) : nil
-  end
-
-  def run_tests
-    result = SystemTestRunner.call
-
-    if result.ok?
-      redirect_to system_tests_path, notice: "Tests Cluster V3 exécutés avec succès."
-    else
-      redirect_to system_tests_path, alert: "Échec de l’exécution des tests (code #{result.status}). Consulte tmp/qa/cluster_v3_last_run.log."
-    end
-  end
-
   def recovery
+    @blockchain_pipeline = System::BlockchainPipelineStatus.call
     @recovery_state = System::RecoveryStateBuilder.call
     @recovery_snapshot = System::RecoverySnapshotBuilder.call
+
+    @recovery_snapshot[:layer1_ingestion] = Blockchain::State::IngestionState.new.call
+    @recovery_snapshot[:layer1_processing] = Blockchain::State::ProcessingState.new.call
+    @recovery_snapshot[:layer1_tables] = {
+      block_buffers: BlockBufferModel.count,
+      tx_outputs: TxOutput.count,
+      events: Event.count,
+      edges: Edge.count
+    }
   end
 
   private
-
-  def ensure_local_or_development!
-    return if Rails.env.development?
-    return if request.local?
-
-    head :forbidden
-  end
 
   def fmt_duration_ms(value)
     return "—" if value.blank?
@@ -579,6 +574,15 @@ class SystemController < ApplicationController
     BtcPriceDaysCatchup.call(target_day: target_day)
   rescue => e
     Rails.logger.warn("[btc_price_days:catchup] #{e.class}: #{e.message}")
+  end
+
+  def build_layer1_tables
+    {
+      block_buffers: BlockBufferModel.count,
+      tx_outputs: TxOutput.count,
+      events: Event.count,
+      edges: Edge.count
+    }
   end
 
 end
