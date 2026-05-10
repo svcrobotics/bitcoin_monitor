@@ -7,78 +7,21 @@
 #
 # Objectif
 # --------
-# Construire / enrichir le set `exchange_addresses` directement depuis
-# la blockchain Bitcoin, sans dépendre de WhaleAlert.
+# Construire / enrichir le set `exchange_addresses` depuis le Layer 1.
 #
-# Modes de fonctionnement
-# -----------------------
-# 1. Mode incrémental (par défaut)
-#    - reprend depuis ScannerCursor
-#    - traite uniquement les nouveaux blocs
-#    - met à jour le curseur à la fin
+# Source
+# ------
+# Ce builder consomme maintenant :
 #
-# 2. Mode manuel / backfill
-#    - si blocks_back est fourni explicitement
-#    - ou si days_back est fourni explicitement
-#    - permet un scan volontaire d'une fenêtre
-#    - ne met pas à jour le curseur
+#   tx_outputs
 #
-# Philosophie V1
-# --------------
-# Cette V1 reste volontairement simple :
+# Il ne rescane plus Bitcoin Core via RPC.
 #
-# - on scanne les blocs via RPC ;
-# - on analyse les transactions de chaque bloc ;
-# - on apprend principalement depuis les OUTPUTS ;
-# - on agrège les adresses observées ;
-# - on filtre le bruit avant d'écrire en base ;
-# - on met à jour `exchange_addresses`.
-#
-# Pourquoi apprendre depuis les OUTPUTS ?
-# --------------------------------------
-# Pour une première version "builder depuis la blockchain", apprendre depuis
-# les outputs est plus robuste et plus simple que remonter systématiquement
-# les inputs historiques :
-#
-# - on évite une dépendance forte à getrawtransaction sur les tx précédentes ;
-# - on reste compatible avec un fonctionnement simple en environnement pruned ;
-# - les données nécessaires sont disponibles directement dans `getblock(..., 2)`.
-#
-# Ce que produit ce builder
-# -------------------------
-# Une table `exchange_addresses` contenant des adresses candidates
-# "exchange-like", avec :
-#
-# - address
-# - occurrences
-# - confidence
-# - first_seen_at
-# - last_seen_at
-# - source
-#
-# Important
-# ---------
-# Ce builder NE cherche PAS à identifier formellement un exchange précis.
-# Il produit seulement un set d'adresses candidates à fort signal relatif.
-#
-# Limitations assumées
-# --------------------
-# - faux positifs possibles ;
-# - faux négatifs possibles ;
-# - heuristiques simples ;
-# - pas de clustering ;
-# - pas de distinction hot wallet / cold wallet.
-#
-# Exécution
-# ---------
-#   ExchangeAddressBuilder.call
-#   ExchangeAddressBuilder.call(days_back: 7)
-#   ExchangeAddressBuilder.call(blocks_back: 100)
-#   ExchangeAddressBuilder.call(blocks_back: 10, reset: true)
-#
-# Source écrite dans la table
-# ---------------------------
-#   blockchain_outputs_v1
+# Rôle architectural
+# ------------------
+# Layer 1 extrait les outputs bruts.
+# ExchangeAddressBuilder transforme ces outputs en adresses candidates
+# "exchange-like".
 #
 require "bigdecimal"
 
@@ -121,7 +64,7 @@ class ExchangeAddressBuilder
   LOG_EVERY_BLOCKS = Integer(ENV.fetch("EXCHANGE_ADDR_LOG_EVERY_BLOCKS", "25")) rescue 25
   FLUSH_EVERY_ADDRESSES = Integer(ENV.fetch("EXCHANGE_ADDR_FLUSH_EVERY_ADDRESSES", "20000")) rescue 20_000
 
-  SOURCE_NAME = "blockchain_outputs_v1"
+  SOURCE_NAME = "layer1_outputs_v1"
 
   def self.call(days_back: DEFAULT_DAYS_BACK, blocks_back: DEFAULT_BLOCKS_BACK, reset: false)
     new(days_back: days_back, blocks_back: blocks_back, reset: reset).call
@@ -131,14 +74,6 @@ class ExchangeAddressBuilder
     @days_back = days_back.nil? ? DEFAULT_DAYS_BACK : days_back.to_i
     @blocks_back = blocks_back.present? ? blocks_back.to_i : nil
     @reset = !!reset
-
-    @rpc = BitcoinRpc.new(wallet: nil) rescue BitcoinRpc.new
-
-    @candidate_extractor = ExchangeLike::OutputCandidateExtractor.new(
-      rpc: @rpc,
-      min_output_btc: MIN_OUTPUT_BTC,
-      max_output_btc: MAX_OUTPUT_BTC
-    )
 
     @aggregator = ExchangeLike::AddressAggregator.new
 
@@ -159,12 +94,12 @@ class ExchangeAddressBuilder
 
     reset_exchange_addresses! if @reset
 
-    best_height = @rpc.getblockcount.to_i
+    best_height = layer1_best_height
     range = resolve_scan_range(best_height)
 
     if range.empty?
-      puts "[exchange_addr_builder] nothing to scan "\
-           "mode=#{range.mode} start_height=#{range.start_height.inspect} "\
+      puts "[exchange_addr_builder] nothing to scan " \
+           "source=layer1 mode=#{range.mode} start_height=#{range.start_height.inspect} " \
            "end_height=#{range.end_height.inspect} best_height=#{range.best_height}"
       return true
     end
@@ -198,12 +133,19 @@ class ExchangeAddressBuilder
       filtered_addresses: 0,
       flushes: 0,
       upsert_rows: 0,
-      rpc_errors: 0
+      missing_layer1_blocks: 0
     }
   end
 
   def monotonic_now
     Process.clock_gettime(Process::CLOCK_MONOTONIC)
+  end
+
+  def layer1_best_height
+    BlockBufferModel
+      .where(status: "processed")
+      .maximum(:height)
+      .to_i
   end
 
   def resolve_scan_range(best_height)
@@ -223,12 +165,14 @@ class ExchangeAddressBuilder
   end
 
   def update_cursor!(height)
-    blockhash = @rpc.getblockhash(height)
-
     builder_cursor.update!(
       last_blockheight: height,
-      last_blockhash: blockhash
+      last_blockhash: block_hash_for_height(height)
     )
+  end
+
+  def block_hash_for_height(height)
+    BlockBufferModel.where(height: height.to_i).pick(:block_hash)
   end
 
   def scan_range(range)
@@ -238,38 +182,44 @@ class ExchangeAddressBuilder
   end
 
   def scan_height(height, range)
-    blockhash = @rpc.getblockhash(height)
-    block = @rpc.getblock(blockhash, 2)
+    outputs = TxOutput.where(block_height: height)
+
+    if outputs.none?
+      @run_stats[:missing_layer1_blocks] += 1
+      log_missing_layer1_block(height)
+      return
+    end
 
     @run_stats[:scanned_blocks] += 1
-    log_progress(height, range.start_height, range.end_height, block)
+    @run_stats[:scanned_vouts] += outputs.count
+    @run_stats[:scanned_txs] += outputs.distinct.count(:txid)
 
-    process_block(block)
+    process_layer1_outputs(outputs)
+    log_progress(height, range.start_height, range.end_height)
+
     flush_if_needed!
-  rescue BitcoinRpc::Error => e
-    @run_stats[:rpc_errors] += 1
-    puts "[exchange_addr_builder] skip height=#{height} rpc_error=#{e.message}"
   end
 
-  def process_block(block)
-    result = @candidate_extractor.call(block)
-
-    merge_extractor_stats!(result[:stats])
-
-    result[:candidates].each do |candidate|
-      @aggregator.learn(candidate)
+  def process_layer1_outputs(outputs)
+    outputs
+      .where(amount_btc: MIN_OUTPUT_BTC..MAX_OUTPUT_BTC)
+      .where.not(address: [nil, ""])
+      .find_each(batch_size: 1_000) do |output|
+      learn_output(output)
     end
   end
 
-  def merge_extractor_stats!(stats)
-    @run_stats[:scanned_txs] += stats[:scanned_txs].to_i
-    @run_stats[:scanned_vouts] += stats[:scanned_vouts].to_i
-    @run_stats[:learned_outputs] += stats[:learned_outputs].to_i
-    @run_stats[:skipped_coinbase_txs] += stats[:skipped_coinbase_txs].to_i
-    @run_stats[:skipped_nulldata_outputs] += stats[:skipped_nulldata_outputs].to_i
-    @run_stats[:skipped_small_outputs] += stats[:skipped_small_outputs].to_i
-    @run_stats[:skipped_large_outputs] += stats[:skipped_large_outputs].to_i
-    @run_stats[:skipped_blank_addresses] += stats[:skipped_blank_addresses].to_i
+  def learn_output(output)
+    @aggregator.learn(
+      ExchangeLike::OutputCandidateExtractor::Candidate.new(
+        address: output.address,
+        txid: output.txid,
+        value_btc: BigDecimal(output.amount_btc.to_s),
+        seen_at: output.block_time || Time.current
+      )
+    )
+
+    @run_stats[:learned_outputs] += 1
   end
 
   def flush_if_needed!
@@ -302,8 +252,9 @@ class ExchangeAddressBuilder
 
     @run_stats[:flushes] += 1
 
-    puts "[exchange_addr_builder] flush "\
-         "flush_no=#{@run_stats[:flushes]} "\
+    puts "[exchange_addr_builder] flush " \
+         "source=layer1 " \
+         "flush_no=#{@run_stats[:flushes]} " \
          "stats_size=#{current_size} kept=#{kept_rows.size} filtered=#{filtered}"
 
     @aggregator.clear
@@ -326,46 +277,52 @@ class ExchangeAddressBuilder
   end
 
   def log_start(range)
-    puts "[exchange_addr_builder] start "\
-         "mode=#{range.mode} best_height=#{range.best_height} "\
-         "start_height=#{range.start_height} end_height=#{range.end_height} "\
-         "cursor_last_blockheight=#{range.cursor_last_blockheight.inspect} "\
-         "blocks_count=#{range.blocks_count} "\
-         "reset=#{@reset} flush_every_addresses=#{FLUSH_EVERY_ADDRESSES} "\
-         "min_output_btc=#{MIN_OUTPUT_BTC.to_s('F')} max_output_btc=#{MAX_OUTPUT_BTC.to_s('F')} "\
-         "min_occ_to_keep=#{MIN_OCCURRENCES_TO_KEEP} "\
-         "min_tx_to_keep=#{MIN_TX_COUNT_TO_KEEP} "\
+    puts "[exchange_addr_builder] start " \
+         "source=layer1 " \
+         "mode=#{range.mode} best_height=#{range.best_height} " \
+         "start_height=#{range.start_height} end_height=#{range.end_height} " \
+         "cursor_last_blockheight=#{range.cursor_last_blockheight.inspect} " \
+         "blocks_count=#{range.blocks_count} " \
+         "reset=#{@reset} flush_every_addresses=#{FLUSH_EVERY_ADDRESSES} " \
+         "min_output_btc=#{MIN_OUTPUT_BTC.to_s('F')} max_output_btc=#{MAX_OUTPUT_BTC.to_s('F')} " \
+         "min_occ_to_keep=#{MIN_OCCURRENCES_TO_KEEP} " \
+         "min_tx_to_keep=#{MIN_TX_COUNT_TO_KEEP} " \
          "min_active_days_to_keep=#{MIN_ACTIVE_DAYS_TO_KEEP}"
   end
 
   def log_done(range, started_at)
     duration_s = monotonic_now - started_at
 
-    puts "[exchange_addr_builder] done "\
-         "mode=#{range.mode} "\
-         "duration_s=#{duration_s.round(2)} "\
-         "blocks_count=#{range.blocks_count} "\
-         "aggregated_addresses_in_memory=#{@aggregator.size} "\
-         "kept_addresses=#{@run_stats[:kept_addresses]} "\
-         "filtered_addresses=#{@run_stats[:filtered_addresses]} "\
-         "flushes=#{@run_stats[:flushes]} "\
-         "upsert_rows=#{@run_stats[:upsert_rows]} "\
-         "rpc_errors=#{@run_stats[:rpc_errors]} "\
-         "scanned_blocks=#{@run_stats[:scanned_blocks]} "\
-         "scanned_txs=#{@run_stats[:scanned_txs]} "\
-         "scanned_vouts=#{@run_stats[:scanned_vouts]} "\
-         "learned_outputs=#{@run_stats[:learned_outputs]} "\
+    puts "[exchange_addr_builder] done " \
+         "source=layer1 " \
+         "mode=#{range.mode} " \
+         "duration_s=#{duration_s.round(2)} " \
+         "blocks_count=#{range.blocks_count} " \
+         "aggregated_addresses_in_memory=#{@aggregator.size} " \
+         "kept_addresses=#{@run_stats[:kept_addresses]} " \
+         "filtered_addresses=#{@run_stats[:filtered_addresses]} " \
+         "flushes=#{@run_stats[:flushes]} " \
+         "upsert_rows=#{@run_stats[:upsert_rows]} " \
+         "missing_layer1_blocks=#{@run_stats[:missing_layer1_blocks]} " \
+         "scanned_blocks=#{@run_stats[:scanned_blocks]} " \
+         "scanned_txs=#{@run_stats[:scanned_txs]} " \
+         "scanned_vouts=#{@run_stats[:scanned_vouts]} " \
+         "learned_outputs=#{@run_stats[:learned_outputs]} " \
          "exchange_addresses_total=#{ExchangeAddress.count}"
   end
 
-  def log_progress(height, start_height, end_height, block)
+  def log_progress(height, start_height, end_height)
     return unless (@run_stats[:scanned_blocks] % LOG_EVERY_BLOCKS).zero?
 
-    tx_count = Array(block["tx"]).size
-
-    puts "[exchange_addr_builder] progress "\
-         "height=#{height} scanned_blocks=#{@run_stats[:scanned_blocks]} "\
-         "range=#{start_height}..#{end_height} tx_count=#{tx_count} "\
+    puts "[exchange_addr_builder] progress " \
+         "source=layer1 " \
+         "height=#{height} scanned_blocks=#{@run_stats[:scanned_blocks]} " \
+         "range=#{start_height}..#{end_height} " \
          "aggregated_addresses=#{@aggregator.size} learned_outputs=#{@run_stats[:learned_outputs]}"
+  end
+
+  def log_missing_layer1_block(height)
+    puts "[exchange_addr_builder] skip " \
+         "source=layer1 height=#{height} reason=no_tx_outputs"
   end
 end
