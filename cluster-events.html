@@ -3,7 +3,7 @@
     <head>
         <!-- Book generated using mdBook -->
         <meta charset="UTF-8">
-        <title>Whale - Construire une application Rails professionnelle</title>
+        <title>Cluster Events - Construire une application Rails professionnelle</title>
 
 
         <!-- Custom HTML head -->
@@ -174,465 +174,402 @@
 
                 <div id="mdbook-content" class="content">
                     <main>
-                        <h1 id="whale-scan--le-moment-où-bitcoin-monitor-a-commencé-à-surveiller-les-gros-mouvements-du-réseau"><a class="header" href="#whale-scan--le-moment-où-bitcoin-monitor-a-commencé-à-surveiller-les-gros-mouvements-du-réseau">Whale Scan : le moment où Bitcoin Monitor a commencé à surveiller les gros mouvements du réseau</a></h1>
+                        <h1 id="chapitre--cluster-events-temps-réel-et-clickhouse"><a class="header" href="#chapitre--cluster-events-temps-réel-et-clickhouse">Chapitre — Cluster Events, temps réel et ClickHouse</a></h1>
 <blockquote>
-<p><em>Au départ, Bitcoin Monitor observait surtout le marché.</em></p>
-<p>Les prix.</p>
-<p>Les variations.</p>
-<p>Les indicateurs classiques.</p>
-<p>Puis une question est apparue :</p>
-<blockquote>
-<p>que se passe-t-il réellement sur la blockchain lorsqu’une énorme quantité de Bitcoin bouge ?</p>
+<p>« À partir du moment où un système produit des événements, il cesse d’être une simple base de données. Il devient un organisme vivant. »</p>
 </blockquote>
-<p>Ce chapitre raconte comment un simple besoin de détection de “grosses transactions” a progressivement conduit à :</p>
+<h2 id="introduction"><a class="header" href="#introduction">Introduction</a></h2>
+<p>Le module cluster de Bitcoin Monitor a commencé de manière relativement simple.</p>
+<p>L’objectif initial était surtout de :</p>
 <ul>
-<li>des heuristiques comportementales,</li>
-<li>des classifications probabilistes,</li>
-<li>des scanners blockchain massifs,</li>
-<li>des problèmes de performance,</li>
-<li>des datasets historiques,</li>
-<li>et une nouvelle manière d’interpréter le marché.</li>
+<li>scanner les transactions Bitcoin,</li>
+<li>relier les adresses,</li>
+<li>construire des clusters,</li>
+<li>détecter des relations entre entités.</li>
 </ul>
-</blockquote>
-<hr>
-<h2 id="1-le-problème-initial"><a class="header" href="#1-le-problème-initial">1. Le problème initial</a></h2>
-<p>Au début, Bitcoin Monitor savait déjà :</p>
+<p>À cette époque, le système fonctionnait principalement comme un moteur d’analyse statique.</p>
+<p>On construisait :</p>
 <ul>
-<li>lire des blocs,</li>
-<li>récupérer des transactions,</li>
-<li>afficher des données marché.</li>
+<li>des profils,</li>
+<li>des statistiques,</li>
+<li>des agrégats,</li>
+<li>des graphes.</li>
 </ul>
-<p>Mais quelque chose manquait.</p>
-<p>Le système observait :</p>
-<pre><code class="language-text id=&quot;x8srlq&quot;">le prix
-</code></pre>
-<p>sans réellement observer :</p>
-<pre><code class="language-text id=&quot;8h1s9o&quot;">les acteurs qui déplacent le capital.
-</code></pre>
-<p>Et dans Bitcoin :
-les très gros mouvements sont rarement anodins.</p>
-<hr>
-<h2 id="2-le-mot-whale"><a class="header" href="#2-le-mot-whale">2. Le mot “whale”</a></h2>
-<p>Dans l’écosystème crypto, un terme revient constamment :</p>
-<pre><code class="language-text id=&quot;cru79m&quot;">whale
-</code></pre>
-<p>Une whale représente généralement :</p>
-<ul>
-<li>une entité,</li>
-<li>un fonds,</li>
-<li>un exchange,</li>
-<li>une institution,</li>
-<li>ou un très gros détenteur.</li>
-</ul>
-<p>L’idée semblait simple :</p>
-<blockquote>
-<p>détecter les transactions énormes.</p>
-</blockquote>
-<p>Mais très vite, la réalité est devenue beaucoup plus complexe.</p>
-<hr>
-<h2 id="3-le-premier-scanner"><a class="header" href="#3-le-premier-scanner">3. Le premier scanner</a></h2>
-<p>La première version du système faisait quelque chose de relativement basique.</p>
-<p>Le scanner :</p>
-<ul>
-<li>lisait les blocs récents,</li>
-<li>parcourait les transactions,</li>
-<li>calculait les montants déplacés,</li>
-<li>puis déclenchait des alertes.</li>
-</ul>
-<p>Le pipeline ressemblait à ceci :</p>
-<pre><code class="language-text id=&quot;efhl8r&quot;">Bitcoin Core RPC
-      ↓
-scan blocks
-      ↓
-parse transactions
-      ↓
-calculate outputs
-      ↓
-threshold detection
-      ↓
-alert
-</code></pre>
-<p>Le seuil initial ressemblait à :</p>
-<pre><code class="language-ruby id=&quot;prhny5&quot;">MIN_BTC = 100
-</code></pre>
-<p>Si une transaction dépassait :</p>
-<pre><code class="language-text id=&quot;wyov6z&quot;">100 BTC
-</code></pre>
-<p>elle devenait intéressante.</p>
-<hr>
-<h2 id="4-le-premier-faux-sentiment-de-simplicité"><a class="header" href="#4-le-premier-faux-sentiment-de-simplicité">4. Le premier faux sentiment de simplicité</a></h2>
-<p>Au départ :
-cela semblait suffisant.</p>
-<p>Mais rapidement :
-un problème important est apparu.</p>
-<p>Une transaction énorme ne signifie pas forcément :</p>
-<ul>
-<li>achat,</li>
-<li>vente,</li>
-<li>panique,</li>
-<li>accumulation,</li>
-<li>ou mouvement institutionnel.</li>
-</ul>
-<p>Parfois :
-c’est juste un reshuffle interne.</p>
-<hr>
-<h2 id="5-les-premières-classifications-apparaissent"><a class="header" href="#5-les-premières-classifications-apparaissent">5. Les premières classifications apparaissent</a></h2>
-<p>Le système a alors commencé à chercher :</p>
-<blockquote>
-<p>des comportements.</p>
-</blockquote>
-<p>Pas seulement :</p>
-<pre><code class="language-text id=&quot;h7mdgc&quot;">des montants.
-</code></pre>
-<p>Les premières heuristiques sont apparues.</p>
-<p>Par exemple :</p>
-<pre><code class="language-ruby id=&quot;7tb7an&quot;">outputs_nonzero_count &gt;= 80
-</code></pre>
-<p>→ probable batching.</p>
-<p>Ou :</p>
-<pre><code class="language-ruby id=&quot;9dskso&quot;">largest_output_ratio &gt;= 0.95
-</code></pre>
-<p>→ probable transfert unique.</p>
-<hr>
-<h2 id="6-whale-scan-cesse-dêtre-un-simple-détecteur"><a class="header" href="#6-whale-scan-cesse-dêtre-un-simple-détecteur">6. Whale Scan cesse d’être un simple détecteur</a></h2>
-<p>C’est un moment important.</p>
-<p>Le module ne cherchait plus seulement :</p>
-<pre><code class="language-text id=&quot;8av9sm&quot;">de grosses transactions.
-</code></pre>
-<p>Il cherchait désormais :</p>
-<pre><code class="language-text id=&quot;2d7gzc&quot;">des comportements blockchain.
-</code></pre>
-<p>Et cela change complètement la nature du système.</p>
-<hr>
-<h2 id="7-les-catégories-apparaissent"><a class="header" href="#7-les-catégories-apparaissent">7. Les catégories apparaissent</a></h2>
-<p>Progressivement, plusieurs types sont apparus :</p>
-<pre><code class="language-ruby id=&quot;4n2k9o&quot;">consolidation
-distribution
-batching
-single_destination
-other
-</code></pre>
-<p>Ces catégories semblent simples.</p>
-<p>Mais elles représentent en réalité :</p>
-<blockquote>
-<p>une tentative d’interprétation probabiliste de comportements réels.</p>
-</blockquote>
-<hr>
-<h2 id="8-le-problème-des-exchanges"><a class="header" href="#8-le-problème-des-exchanges">8. Le problème des exchanges</a></h2>
-<p>Très vite, une autre difficulté est apparue.</p>
-<p>Certaines transactions ressemblaient énormément à :</p>
-<ul>
-<li>des dépôts exchange,</li>
-<li>des retraits,</li>
-<li>des reshuffles internes,</li>
-<li>des cold wallets.</li>
-</ul>
-<p>Mais Bitcoin ne fournit jamais :</p>
-<pre><code class="language-text id=&quot;79a4ta&quot;">type = exchange
-</code></pre>
-<p>Tout devait être inféré.</p>
-<hr>
-<h2 id="9-les-scores-apparaissent"><a class="header" href="#9-les-scores-apparaissent">9. Les scores apparaissent</a></h2>
-<p>Le système a commencé à produire :</p>
-<ul>
-<li>des scores,</li>
-<li>des probabilités,</li>
-<li>des hints.</li>
-</ul>
-<p>Par exemple :</p>
-<pre><code class="language-ruby id=&quot;3g9e4y&quot;">exchange_likelihood
-exchange_hint
-score
-</code></pre>
-<p>Et là, un changement important est apparu :</p>
-<blockquote>
-<p>Bitcoin Monitor cessait progressivement d’être déterministe.</p>
-</blockquote>
-<hr>
-<h2 id="10-le-système-devient-probabiliste"><a class="header" href="#10-le-système-devient-probabiliste">10. Le système devient probabiliste</a></h2>
-<p>C’est une évolution très importante dans une application d’analyse.</p>
-<p>Avant :</p>
-<pre><code class="language-text id=&quot;gdn5ff&quot;">true / false
-</code></pre>
-<p>Après :</p>
-<pre><code class="language-text id=&quot;hxtm4v&quot;">probablement
-possiblement
-fortement suspect
-</code></pre>
-<p>Le système commençait à accepter :</p>
-<blockquote>
-<p>l’incertitude.</p>
-</blockquote>
-<hr>
-<h2 id="11-les-datasets-commencent-à-exploser"><a class="header" href="#11-les-datasets-commencent-à-exploser">11. Les datasets commencent à exploser</a></h2>
-<p>Au départ :
-quelques alertes suffisaient.</p>
-<p>Mais progressivement :</p>
-<ul>
-<li>les scans deviennent continus,</li>
-<li>les blocs s’accumulent,</li>
-<li>les transactions grossissent,</li>
-<li>les historiques deviennent énormes.</li>
-</ul>
-<p>Le système devait maintenant stocker :</p>
-<ul>
-<li>les scores,</li>
-<li>les catégories,</li>
-<li>les timestamps,</li>
-<li>les comportements,</li>
-<li>les métadonnées.</li>
-</ul>
-<hr>
-<h2 id="12-la-table-whalealert-devient-centrale"><a class="header" href="#12-la-table-whalealert-devient-centrale">12. La table WhaleAlert devient centrale</a></h2>
-<p>Une nouvelle structure devient progressivement critique :</p>
-<pre><code class="language-ruby id=&quot;t6kgnt&quot;">WhaleAlert
-</code></pre>
-<p>Avec des colonnes comme :</p>
-<ul>
-<li>txid,</li>
-<li>block_height,</li>
-<li>total_out_btc,</li>
-<li>outputs_nonzero_count,</li>
-<li>largest_output_ratio,</li>
-<li>exchange_likelihood,</li>
-<li>alert_type,</li>
-<li>meta.</li>
-</ul>
-<p>Le module cessait progressivement d’être :</p>
-<pre><code class="language-text id=&quot;a3nny7&quot;">un scanner temporaire.
-</code></pre>
-<p>Il devenait :</p>
-<pre><code class="language-text id=&quot;5fcf9g&quot;">une base comportementale historique.
-</code></pre>
-<hr>
-<h2 id="13-les-performances-deviennent-un-sujet"><a class="header" href="#13-les-performances-deviennent-un-sujet">13. Les performances deviennent un sujet</a></h2>
-<p>Puis un autre problème est apparu.</p>
-<p>Le scanner devait maintenant :</p>
-<ul>
-<li>lire énormément de blocs,</li>
-<li>parser énormément de transactions,</li>
-<li>calculer énormément d’heuristiques.</li>
-</ul>
-<p>Et surtout :</p>
-<pre><code class="language-text id=&quot;u9msaq&quot;">faire cela continuellement.
-</code></pre>
-<p>Les premiers symptômes sont apparus :</p>
-<ul>
-<li>scans longs,</li>
-<li>CPU élevé,</li>
-<li>jobs qui dérivent,</li>
-<li>requêtes SQL lourdes.</li>
-</ul>
-<hr>
-<h2 id="14-le-mode-pruned-change-les-règles"><a class="header" href="#14-le-mode-pruned-change-les-règles">14. Le mode pruned change les règles</a></h2>
-<p>Bitcoin Monitor utilisait un nœud Bitcoin Core en mode pruned.</p>
-<p>Et cela change énormément de choses.</p>
-<p>Pourquoi ?</p>
-<p>Parce que :</p>
-<ul>
-<li>certaines données anciennes disparaissent,</li>
-<li>certains prevouts ne sont plus accessibles,</li>
-<li>certaines stratégies deviennent impossibles.</li>
-</ul>
-<p>Le scanner devait donc devenir :</p>
-<blockquote>
-<p>pruned-safe.</p>
-</blockquote>
-<hr>
-<h2 id="15-les-blocs-deviennent-des-ressources-coûteuses"><a class="header" href="#15-les-blocs-deviennent-des-ressources-coûteuses">15. Les blocs deviennent des ressources coûteuses</a></h2>
-<p>Le système a commencé à comprendre quelque chose d’important :</p>
-<blockquote>
-<p>chaque appel RPC a un coût.</p>
-</blockquote>
-<p>Lire :</p>
-<ul>
-<li>des blocs,</li>
-<li>des transactions,</li>
-<li>des prevouts,</li>
-<li>des scripts,</li>
-<li>en boucle,
-peut rapidement devenir très cher.</li>
-</ul>
-<hr>
-<h2 id="16-le-scanner-devient-incrémental"><a class="header" href="#16-le-scanner-devient-incrémental">16. Le scanner devient incrémental</a></h2>
-<p>Au début :
-le système rescannait énormément.</p>
-<p>Mais cela devenait impossible.</p>
-<p>Bitcoin Monitor a alors introduit :</p>
-<ul>
-<li>des curseurs,</li>
-<li>des last scanned blocks,</li>
-<li>des scans incrémentaux,</li>
-<li>des safety cutoffs,</li>
-<li>des confirmations minimales.</li>
-</ul>
-<p>Le scanner devenait :</p>
-<pre><code class="language-text id=&quot;5gx9k2&quot;">un pipeline vivant.
-</code></pre>
-<hr>
-<h2 id="17-le-système-commence-à-apprendre-des-comportements"><a class="header" href="#17-le-système-commence-à-apprendre-des-comportements">17. Le système commence à apprendre des comportements</a></h2>
-<p>Puis un autre déclic est apparu.</p>
-<p>Whale Scan pouvait servir à :</p>
-<ul>
-<li>enrichir Exchange Like,</li>
-<li>alimenter Inflow / Outflow,</li>
-<li>détecter des signaux,</li>
-<li>apprendre des comportements exchange.</li>
-</ul>
-<p>Le module cessait d’être isolé.</p>
-<hr>
-<h2 id="18-whale-scan-devient-une-fondation"><a class="header" href="#18-whale-scan-devient-une-fondation">18. Whale Scan devient une fondation</a></h2>
-<p>Progressivement :</p>
-<pre><code class="language-text id=&quot;crltc6&quot;">Whale Scan
-     ↓
-Exchange Like
-     ↓
-Observed UTXO
-     ↓
-Inflow / Outflow
-     ↓
-Market interpretation
-</code></pre>
-<p>Le système devenait :</p>
-<blockquote>
-<p>interconnecté.</p>
-</blockquote>
-<hr>
-<h2 id="19-le-vrai-problème-nétait-plus-la-détection"><a class="header" href="#19-le-vrai-problème-nétait-plus-la-détection">19. Le vrai problème n’était plus la détection</a></h2>
-<p>Le vrai problème devenait :</p>
-<blockquote>
-<p>comment interpréter correctement les mouvements ?</p>
-</blockquote>
-<p>Parce qu’un énorme transfert peut représenter :</p>
-<ul>
-<li>une vente,</li>
-<li>une accumulation,</li>
-<li>une consolidation,</li>
-<li>un transfert interne,</li>
-<li>un mouvement OTC,</li>
-<li>un simple déplacement de cold wallet.</li>
-</ul>
-<p>Le contexte devenait plus important que :</p>
-<pre><code class="language-text id=&quot;c6of7m&quot;">la taille brute.
-</code></pre>
-<hr>
-<h2 id="20-les-scanners-deviennent-des-systèmes"><a class="header" href="#20-les-scanners-deviennent-des-systèmes">20. Les scanners deviennent des systèmes</a></h2>
-<p>À ce stade :
-Whale Scan n’était plus :</p>
-<pre><code class="language-text id=&quot;mjtyrm&quot;">un job cron.
-</code></pre>
-<p>Il devenait :</p>
-<ul>
-<li>un pipeline,</li>
-<li>un dataset,</li>
-<li>un moteur comportemental,</li>
-<li>une source transverse d’intelligence.</li>
-</ul>
-<p>Et cela change complètement la manière de concevoir l’architecture.</p>
-<hr>
-<h2 id="21-les-futurs-problèmes-deviennent-visibles"><a class="header" href="#21-les-futurs-problèmes-deviennent-visibles">21. Les futurs problèmes deviennent visibles</a></h2>
-<p>À ce moment-là :
-plusieurs tensions futures apparaissaient déjà :</p>
-<ul>
-<li>Redis,</li>
-<li>batch processing,</li>
-<li>parallélisation,</li>
-<li>queues,</li>
-<li>observabilité,</li>
-<li>backfills,</li>
-<li>stockage massif.</li>
-</ul>
-<p>Mais cette fois :</p>
-<blockquote>
-<p>les problèmes étaient compris.</p>
-</blockquote>
-<hr>
-<h2 id="22-le-système-commence-à-lire-le-marché-autrement"><a class="header" href="#22-le-système-commence-à-lire-le-marché-autrement">22. Le système commence à lire le marché autrement</a></h2>
-<p>Avant Whale Scan :
-Bitcoin Monitor observait surtout :</p>
-<ul>
-<li>le prix,</li>
-<li>les indicateurs,</li>
-<li>les chandeliers.</li>
-</ul>
-<p>Après Whale Scan :
-le système commençait à observer :</p>
-<ul>
-<li>les comportements,</li>
-<li>les acteurs,</li>
-<li>les flux massifs,</li>
-<li>les structures du marché.</li>
-</ul>
+<p>Mais progressivement, un problème est apparu.</p>
+<p>Le système savait stocker des données.</p>
+<p>Mais il ne savait pas raconter ce qui se passait.</p>
 <p>Et cette différence est énorme.</p>
 <hr>
-<h2 id="23-les-leçons-apprises"><a class="header" href="#23-les-leçons-apprises">23. Les leçons apprises</a></h2>
-<h3 id="les-gros-montants-seuls-ne-suffisent-pas"><a class="header" href="#les-gros-montants-seuls-ne-suffisent-pas">Les gros montants seuls ne suffisent pas</a></h3>
-<p>Le contexte comportemental est essentiel.</p>
+<h2 id="le-problème-des-données-statiques"><a class="header" href="#le-problème-des-données-statiques">Le problème des données statiques</a></h2>
+<p>Au début, les clusters étaient essentiellement représentés par :</p>
+<ul>
+<li>Cluster,</li>
+<li>ClusterProfile,</li>
+<li>ClusterMetric,</li>
+<li>ClusterSignal.</li>
+</ul>
+<p>Le système pouvait répondre à des questions comme :</p>
+<ul>
+<li>combien d’adresses possède un cluster,</li>
+<li>combien de transactions il a effectué,</li>
+<li>quel volume il a transféré,</li>
+<li>quand il a été vu pour la première fois.</li>
+</ul>
+<p>Mais une application blockchain analytique ne peut pas rester purement statique.</p>
+<p>Car la blockchain est un flux vivant.</p>
+<p>À chaque bloc :</p>
+<ul>
+<li>des clusters fusionnent,</li>
+<li>des whales deviennent actives,</li>
+<li>des flux massifs apparaissent,</li>
+<li>des comportements changent,</li>
+<li>des entités se réveillent après des mois d’inactivité.</li>
+</ul>
+<p>Et à ce moment-là, quelque chose devient évident :</p>
+<p>les utilisateurs ne veulent pas seulement consulter des données.</p>
+<p>Ils veulent voir des événements.</p>
 <hr>
-<h3 id="les-heuristiques-deviennent-inévitables"><a class="header" href="#les-heuristiques-deviennent-inévitables">Les heuristiques deviennent inévitables</a></h3>
-<p>Bitcoin ne fournit presque jamais :</p>
-<pre><code class="language-text id=&quot;c8wz9t&quot;">la vérité métier.
+<h2 id="le-moment-où-tout-change"><a class="header" href="#le-moment-où-tout-change">Le moment où tout change</a></h2>
+<p>L’une des plus grandes transformations de Bitcoin Monitor a été cette prise de conscience :</p>
+<p>le système devait devenir événementiel.</p>
+<p>Au lieu de simplement construire des tables analytiques,
+il fallait produire des signaux temps réel.</p>
+<p>Cela change complètement la manière de penser l’architecture.</p>
+<p>Avant :</p>
+<pre><code class="language-text">scanner -&gt; PostgreSQL -&gt; dashboard
 </code></pre>
-<p>Tout doit être inféré.</p>
-<hr>
-<h3 id="les-systèmes-deviennent-rapidement-probabilistes"><a class="header" href="#les-systèmes-deviennent-rapidement-probabilistes">Les systèmes deviennent rapidement probabilistes</a></h3>
-<p>Les scores remplacent progressivement :</p>
-<pre><code class="language-text id=&quot;kr4cfr&quot;">les booléens simples.
+<p>Après :</p>
+<pre><code class="language-text">blockchain -&gt; Layer 1 -&gt; classifier -&gt; events -&gt; analytics -&gt; dashboards
 </code></pre>
+<p>Le système ne stocke plus seulement des états.</p>
+<p>Il produit des événements interprétables.</p>
 <hr>
-<h3 id="les-scanners-blockchain-deviennent-des-pipelines-vivants"><a class="header" href="#les-scanners-blockchain-deviennent-des-pipelines-vivants">Les scanners blockchain deviennent des pipelines vivants</a></h3>
-<p>Ils nécessitent :</p>
+<h2 id="pourquoi-postgresql-commençait-à-montrer-ses-limites"><a class="header" href="#pourquoi-postgresql-commençait-à-montrer-ses-limites">Pourquoi PostgreSQL commençait à montrer ses limites</a></h2>
+<p>Au début, PostgreSQL suffisait largement.</p>
+<p>Mais lorsque les événements sont devenus plus nombreux, plusieurs problèmes sont apparus :</p>
 <ul>
-<li>observabilité,</li>
-<li>progression,</li>
-<li>supervision,</li>
-<li>reprise,</li>
-<li>monitoring.</li>
+<li>lectures analytiques répétitives,</li>
+<li>dashboards temps réel,</li>
+<li>événements append-only,</li>
+<li>gros volumes de signaux,</li>
+<li>tris chronologiques permanents,</li>
+<li>filtres rapides par source ou sévérité.</li>
+</ul>
+<p>PostgreSQL restait excellent pour :</p>
+<ul>
+<li>les données relationnelles,</li>
+<li>les profils,</li>
+<li>les clusters,</li>
+<li>les relations d’adresses.</li>
+</ul>
+<p>Mais pour les événements analytiques temps réel, une autre approche devenait pertinente.</p>
+<p>C’est là que ClickHouse est entré dans le projet.</p>
+<hr>
+<h2 id="pourquoi-clickhouse-était-intéressant"><a class="header" href="#pourquoi-clickhouse-était-intéressant">Pourquoi ClickHouse était intéressant</a></h2>
+<p>ClickHouse est particulièrement adapté aux systèmes analytiques temps réel.</p>
+<p>Ce qui le rend extrêmement intéressant pour Bitcoin Monitor :</p>
+<ul>
+<li>lectures ultra rapides,</li>
+<li>agrégations massives,</li>
+<li>stockage append-only,</li>
+<li>compression,</li>
+<li>requêtes temporelles,</li>
+<li>dashboards live.</li>
+</ul>
+<p>Et surtout :</p>
+<p>le modèle événementiel devient naturel.</p>
+<p>Au lieu de mettre constamment à jour des lignes,
+le système écrit simplement de nouveaux événements.</p>
+<p>Cette différence simplifie énormément l’architecture.</p>
+<hr>
+<h2 id="la-naissance-de-cluster_events"><a class="header" href="#la-naissance-de-cluster_events">La naissance de cluster_events</a></h2>
+<p>Une nouvelle table est apparue :</p>
+<pre><code class="language-text">cluster_events
+</code></pre>
+<p>Cette table devient le journal vivant du système cluster.</p>
+<p>Chaque ligne représente un événement.</p>
+<p>Par exemple :</p>
+<pre><code class="language-text">event_time
+cluster_id
+signal_type
+severity
+score
+amount_btc
+tx_count
+address_count
+source
+</code></pre>
+<p>Le système commence alors à produire des événements comme :</p>
+<ul>
+<li>whale_cluster_activity,</li>
+<li>large_outflow,</li>
+<li>large_inflow,</li>
+<li>cluster_merge,</li>
+<li>large_link_creation,</li>
+<li>cluster_reactivation,</li>
+<li>activity_spike.</li>
+</ul>
+<p>Et à partir de ce moment-là,
+Bitcoin Monitor cesse d’être uniquement un scanner blockchain.</p>
+<p>Il devient un moteur d’événements analytiques.</p>
+<hr>
+<h2 id="séparer-signaux-techniques-et-signaux-métier"><a class="header" href="#séparer-signaux-techniques-et-signaux-métier">Séparer signaux techniques et signaux métier</a></h2>
+<p>Très rapidement, un autre problème apparaît.</p>
+<p>Tous les événements n’ont pas la même nature.</p>
+<p>Certaines alertes sont purement techniques.</p>
+<p>D’autres sont interprétables métier.</p>
+<p>Cette distinction devient très importante.</p>
+<hr>
+<h2 id="les-signaux-techniques"><a class="header" href="#les-signaux-techniques">Les signaux techniques</a></h2>
+<p>Les signaux techniques décrivent l’évolution du graphe.</p>
+<p>Par exemple :</p>
+<pre><code class="language-text">cluster_merge
+large_link_creation
+</code></pre>
+<p>Ces événements signifient :</p>
+<ul>
+<li>le cluster grandit,</li>
+<li>des liens apparaissent,</li>
+<li>deux groupes d’adresses semblent connectés.</li>
+</ul>
+<p>Ils sont utiles pour :</p>
+<ul>
+<li>comprendre la structure du graphe,</li>
+<li>améliorer les heuristiques,</li>
+<li>observer les merges.</li>
+</ul>
+<p>Mais ce ne sont pas forcément des signaux marché.</p>
+<hr>
+<h2 id="les-signaux-métier"><a class="header" href="#les-signaux-métier">Les signaux métier</a></h2>
+<p>Les signaux métier sont beaucoup plus interprétables.</p>
+<p>Par exemple :</p>
+<pre><code class="language-text">whale_cluster_activity
+large_outflow
+cluster_reactivation
+</code></pre>
+<p>Cette fois, l’objectif est différent.</p>
+<p>Le système tente de détecter :</p>
+<ul>
+<li>des comportements importants,</li>
+<li>des mouvements anormaux,</li>
+<li>des activités significatives.</li>
+</ul>
+<p>On commence alors à entrer dans une logique proche des plateformes professionnelles d’analyse blockchain.</p>
+<hr>
+<h2 id="le-pipeline-temps-réel"><a class="header" href="#le-pipeline-temps-réel">Le pipeline temps réel</a></h2>
+<p>L’architecture du système évolue progressivement.</p>
+<p>Le Layer 1 devient la source canonique.</p>
+<p>Il fournit :</p>
+<ul>
+<li>les transactions,</li>
+<li>les UTXO,</li>
+<li>les spent outputs,</li>
+<li>les données blockchain brutes.</li>
+</ul>
+<p>Puis les modules Layer 2 consomment cet état.</p>
+<p>Le module cluster ne lit plus directement Bitcoin Core.</p>
+<p>Il consomme le Layer 1.</p>
+<p>Cette séparation devient fondamentale.</p>
+<hr>
+<h2 id="realtime-et-batch"><a class="header" href="#realtime-et-batch">Realtime et batch</a></h2>
+<p>Le système cluster finit par posséder deux pipelines distincts.</p>
+<h3 id="realtime"><a class="header" href="#realtime">Realtime</a></h3>
+<p>Le pipeline realtime traite les nouveaux blocs immédiatement.</p>
+<p>Objectifs :</p>
+<ul>
+<li>faible latence,</li>
+<li>alertes rapides,</li>
+<li>signaux immédiats,</li>
+<li>dashboards live.</li>
 </ul>
 <hr>
-<h3 id="les-datasets-historiques-deviennent-précieux"><a class="header" href="#les-datasets-historiques-deviennent-précieux">Les datasets historiques deviennent précieux</a></h3>
-<p>Car ils permettent :</p>
+<h3 id="batch"><a class="header" href="#batch">Batch</a></h3>
+<p>Le pipeline batch travaille plus lentement.</p>
+<p>Objectifs :</p>
 <ul>
-<li>l’apprentissage,</li>
-<li>les corrélations,</li>
-<li>les signaux,</li>
-<li>les comportements long terme.</li>
+<li>recalculs,</li>
+<li>scans complets,</li>
+<li>merges,</li>
+<li>reconstruction analytique.</li>
+</ul>
+<p>Cette séparation améliore énormément :</p>
+<ul>
+<li>la stabilité,</li>
+<li>la résilience,</li>
+<li>l’observabilité,</li>
+<li>les performances.</li>
 </ul>
 <hr>
-<h2 id="24-conclusion"><a class="header" href="#24-conclusion">24. Conclusion</a></h2>
-<p>Le module Whale Scan a profondément changé Bitcoin Monitor.</p>
-<p>Avant lui :</p>
+<h2 id="les-cluster-reactivations"><a class="header" href="#les-cluster-reactivations">Les cluster reactivations</a></h2>
+<p>L’un des événements les plus intéressants ajoutés au système est :</p>
+<pre><code class="language-text">cluster_reactivation
+</code></pre>
+<p>L’idée paraît simple.</p>
+<p>Un cluster peut rester silencieux pendant longtemps,
+puis redevenir soudainement actif.</p>
+<p>Mais un problème important apparaît immédiatement.</p>
+<p>Bitcoin Monitor utilise un node Bitcoin pruned.</p>
+<p>Donc il est impossible de reconstruire parfaitement tout l’historique ancien.</p>
+<p>Le système doit devenir pragmatique.</p>
+<hr>
+<h2 id="une-approche-progressive"><a class="header" href="#une-approche-progressive">Une approche progressive</a></h2>
+<p>La solution choisie a été très intéressante architecturalement.</p>
+<p>Plutôt que de vouloir reconstruire le passé complet,
+Bitcoin Monitor commence à suivre les clusters à partir de maintenant.</p>
+<p>Une nouvelle table apparaît :</p>
+<pre><code class="language-text">ClusterActivityState
+</code></pre>
+<p>Elle stocke progressivement :</p>
 <ul>
-<li>l’application observait principalement des données marché.</li>
+<li>last_seen_height,</li>
+<li>last_active_height,</li>
+<li>inactive_blocks,</li>
+<li>inactive_seconds.</li>
 </ul>
-<p>Après lui :</p>
+<p>Le système apprend donc progressivement le comportement des clusters.</p>
+<p>C’est une approche incrémentale.</p>
+<p>Et c’est souvent ce type d’approche qui permet réellement de faire avancer les projets complexes.</p>
+<hr>
+<h2 id="transformer-les-événements-techniques-en-langage-humain"><a class="header" href="#transformer-les-événements-techniques-en-langage-humain">Transformer les événements techniques en langage humain</a></h2>
+<p>Une autre transformation importante a eu lieu dans les dashboards.</p>
+<p>Au début, les événements étaient affichés tels quels :</p>
+<pre><code class="language-text">large_link_creation
+</code></pre>
+<p>Mais cela restait trop technique.</p>
+<p>Le système devait devenir lisible.</p>
+<p>Les événements commencent alors à être traduits :</p>
+<pre><code class="language-text">Expansion du graphe
+</code></pre>
+<p>Puis enrichis :</p>
 <ul>
-<li>elle commençait à surveiller les comportements réels du capital sur la blockchain.</li>
+<li>score,</li>
+<li>sévérité,</li>
+<li>analyse,</li>
+<li>interprétation,</li>
+<li>pistes de vérification.</li>
 </ul>
-<p>Et ce changement a transformé :</p>
+<p>Par exemple :</p>
+<pre><code class="language-text">Lecture :
+évolution du graphe. Deux groupes d’adresses semblent reliés.
+</code></pre>
+<p>À ce moment-là,
+Bitcoin Monitor commence réellement à devenir un produit analytique.</p>
+<hr>
+<h2 id="le-dashboard-cluster-events"><a class="header" href="#le-dashboard-cluster-events">Le dashboard Cluster Events</a></h2>
+<p>Une nouvelle interface apparaît :</p>
+<pre><code class="language-text">/system/clusters/events
+</code></pre>
+<p>Cette page devient une console d’observabilité cluster.</p>
+<p>Elle regroupe :</p>
 <ul>
+<li>les signaux techniques,</li>
+<li>les alertes métier,</li>
+<li>les whales,</li>
+<li>les outflows,</li>
+<li>les merges,</li>
+<li>les réactivations.</li>
+</ul>
+<p>Et surtout :</p>
+<p>elle permet de lire le système en temps réel.</p>
+<hr>
+<h2 id="limportance-des-scores-et-de-la-sévérité"><a class="header" href="#limportance-des-scores-et-de-la-sévérité">L’importance des scores et de la sévérité</a></h2>
+<p>Rapidement, tous les événements deviennent trop nombreux.</p>
+<p>Il faut alors hiérarchiser.</p>
+<p>Le système introduit :</p>
+<ul>
+<li>low,</li>
+<li>medium,</li>
+<li>high.</li>
+</ul>
+<p>Mais aussi un score numérique.</p>
+<p>Par exemple :</p>
+<pre><code class="language-text">score 88
+</code></pre>
+<p>Ce score permet :</p>
+<ul>
+<li>de filtrer,</li>
+<li>de prioriser,</li>
+<li>de détecter les événements majeurs.</li>
+</ul>
+<p>L’observabilité devient progressivement exploitable à grande échelle.</p>
+<hr>
+<h2 id="les-dashboards-opérationnels"><a class="header" href="#les-dashboards-opérationnels">Les dashboards opérationnels</a></h2>
+<p>Le projet commence ensuite à évoluer vers quelque chose de beaucoup plus ambitieux.</p>
+<p>Les dashboards ne montrent plus uniquement :</p>
+<ul>
+<li>des données,</li>
+<li>des tables,</li>
+<li>des métriques.</li>
+</ul>
+<p>Ils montrent :</p>
+<ul>
+<li>l’état du système,</li>
 <li>les pipelines,</li>
-<li>les datasets,</li>
-<li>les scanners,</li>
-<li>les heuristiques,</li>
-<li>et la manière même d’interpréter le marché.</li>
+<li>les jobs actifs,</li>
+<li>les locks,</li>
+<li>les lags,</li>
+<li>les buffers,</li>
+<li>les événements temps réel.</li>
 </ul>
-<p>Parce qu’au final :</p>
-<blockquote>
-<p>observer les whales revient souvent à essayer de comprendre les mouvements invisibles du système financier Bitcoin.</p>
-</blockquote>
+<p>L’application commence alors à ressembler à une véritable plateforme de données blockchain.</p>
+<hr>
+<h2 id="ce-que-cette-architecture-change"><a class="header" href="#ce-que-cette-architecture-change">Ce que cette architecture change</a></h2>
+<p>Cette architecture ouvre énormément de possibilités.</p>
+<p>Par exemple :</p>
+<ul>
+<li>alertes live,</li>
+<li>notifications,</li>
+<li>APIs analytiques,</li>
+<li>dashboards professionnels,</li>
+<li>détection comportementale,</li>
+<li>monitoring whales,</li>
+<li>observabilité blockchain,</li>
+<li>analyses institutionnelles.</li>
+</ul>
+<p>Et surtout :</p>
+<p>le système devient extensible.</p>
+<p>De nouveaux signaux peuvent être ajoutés facilement.</p>
+<hr>
+<h2 id="ce-que-ce-travail-ma-appris"><a class="header" href="#ce-que-ce-travail-ma-appris">Ce que ce travail m’a appris</a></h2>
+<p>Avant ce module,
+je pensais surtout en termes de tables et de modèles.</p>
+<p>Aujourd’hui,
+je pense davantage en termes de flux et d’événements.</p>
+<p>Cette différence change complètement la manière de concevoir une application.</p>
+<p>Un système analytique moderne n’est pas seulement :</p>
+<ul>
+<li>une base de données,</li>
+<li>un backend,</li>
+<li>un dashboard.</li>
+</ul>
+<p>C’est un moteur d’événements.</p>
+<hr>
+<h2 id="conclusion"><a class="header" href="#conclusion">Conclusion</a></h2>
+<p>Le module Cluster Events a profondément transformé Bitcoin Monitor.</p>
+<p>Avant :</p>
+<ul>
+<li>les clusters étaient passifs,</li>
+<li>les données étaient statiques,</li>
+<li>les dashboards étaient descriptifs.</li>
+</ul>
+<p>Après :</p>
+<ul>
+<li>le système devient vivant,</li>
+<li>les événements apparaissent en temps réel,</li>
+<li>les comportements deviennent visibles,</li>
+<li>les signaux deviennent interprétables.</li>
+</ul>
+<p>Et surtout :</p>
+<p>Bitcoin Monitor commence progressivement à devenir une véritable plateforme d’observabilité blockchain temps réel.</p>
 
                     </main>
 
                     <nav class="nav-wrapper" aria-label="Page navigation">
                         <!-- Mobile navigation buttons -->
-                            <a rel="prev" href="cluster.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                            <a rel="prev" href="layer-1.html" class="mobile-nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                                 <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                             </a>
 
-                            <a rel="next prefetch" href="cron.html" class="mobile-nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                                <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                            </a>
 
                         <div style="clear: both"></div>
                     </nav>
@@ -640,13 +577,10 @@ le système commençait à observer :</p>
             </div>
 
             <nav class="nav-wide-wrapper" aria-label="Page navigation">
-                    <a rel="prev" href="cluster.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
+                    <a rel="prev" href="layer-1.html" class="nav-chapters previous" title="Previous chapter" aria-label="Previous chapter" aria-keyshortcuts="Left">
                         <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M41.4 233.4c-12.5 12.5-12.5 32.8 0 45.3l160 160c12.5 12.5 32.8 12.5 45.3 0s12.5-32.8 0-45.3L109.3 256 246.6 118.6c12.5-12.5 12.5-32.8 0-45.3s-32.8-12.5-45.3 0l-160 160z"/></svg></span>
                     </a>
 
-                    <a rel="next prefetch" href="cron.html" class="nav-chapters next" title="Next chapter" aria-label="Next chapter" aria-keyshortcuts="Right">
-                        <span class=fa-svg><svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 512"><!--! Font Awesome Free 6.2.0 by @fontawesome - https://fontawesome.com License - https://fontawesome.com/license/free (Icons: CC BY 4.0, Fonts: SIL OFL 1.1, Code: MIT License) Copyright 2022 Fonticons, Inc. --><path d="M278.6 233.4c12.5 12.5 12.5 32.8 0 45.3l-160 160c-12.5 12.5-32.8 12.5-45.3 0s-12.5-32.8 0-45.3L210.7 256 73.4 118.6c-12.5-12.5-12.5-32.8 0-45.3s32.8-12.5 45.3 0l160 160z"/></svg></span>
-                    </a>
             </nav>
 
         </div>
