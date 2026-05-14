@@ -15,8 +15,7 @@ module System
       "realtime_processing_lock",
       "exchange_observed_scan_lock",
       "recovery_orchestrator_lock",
-      "lock:cluster_scan",
-      "cluster_scan_lock"
+      "lock:cluster_scan"
     ].freeze
 
     QUEUES = [
@@ -35,13 +34,10 @@ module System
 
     JOB_NAMES = [
       "recovery_orchestrator",
-      "clusters_realtime_pipeline",
       "exchange_observed_scan",
       "inflow_outflow_build",
-      "inflow_outflow_details_build",
-      "inflow_outflow_behavior_build",
-      "inflow_outflow_capital_behavior_build",
       "cluster_scan",
+      "cluster_refresh_dirty_clusters",
       "cluster_v3_build_metrics",
       "cluster_v3_detect_signals"
     ].freeze
@@ -73,6 +69,7 @@ module System
         current_job_progress_label: progress[:current_job_progress_label],
         current_job_progress_meta: progress[:current_job_progress_meta],
         pipelines: build_pipelines(best_height),
+        cluster_refresh: cluster_refresh_status,
         queues: build_queues,
         workers: build_workers,
         locks: build_locks,
@@ -191,11 +188,31 @@ module System
     end
 
     def build_pipelines(best_height)
+      layer1_best_height =
+        BlockBufferModel
+          .where(status: "processed")
+          .maximum(:height)
+          .to_i
+
       {
-        p0_realtime: pipeline_cursor("P0", "Realtime processor", CURSORS[:realtime], best_height),
-        p1_exchange: pipeline_cursor("P1", "Exchange observed scan", CURSORS[:exchange], best_height),
+        
+        p1_exchange: pipeline_cursor("P1", "Exchange observed scan", CURSORS[:exchange], layer1_best_height),
         p2_flows: pipeline_data("P2", "Inflow / Outflow", flow_tables),
-        p3_clusters: pipeline_cursor("P3", "Cluster scan", CURSORS[:cluster], best_height),
+
+        p3_cluster_realtime: pipeline_cursor(
+          "P3A",
+          "Cluster realtime consumer",
+          CURSORS[:realtime],
+          layer1_best_height
+        ),
+
+        p3_cluster_batch: pipeline_cursor(
+          "P3B",
+          "Cluster batch scanner",
+          CURSORS[:cluster],
+          layer1_best_height
+        ),
+
         p4_analytics: pipeline_data("P4", "Cluster analytics", analytics_tables)
       }
     end
@@ -299,6 +316,45 @@ module System
       [best_height - height, 0].max
     end
 
+    def cluster_refresh_status
+      dirty_size = Clusters::DirtyClusterQueue.size
+
+      batch_size =
+        if dirty_size >= 50_000
+          1000
+        elsif dirty_size >= 20_000
+          500
+        elsif dirty_size >= 5_000
+          250
+        else
+          Integer(ENV.fetch("CLUSTER_REFRESH_BATCH_SIZE", "100"))
+        end
+
+      last_run =
+        JobRun
+          .where(name: "cluster_refresh_dirty_clusters")
+          .order(started_at: :desc, created_at: :desc)
+          .first
+
+      {
+        dirty_queue_size: dirty_size,
+        batch_size: batch_size,
+        estimated_batches_remaining: batch_size.positive? ? (dirty_size.to_f / batch_size).ceil : nil,
+
+        last_run_status: last_run&.status,
+        last_run_at: last_run&.started_at,
+        last_finish_at: last_run&.finished_at,
+        duration_ms: last_run&.duration_ms,
+        progress_pct: last_run&.progress_pct,
+        progress_label: last_run&.progress_label,
+        progress_meta: last_run&.progress_meta
+      }
+    rescue StandardError => e
+      {
+        error: "#{e.class}: #{e.message}"
+      }
+    end
+
     def build_queues
       QUEUES.map do |name|
         q = Sidekiq::Queue.new(name)
@@ -313,33 +369,89 @@ module System
 
     def build_workers
       Sidekiq::Workers.new.map do |process_id, thread_id, work|
-        payload = work.payload
+        raw_payload = work.payload
+
+        payload =
+          if raw_payload.is_a?(String)
+            JSON.parse(raw_payload)
+          else
+            raw_payload || {}
+          end
+
+        args = payload["args"]
+        first_arg = args.is_a?(Array) ? args.first : nil
+        active_job_args = first_arg.is_a?(Hash) ? first_arg : {}
+
+        job_class =
+          payload["wrapped"].presence ||
+          active_job_args["job_class"].presence ||
+          payload["class"].presence ||
+          "unknown job"
 
         {
           process_id: process_id,
           thread_id: thread_id,
           queue: work.queue,
-          job_class: payload["wrapped"] || payload["class"],
+          job_class: job_class,
+          raw_class: payload["class"],
+          wrapped: payload["wrapped"],
+          jid: payload["jid"],
+          args: active_job_args["arguments"] || args,
+          active_job_id: active_job_args["job_id"],
+          enqueued_at: active_job_args["enqueued_at"],
+          run_at: work.run_at
+        }
+      rescue JSON::ParserError => e
+        {
+          process_id: process_id,
+          thread_id: thread_id,
+          queue: work.queue,
+          job_class: "payload parse error",
+          error: "#{e.class}: #{e.message}",
           run_at: work.run_at
         }
       end
     end
 
     def build_locks
+      redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
+
       LOCKS.map do |name|
-        cursor = ScannerCursor.find_by(name: name)
+        value = redis.get(name)
+        ttl = redis.ttl(name).to_i
+
+        status =
+          if value.present? && ttl.positive?
+            "active"
+          elsif value.present?
+            "stale"
+          else
+            "clear"
+          end
 
         {
           name: name,
-          updated_at: cursor&.updated_at,
-          age_seconds: cursor&.updated_at ? (now - cursor.updated_at).to_i : nil
+          present: value.present?,
+          value: value,
+          ttl: ttl,
+          status: status
         }
       end
+    rescue StandardError => e
+      [
+        {
+          name: "locks",
+          status: "error",
+          error: "#{e.class}: #{e.message}"
+        }
+      ]
     end
 
     def build_recent_job_runs
       JobRun
         .where(name: JOB_NAMES)
+        .where("started_at > ?", 24.hours.ago)
+        .where.not("error LIKE ?", "Marked failed manually:%")
         .order(started_at: :desc)
         .limit(25)
         .map do |jr|

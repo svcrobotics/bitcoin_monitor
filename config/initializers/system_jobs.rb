@@ -1,5 +1,10 @@
 # config/initializers/system_jobs.rb
+
 SYSTEM_JOBS = {
+  # -------------------------------------------------------------------
+  # BTC / MARKET
+  # -------------------------------------------------------------------
+
   "btc_price_daily" => {
     label: "BTC price daily",
     cron: "20 0 * * *",
@@ -18,6 +23,7 @@ SYSTEM_JOBS = {
     label: "Market snapshot",
     cron: "15 1 * * *",
     expected_every: 24.hours,
+    late_after: 48.hours,
     max_runtime: 10.minutes,
     critical: true,
     category: "market",
@@ -27,23 +33,33 @@ SYSTEM_JOBS = {
     order: 20
   },
 
+  # -------------------------------------------------------------------
+  # WHALES
+  # -------------------------------------------------------------------
+
   "whale_scan" => {
     label: "Whale scan",
     cron: "15 * * * *",
     expected_every: 1.hour,
+    late_after: 2.hours,
     max_runtime: 20.minutes,
     critical: true,
     category: "whales",
     lock_file: "/tmp/bitcoin_monitor_whales_scan.lock",
-    command: "bin/rails whales:scan",
+    command: "WhaleScanJob / WhaleLayer1Scanner",
     active: true,
     order: 30
   },
+
+  # -------------------------------------------------------------------
+  # EXCHANGE-LIKE
+  # -------------------------------------------------------------------
 
   "exchange_address_builder" => {
     label: "Exchange address builder",
     cron: "0 */6 * * *",
     expected_every: 6.hours,
+    late_after: 12.hours,
     max_runtime: 15.minutes,
     critical: true,
     category: "exchange",
@@ -56,9 +72,9 @@ SYSTEM_JOBS = {
   "exchange_observed_scan" => {
     label: "Exchange observed scan",
     cron: "*/10 * * * *",
-    expected_every: 10.minutes,
-    late_after: 20.minutes,
-    max_runtime: 8.minutes,
+    expected_every: 30.minutes,
+    late_after: 1.hour,
+    max_runtime: 30.minutes,
     critical: true,
     category: "exchange",
     lock_file: "/tmp/bitcoin_monitor_exchange_observed_scan.lock",
@@ -67,82 +83,70 @@ SYSTEM_JOBS = {
     order: 60
   },
 
+  # -------------------------------------------------------------------
+  # INFLOW / OUTFLOW PIPELINE
+  # -------------------------------------------------------------------
+
   "inflow_outflow_build" => {
-    label: "Inflow / Outflow V1",
+    label: "Inflow / Outflow pipeline",
     cron: "25 * * * *",
-    expected_every: 1.hour,
-    max_runtime: 20.minutes,
+    expected_every: 2.hour,
+    late_after: 3.hours,
+    max_runtime: 30.minutes,
     critical: true,
     category: "inflow_outflow",
     lock_file: "/tmp/bitcoin_monitor_inflow_outflow_build.lock",
-    command: "bin/cron_inflow_outflow_build.sh",
+    command: "InflowOutflowPipelineBuilder",
     active: true,
     order: 70
   },
 
+  # -------------------------------------------------------------------
+  # LEGACY PIPELINES (DISABLED)
+  # -------------------------------------------------------------------
+
   "inflow_outflow_details_build" => {
-    label: "Inflow / Outflow V2",
-    cron: "35 * * * *",
-    expected_every: 1.hour,
-    max_runtime: 20.minutes,
-    critical: true,
-    category: "inflow_outflow",
-    lock_file: "/tmp/bitcoin_monitor_inflow_outflow_details_build.lock",
-    command: "bin/cron_inflow_outflow_details_build.sh",
-    active: true,
+    label: "Inflow / Outflow details legacy",
+    active: false,
+    category: "legacy",
     order: 80
   },
 
   "inflow_outflow_behavior_build" => {
-    label: "Inflow / Outflow V3",
-    cron: "45 * * * *",
-    expected_every: 1.hour,
-    max_runtime: 20.minutes,
-    critical: true,
-    category: "inflow_outflow",
-    lock_file: "/tmp/bitcoin_monitor_inflow_outflow_behavior_build.lock",
-    command: "bin/cron_inflow_outflow_behavior_build.sh",
-    active: true,
+    label: "Inflow / Outflow behavior legacy",
+    active: false,
+    category: "legacy",
     order: 90
   },
 
   "inflow_outflow_capital_behavior_build" => {
-    label: "Inflow / Outflow V4",
-    cron: "50 * * * *",
-    expected_every: 1.hour,
-    max_runtime: 20.minutes,
-    critical: true,
-    category: "inflow_outflow",
-    lock_file: "/tmp/bitcoin_monitor_inflow_outflow_capital_behavior_build.lock",
-    command: "bin/cron_inflow_outflow_capital_behavior_build.sh",
-    active: true,
+    label: "Inflow / Outflow capital behavior legacy",
+    active: false,
+    category: "legacy",
     order: 100
   },
 
-  "clusters_realtime_pipeline" => {
-    label: "Clusters realtime pipeline",
-    cron: "* * * * *",
-    expected_every: 1.minute,
-    late_after: 3.minutes,
-    max_runtime: 2.minutes,
-    critical: true,
-    category: "cluster",
-    lock_file: "/tmp/clusters_realtime_pipeline.lock",
-    command: "bin/cron_clusters_realtime_pipeline.sh",
-    active: true,
-    order: 111
-  },
+  # "clusters_realtime_pipeline" => {
+  #  label: "Clusters realtime pipeline legacy",
+  #  active: false,
+  #  category: "legacy",
+  #  order: 105
+  # },
+
+  # -------------------------------------------------------------------
+  # CLUSTERS
+  # -------------------------------------------------------------------
 
   "cluster_scan" => {
     label: "Cluster scan",
     cron: "*/15 * * * *",
-    expected_every: 5.minutes,
-    late_after: 30.minutes,
-    max_runtime: 12.minutes,
+    expected_every: 15.minutes,
+    late_after: 45.minutes,
+    max_runtime: 10.minutes,
     critical: true,
     category: "cluster",
     lock_file: "/tmp/bitcoin_monitor_cluster_scan.lock",
-    command: "bin/cron_cluster_scan.sh",
+    command: "ClusterScanner / DirtyClusterQueue",
     active: true,
     order: 110
   },
@@ -151,6 +155,7 @@ SYSTEM_JOBS = {
     label: "Cluster V3 build metrics",
     cron: "5 4 * * *",
     expected_every: 24.hours,
+    late_after: 48.hours,
     max_runtime: 30.minutes,
     critical: true,
     category: "cluster",
@@ -164,6 +169,7 @@ SYSTEM_JOBS = {
     label: "Cluster V3 detect signals",
     cron: "20 4 * * *",
     expected_every: 24.hours,
+    late_after: 48.hours,
     max_runtime: 20.minutes,
     critical: true,
     category: "cluster",
@@ -171,5 +177,20 @@ SYSTEM_JOBS = {
     command: "bin/cron_cluster_v3_detect_signals.sh",
     active: true,
     order: 130
+  },
+
+  "cluster_refresh_dirty_clusters" => {
+    label: "Cluster refresh dirty clusters",
+    cron: "*/5 * * * *",
+    expected_every: 5.minutes,
+    late_after: 20.minutes,
+    max_runtime: 5.minutes,
+    critical: true,
+    category: "cluster",
+    lock_file: nil,
+    command: "Clusters::RefreshDirtyClustersJob",
+    active: true,
+    order: 115
   }
 }.freeze
+

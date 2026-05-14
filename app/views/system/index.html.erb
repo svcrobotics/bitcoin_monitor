@@ -9,13 +9,15 @@
 <% @snapshot        ||= {} %>
 <% @sidekiq_status ||= {} %>
 <% @cluster_pipeline_status ||= {} %>
-<% @cluster_realtime ||= {} %>
 <% @realtime ||= {} %>
 <% @recovery_snapshot ||= {} %>
+<% @recent_blocks ||= [] %>
 
 <% layer1 = @recovery_snapshot[:layer1] || {} %>
 <% layer1_counts = layer1[:status_counts] || {} %>
 <% layer1_redis = layer1[:redis_buffers] || {} %>
+<% cluster_batch = @cluster_pipeline_status[:batch] || {} %>
+<% cluster_realtime = @cluster_pipeline_status[:realtime] || {} %>
 
 <%
   section_class = "rounded-2xl border border-white/10 bg-white/5 p-5"
@@ -27,6 +29,36 @@
   blockchain = @checks[:bitcoind_activity] || {}
   disks = @checks[:disks] || {}
   disk_cards = [disks[:bitcoind], disks[:data], disks[:system]].compact
+
+  latest_whale =
+    begin
+      defined?(WhaleAlert) ? WhaleAlert.order(block_height: :desc, updated_at: :desc).first : nil
+    rescue
+      nil
+    end
+
+  whale_count =
+    begin
+      defined?(WhaleAlert) ? WhaleAlert.count : 0
+    rescue
+      0
+    end
+
+  latest_flow =
+    begin
+      defined?(ExchangeFlowDay) ? ExchangeFlowDay.order(day: :desc).first : nil
+    rescue
+      nil
+    end
+
+  flow_detail =
+    begin
+      if defined?(ExchangeFlowDayDetail) && latest_flow.present?
+        ExchangeFlowDayDetail.find_by(day: latest_flow.day)
+      end
+    rescue
+      nil
+    end
 
   global_state =
     if @recovery[:critical_problems_count].to_i > 0
@@ -54,6 +86,7 @@
 
   def safe_time(value)
     return "—" if value.blank?
+
     if respond_to?(:fmt_time)
       fmt_time(value)
     else
@@ -65,6 +98,7 @@
 
   def safe_duration_ms(value)
     return "—" if value.blank?
+
     if respond_to?(:fmt_duration_ms)
       fmt_duration_ms(value)
     else
@@ -77,6 +111,7 @@
 
   def safe_seconds(value)
     return "—" if value.blank?
+
     if respond_to?(:fmt_seconds)
       fmt_seconds(value)
     else
@@ -90,6 +125,14 @@
   def yes_no_badge(value)
     value ? "OK" : "FAIL"
   end
+
+  def fmt_btc(value)
+    return "—" if value.blank?
+
+    "#{value.to_d.round(4).to_s('F')} BTC"
+  rescue
+    value.to_s
+  end
 %>
 
 <div class="w-full max-w-none mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
@@ -99,7 +142,7 @@
       <div class="<%= label_class %>">Operations dashboard</div>
       <h1 class="mt-2 text-3xl font-bold text-gray-100">System</h1>
       <p class="mt-2 <%= muted_class %>">
-        Cockpit global : infrastructure, Layer 1, modules blockchain, BTC market data, Sidekiq et anomalies.
+        Cockpit opérationnel : infrastructure, Layer 1, modules analytiques Layer 2, BTC market data, Sidekiq et recovery.
       </p>
     </div>
 
@@ -107,6 +150,7 @@
       <span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold <%= status_badge_class(global_state) %>">
         <%= global_state.upcase %>
       </span>
+
       <div class="text-xs text-gray-500 font-mono">
         snapshot:
         <span class="text-gray-300"><%= safe_time(@snapshot[:generated_at] || Time.current) %></span>
@@ -131,25 +175,34 @@
     </div>
 
     <div class="<%= section_class %>">
-      <div class="<%= label_class %>">Jobs critiques</div>
-      <div class="mt-3 text-2xl font-bold text-gray-100"><%= @summary[:critical_jobs_count] || 0 %></div>
-    </div>
-
-    <div class="<%= section_class %>">
-      <div class="<%= label_class %>">En retard</div>
-      <div class="mt-3 text-2xl font-bold text-amber-300"><%= @summary[:late_jobs_count] || 0 %></div>
-    </div>
-
-    <div class="<%= section_class %>">
-      <div class="<%= label_class %>">Running / longs</div>
-      <div class="mt-3 text-2xl font-bold text-sky-300">
-        <%= (@summary[:running_jobs_count] || 0) + (@summary[:long_running_jobs_count] || 0) %>
+      <div class="<%= label_class %>">Cluster realtime lag</div>
+      <div class="mt-3 text-2xl font-bold <%= cluster_realtime[:lag].to_i > 24 ? "text-rose-300" : cluster_realtime[:lag].to_i > 6 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= cluster_realtime[:lag] || 0 %>
+      </div>
+      <div class="mt-2 text-xs text-gray-500">
+        batch lag: <span class="font-mono text-gray-300"><%= cluster_batch[:lag] || "—" %></span>
       </div>
     </div>
 
     <div class="<%= section_class %>">
-      <div class="<%= label_class %>">En échec</div>
-      <div class="mt-3 text-2xl font-bold text-rose-300"><%= @summary[:failing_jobs_count] || 0 %></div>
+      <div class="<%= label_class %>">Dirty clusters</div>
+      <div class="mt-3 text-2xl font-bold <%= @cluster_pipeline_status[:dirty_queue_size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= @cluster_pipeline_status[:dirty_queue_size] || 0 %>
+      </div>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Jobs en anomalie</div>
+      <div class="mt-3 text-2xl font-bold text-amber-300">
+        <%= (@summary[:late_jobs_count] || 0).to_i + (@summary[:failing_jobs_count] || 0).to_i %>
+      </div>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Whale alerts</div>
+      <div class="mt-3 text-2xl font-bold text-gray-100">
+        <%= whale_count %>
+      </div>
     </div>
   </section>
 
@@ -214,156 +267,201 @@
   <section class="<%= section_class %>">
     <div class="mb-5">
       <div class="<%= label_class %>">Infrastructure</div>
-      <h2 class="mt-1 text-xl font-semibold text-gray-100">Bitcoind, stockage et temps réel</h2>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">Bitcoind, stockage et realtime</h2>
       <p class="mt-2 <%= muted_class %>">
-        État des dépendances techniques : RPC, progression blockchain, disques, ZMQ et streams Redis.
+        État des dépendances techniques de base : Bitcoin Core, synchronisation réseau, disques et ingestion temps réel.
       </p>
     </div>
 
-    <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
-      <div class="<%= panel_class %>">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="<%= label_class %>">Service</div>
-            <div class="mt-1 text-lg font-semibold text-gray-100">Bitcoind RPC</div>
-          </div>
-          <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(bitcoind[:ok] ? "ok" : "fail") %>">
-            <%= yes_no_badge(bitcoind[:ok]) %>
-          </span>
+    <div class="grid grid-cols-1 xl:grid-cols-3 gap-5">
+      <!-- Core blockchain -->
+      <div class="xl:col-span-2 rounded-xl border border-white/10 bg-black/20 p-4">
+        <div class="mb-4">
+          <div class="<%= label_class %>">Core blockchain</div>
+          <h3 class="mt-1 text-lg font-semibold text-gray-100">Bitcoin Core / RPC</h3>
         </div>
 
-        <div class="mt-4 space-y-2 text-sm">
-          <div class="flex justify-between">
-            <span class="text-gray-500">Blocks</span>
-            <span class="font-mono text-gray-200"><%= bitcoind[:blocks] || "—" %></span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">Progress</span>
-            <span class="font-mono text-gray-200"><%= bitcoind[:progress_pct] || "—" %>%</span>
-          </div>
-        </div>
-      </div>
-
-      <div class="<%= panel_class %>">
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="<%= label_class %>">Network</div>
-            <div class="mt-1 text-lg font-semibold text-gray-100">Blockchain</div>
-          </div>
-          <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(blockchain[:ok] ? "ok" : "fail") %>">
-            <%= yes_no_badge(blockchain[:ok]) %>
-          </span>
-        </div>
-
-        <div class="mt-4 space-y-2 text-sm">
-          <div class="flex justify-between">
-            <span class="text-gray-500">Blocks</span>
-            <span class="font-mono text-gray-200"><%= blockchain[:blocks] || "—" %></span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">Headers</span>
-            <span class="font-mono text-gray-200"><%= blockchain[:headers] || "—" %></span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">Lag</span>
-            <span class="font-mono <%= blockchain[:lag].to_i > 0 ? "text-amber-300" : "text-gray-200" %>"><%= blockchain[:lag] || "—" %></span>
-          </div>
-        </div>
-      </div>
-
-      <% disk_cards.each do |disk| %>
-        <% disk_state = (disk[:status] || "warn").to_s %>
-        <div class="<%= panel_class %>">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="<%= label_class %>">Disque</div>
-              <div class="mt-1 text-lg font-semibold text-gray-100"><%= disk[:label] || "Storage" %></div>
-            </div>
-            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(disk_state) %>">
-              <%= disk_state.upcase %>
-            </span>
-          </div>
-
-          <div class="mt-4 space-y-2 text-sm">
-            <div class="flex justify-between">
-              <span class="text-gray-500">Path</span>
-              <span class="font-mono text-gray-200 truncate"><%= disk[:path] || "—" %></span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Utilisation</span>
-              <span class="font-mono text-gray-200"><%= disk[:used_pct] ? "#{disk[:used_pct]}%" : "—" %></span>
-            </div>
-          </div>
-        </div>
-      <% end %>
-    </div>
-
-    <div class="mt-5 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
-      <%= turbo_stream_from "bitcoin_blocks" %>
-      <%= turbo_stream_from "cluster_realtime" %>
-
-      <% { "Watcher" => (@realtime[:watcher] || {}), "Processor" => (@realtime[:processor] || {}) }.each do |name, state| %>
-        <% status = (state[:status] || :missing).to_s %>
-        <div class="<%= panel_class %>">
-          <div class="flex items-start justify-between gap-3">
-            <div>
-              <div class="<%= label_class %>"><%= name %></div>
-              <div class="mt-1 text-lg font-semibold text-gray-100">
-                <%= name == "Watcher" ? "Block detector" : "Layer 1 processor" %>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <!-- Bitcoind RPC -->
+          <div class="rounded-xl border border-white/10 bg-gray-950/60 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="<%= label_class %>">Service</div>
+                <div class="mt-1 text-base font-semibold text-gray-100">Bitcoind RPC</div>
               </div>
-            </div>
-            <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(status) %>">
-              <%= status.upcase %>
-            </span>
-          </div>
 
-          <div class="mt-4 space-y-2 text-sm">
-            <div class="flex justify-between">
-              <span class="text-gray-500">Last height</span>
-              <span class="font-mono text-gray-200"><%= state[:last_blockheight] || "—" %></span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Updated</span>
-              <span class="font-mono text-gray-200"><%= safe_time(state[:updated_at]) %></span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Age</span>
-              <span class="font-mono <%= state[:age_seconds].to_i > 1200 ? "text-amber-300" : "text-gray-200" %>">
-                <%= safe_seconds(state[:age_seconds]) %>
+              <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(bitcoind[:ok] ? "ok" : "fail") %>">
+                <%= yes_no_badge(bitcoind[:ok]) %>
               </span>
             </div>
-          </div>
-        </div>
-      <% end %>
 
-      <div class="<%= panel_class %>">
-        <% cluster_status = (@cluster_realtime[:status] || :unknown).to_s %>
-        <div class="flex items-start justify-between gap-3">
-          <div>
-            <div class="<%= label_class %>">Cluster realtime</div>
-            <div class="mt-1 text-lg font-semibold text-gray-100">Cluster consumer</div>
-          </div>
-          <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(cluster_status) %>">
-            <%= cluster_status.upcase %>
-          </span>
-        </div>
+            <div class="mt-4 space-y-2 text-sm">
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-500">Blocks</span>
+                <span class="font-mono text-gray-200"><%= bitcoind[:blocks] || "—" %></span>
+              </div>
 
-        <div class="mt-4 space-y-2 text-sm">
-          <div class="flex justify-between">
-            <span class="text-gray-500">Pending blocks</span>
-            <span class="font-mono text-gray-200"><%= @cluster_realtime[:pending_blocks_count] || 0 %></span>
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-500">Progress</span>
+                <span class="font-mono text-gray-200"><%= bitcoind[:progress_pct] || "—" %>%</span>
+              </div>
+            </div>
           </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">Writes buffer</span>
-            <span class="font-mono text-gray-200"><%= @cluster_realtime[:writes_buffer_count] || 0 %></span>
-          </div>
-          <div class="flex justify-between">
-            <span class="text-gray-500">Updated</span>
-            <span class="font-mono text-gray-200"><%= safe_time(@cluster_realtime[:updated_at]) %></span>
+
+          <!-- Blockchain network -->
+          <div class="rounded-xl border border-white/10 bg-gray-950/60 p-4">
+            <div class="flex items-start justify-between gap-3">
+              <div>
+                <div class="<%= label_class %>">Network</div>
+                <div class="mt-1 text-base font-semibold text-gray-100">Blockchain sync</div>
+              </div>
+
+              <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(blockchain[:ok] ? "ok" : "fail") %>">
+                <%= yes_no_badge(blockchain[:ok]) %>
+              </span>
+            </div>
+
+            <div class="mt-4 space-y-2 text-sm">
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-500">Blocks</span>
+                <span class="font-mono text-gray-200"><%= blockchain[:blocks] || "—" %></span>
+              </div>
+
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-500">Headers</span>
+                <span class="font-mono text-gray-200"><%= blockchain[:headers] || "—" %></span>
+              </div>
+
+              <div class="flex items-center justify-between gap-4">
+                <span class="text-gray-500">Node lag</span>
+                <span class="font-mono <%= blockchain[:lag].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+                  <%= blockchain[:lag] || 0 %>
+                </span>
+              </div>
+            </div>
           </div>
         </div>
       </div>
+
+      <!-- Realtime ingestion -->
+      <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+        <%= turbo_stream_from "bitcoin_blocks" %>
+
+        <div class="mb-4">
+          <div class="<%= label_class %>">Realtime ingestion</div>
+          <h3 class="mt-1 text-lg font-semibold text-gray-100">ZMQ watcher / processor</h3>
+        </div>
+
+        <div class="space-y-3">
+          <% { "Watcher" => (@realtime[:watcher] || {}), "Processor" => (@realtime[:processor] || {}) }.each do |name, state| %>
+            <% status = (state[:status] || :missing).to_s %>
+
+            <div class="rounded-xl border border-white/10 bg-gray-950/60 p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div>
+                  <div class="<%= label_class %>"><%= name %></div>
+                  <div class="mt-1 text-base font-semibold text-gray-100">
+                    <%= name == "Watcher" ? "Block detector" : "Layer 1 processor" %>
+                  </div>
+                </div>
+
+                <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(status) %>">
+                  <%= status.upcase %>
+                </span>
+              </div>
+
+              <div class="mt-4 space-y-2 text-sm">
+                <div class="flex items-center justify-between gap-4">
+                  <span class="text-gray-500">Last height</span>
+                  <span class="font-mono text-gray-200"><%= state[:last_blockheight] || "—" %></span>
+                </div>
+
+                <div class="flex items-center justify-between gap-4">
+                  <span class="text-gray-500">Age</span>
+                  <span class="font-mono <%= state[:age_seconds].to_i > 1200 ? "text-amber-300" : "text-gray-200" %>">
+                    <%= safe_seconds(state[:age_seconds]) %>
+                  </span>
+                </div>
+
+                <div class="pt-2 border-t border-white/5">
+                  <div class="text-gray-500 text-xs mb-1">Updated</div>
+                  <div class="font-mono text-xs text-gray-300 truncate">
+                    <%= safe_time(state[:updated_at]) %>
+                  </div>
+                </div>
+              </div>
+            </div>
+          <% end %>
+        </div>
+      </div>
     </div>
+
+    <!-- Storage -->
+    <% if disk_cards.any? %>
+      <div class="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+        <div class="mb-4">
+          <div class="<%= label_class %>">Storage</div>
+          <h3 class="mt-1 text-lg font-semibold text-gray-100">Disques et volumes</h3>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4">
+          <% disk_cards.each do |disk| %>
+            <% disk_state = (disk[:status] || "warn").to_s %>
+
+            <div class="rounded-xl border border-white/10 bg-gray-950/60 p-4">
+              <div class="flex items-start justify-between gap-3">
+                <div class="min-w-0">
+                  <div class="<%= label_class %>">Disque</div>
+                  <div class="mt-1 text-base font-semibold text-gray-100 truncate">
+                    <%= disk[:label] || "Storage" %>
+                  </div>
+                </div>
+
+                <span class="shrink-0 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(disk_state) %>">
+                  <%= disk_state.upcase %>
+                </span>
+              </div>
+
+              <div class="mt-4 space-y-2 text-sm">
+                <div>
+                  <div class="text-gray-500 mb-1">Path</div>
+                  <div class="font-mono text-xs text-gray-300 truncate">
+                    <%= disk[:path] || "—" %>
+                  </div>
+                </div>
+
+                <% if disk[:mount].present? %>
+                  <div>
+                    <div class="text-gray-500 mb-1">Mount</div>
+                    <div class="font-mono text-xs text-gray-300 truncate">
+                      <%= disk[:mount] %>
+                    </div>
+                  </div>
+                <% end %>
+
+                <div class="flex items-center justify-between gap-4">
+                  <span class="text-gray-500">Utilisation</span>
+                  <span class="font-mono <%= disk[:used_pct].to_i >= 90 ? "text-rose-300" : disk[:used_pct].to_i >= 80 ? "text-amber-300" : "text-gray-200" %>">
+                    <%= disk[:used_pct] ? "#{disk[:used_pct]}%" : "—" %>
+                  </span>
+                </div>
+
+                <% if disk[:used_pct].present? %>
+                  <% used_pct = [[disk[:used_pct].to_f, 0].max, 100].min %>
+
+                  <div class="h-1.5 rounded-full bg-white/10 overflow-hidden">
+                    <div
+                      class="h-full rounded-full <%= used_pct >= 90 ? "bg-rose-400" : used_pct >= 80 ? "bg-amber-400" : "bg-emerald-400" %>"
+                      style="width: <%= used_pct %>%">
+                    </div>
+                  </div>
+                <% end %>
+              </div>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    <% end %>
   </section>
 
   <!-- Layer 1 -->
@@ -383,7 +481,7 @@
         <div class="<%= label_class %>">Layer 1</div>
         <h2 class="mt-1 text-xl font-semibold text-gray-100">Blockchain Data Engine</h2>
         <p class="mt-2 <%= muted_class %>">
-          Source officielle blockchain : ingestion des blocs, extraction UTXO, buffers Redis et flush PostgreSQL.
+          Source officielle blockchain : ingestion des blocs, extraction UTXO, spent state, buffers Redis et flush PostgreSQL.
         </p>
       </div>
 
@@ -498,6 +596,7 @@
               <div class="<%= label_class %>">Status</div>
               <div class="mt-1 text-lg font-semibold text-gray-100">Sidekiq</div>
             </div>
+
             <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(@sidekiq_status[:status]) %>">
               <%= @sidekiq_status[:status].to_s.upcase.presence || "UNKNOWN" %>
             </span>
@@ -564,24 +663,25 @@
     <% end %>
   </section>
 
-  <!-- Modules -->
+  <!-- Layer 2 Modules -->
   <section class="<%= section_class %>">
     <div class="mb-5">
-      <div class="<%= label_class %>">Modules</div>
-      <h2 class="mt-1 text-xl font-semibold text-gray-100">Blockchain modules & market data</h2>
+      <div class="<%= label_class %>">Layer 2 modules</div>
+      <h2 class="mt-1 text-xl font-semibold text-gray-100">Analytical pipelines</h2>
       <p class="mt-2 <%= muted_class %>">
-        État synthétique des modules branchés sur Layer 1 et du module BTC indépendant.
+        Modules analytiques consommateurs du Layer 1 : cluster, exchange-like, whales, inflow/outflow. BTC reste un module marché indépendant.
       </p>
     </div>
 
-    <div class="grid grid-cols-1 xl:grid-cols-3 gap-4">
+    <div class="grid grid-cols-1 xl:grid-cols-2 2xl:grid-cols-5 gap-4">
       <!-- Cluster -->
       <div class="<%= panel_class %>">
         <div class="flex items-start justify-between gap-3">
           <div>
             <div class="<%= label_class %>">Cluster</div>
-            <div class="mt-1 text-lg font-semibold text-gray-100">Cluster pipeline</div>
+            <div class="mt-1 text-lg font-semibold text-gray-100">Graph intelligence</div>
           </div>
+
           <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(@cluster_pipeline_status[:status]) %>">
             <%= @cluster_pipeline_status[:status].to_s.upcase.presence || "UNKNOWN" %>
           </span>
@@ -590,32 +690,73 @@
         <% if @cluster_pipeline_status[:error].present? %>
           <pre class="mt-4 text-xs text-rose-200 whitespace-pre-wrap"><%= @cluster_pipeline_status[:error] %></pre>
         <% else %>
-          <div class="mt-4 space-y-2 text-sm">
-            <div class="flex justify-between">
-              <span class="text-gray-500">Scanner height</span>
-              <span class="font-mono text-gray-200"><%= @cluster_pipeline_status[:scanner_height] || "—" %></span>
+          <div class="mt-4 space-y-3 text-sm">
+            <div class="rounded-lg border border-white/10 bg-black/20 p-3 space-y-2">
+              <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Batch scanner</div>
+
+              <div class="flex justify-between">
+                <span class="text-gray-500">Cursor</span>
+                <span class="font-mono text-gray-200"><%= cluster_batch[:scanner_height] || "—" %></span>
+              </div>
+
+              <div class="flex justify-between">
+                <span class="text-gray-500">Lag</span>
+                <span class="font-mono <%= cluster_batch[:lag].to_i > 72 ? "text-rose-300" : cluster_batch[:lag].to_i > 24 ? "text-amber-300" : "text-emerald-300" %>">
+                  <%= cluster_batch[:lag] || "—" %>
+                </span>
+              </div>
+
+              <div class="flex justify-between">
+                <span class="text-gray-500">Updated</span>
+                <span class="font-mono text-[10px] text-gray-400"><%= safe_time(cluster_batch[:updated_at]) %></span>
+              </div>
             </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Lag</span>
-              <span class="font-mono <%= @cluster_pipeline_status[:lag].to_i > 12 ? "text-rose-300" : "text-gray-200" %>"><%= @cluster_pipeline_status[:lag] || "—" %></span>
+
+            <div class="rounded-lg border border-white/10 bg-black/20 p-3 space-y-2">
+              <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">Realtime stream</div>
+
+              <div class="flex justify-between">
+                <span class="text-gray-500">Cursor</span>
+                <span class="font-mono text-gray-200"><%= cluster_realtime[:scanner_height] || "—" %></span>
+              </div>
+
+              <div class="flex justify-between">
+                <span class="text-gray-500">Lag</span>
+                <span class="font-mono <%= cluster_realtime[:lag].to_i > 24 ? "text-rose-300" : cluster_realtime[:lag].to_i > 6 ? "text-amber-300" : "text-emerald-300" %>">
+                  <%= cluster_realtime[:lag] || "—" %>
+                </span>
+              </div>
+
+              <div class="flex justify-between">
+                <span class="text-gray-500">Updated</span>
+                <span class="font-mono text-[10px] text-gray-400"><%= safe_time(cluster_realtime[:updated_at]) %></span>
+              </div>
             </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Refresh queue</span>
-              <span class="font-mono <%= @cluster_pipeline_status[:refresh_queue].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>"><%= @cluster_pipeline_status[:refresh_queue] || 0 %></span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Dirty queue</span>
-              <span class="font-mono <%= @cluster_pipeline_status[:dirty_queue_size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
-                <%= @cluster_pipeline_status[:dirty_queue_size] || 0 %>
-              </span>
-            </div>
-            <div class="flex justify-between">
-              <span class="text-gray-500">Profiles / metrics / signals</span>
-              <span class="font-mono text-gray-200">
-                <%= @cluster_pipeline_status[:profiles_count] || 0 %> /
-                <%= @cluster_pipeline_status[:metrics_count] || 0 %> /
-                <%= @cluster_pipeline_status[:signals_count] || 0 %>
-              </span>
+
+            <div class="pt-2 border-t border-white/10 space-y-2">
+              <div class="flex justify-between">
+                <span class="text-gray-500">Refresh queue</span>
+                <span class="font-mono <%= @cluster_pipeline_status[:refresh_queue].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+                  <%= @cluster_pipeline_status[:refresh_queue] || 0 %>
+                </span>
+              </div>
+
+              <div class="flex justify-between">
+                <span class="text-gray-500">Dirty clusters</span>
+                <span class="font-mono <%= @cluster_pipeline_status[:dirty_queue_size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+                  <%= @cluster_pipeline_status[:dirty_queue_size] || 0 %>
+                </span>
+              </div>
+
+              <div class="flex justify-between">
+                <span class="text-gray-500">Profiles</span>
+                <span class="font-mono text-gray-200"><%= @cluster_pipeline_status[:profiles_count] || 0 %></span>
+              </div>
+
+              <div class="flex justify-between">
+                <span class="text-gray-500">Signals</span>
+                <span class="font-mono text-gray-200"><%= @cluster_pipeline_status[:signals_count] || 0 %></span>
+              </div>
             </div>
           </div>
         <% end %>
@@ -630,8 +771,9 @@
         <div class="flex items-start justify-between gap-3">
           <div>
             <div class="<%= label_class %>">Exchange-like</div>
-            <div class="mt-1 text-lg font-semibold text-gray-100">Builder / observed</div>
+            <div class="mt-1 text-lg font-semibold text-gray-100">Address intelligence</div>
           </div>
+
           <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(scanner[:status] || builder[:status]) %>">
             <%= (scanner[:status] || builder[:status] || "unknown").to_s.upcase %>
           </span>
@@ -646,11 +788,11 @@
               <span class="font-mono text-gray-200"><%= builder[:last_blockheight] || "—" %></span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-500">Scanner cursor</span>
+              <span class="text-gray-500">Observed cursor</span>
               <span class="font-mono text-gray-200"><%= scanner[:last_blockheight] || "—" %></span>
             </div>
             <div class="flex justify-between">
-              <span class="text-gray-500">Addresses total</span>
+              <span class="text-gray-500">Addresses</span>
               <span class="font-mono text-gray-200"><%= metrics[:addresses_total] || 0 %></span>
             </div>
             <div class="flex justify-between">
@@ -659,6 +801,86 @@
             </div>
           </div>
         <% end %>
+      </div>
+
+      <!-- Inflow / Outflow -->
+      <div class="<%= panel_class %>">
+        <% flow_status = latest_flow.present? ? "ok" : "unknown" %>
+
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="<%= label_class %>">Inflow / Outflow</div>
+            <div class="mt-1 text-lg font-semibold text-gray-100">Exchange flows</div>
+          </div>
+
+          <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(flow_status) %>">
+            <%= flow_status.upcase %>
+          </span>
+        </div>
+
+        <div class="mt-4 space-y-2 text-sm">
+          <div class="flex justify-between">
+            <span class="text-gray-500">Last day</span>
+            <span class="font-mono text-gray-200"><%= latest_flow&.day || "—" %></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">Inflow</span>
+            <span class="font-mono text-gray-200"><%= fmt_btc(latest_flow&.inflow_btc) %></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">Outflow</span>
+            <span class="font-mono text-gray-200"><%= fmt_btc(latest_flow&.outflow_btc) %></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">Netflow</span>
+            <span class="font-mono <%= latest_flow&.netflow_btc.to_d.positive? ? "text-emerald-300" : "text-rose-300" rescue "text-gray-200" %>">
+              <%= fmt_btc(latest_flow&.netflow_btc) %>
+            </span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">Deposits</span>
+            <span class="font-mono text-gray-200"><%= flow_detail&.deposit_count || "—" %></span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Whale -->
+      <div class="<%= panel_class %>">
+        <% whale_status = latest_whale.present? ? "ok" : "unknown" %>
+
+        <div class="flex items-start justify-between gap-3">
+          <div>
+            <div class="<%= label_class %>">Whale</div>
+            <div class="mt-1 text-lg font-semibold text-gray-100">Large transfers</div>
+          </div>
+
+          <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(whale_status) %>">
+            <%= whale_status.upcase %>
+          </span>
+        </div>
+
+        <div class="mt-4 space-y-2 text-sm">
+          <div class="flex justify-between">
+            <span class="text-gray-500">Total alerts</span>
+            <span class="font-mono text-gray-200"><%= whale_count %></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">Last height</span>
+            <span class="font-mono text-gray-200"><%= latest_whale&.block_height || "—" %></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">Last total out</span>
+            <span class="font-mono text-gray-200"><%= fmt_btc(latest_whale&.total_out_btc) %></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">Tier</span>
+            <span class="font-mono text-gray-200"><%= latest_whale&.tier || "—" %></span>
+          </div>
+          <div class="flex justify-between">
+            <span class="text-gray-500">Source</span>
+            <span class="font-mono text-gray-200"><%= latest_whale&.meta&.dig("source") || "legacy/layer1" rescue "—" %></span>
+          </div>
+        </div>
       </div>
 
       <!-- BTC -->
@@ -672,6 +894,7 @@
             <div class="<%= label_class %>">BTC</div>
             <div class="mt-1 text-lg font-semibold text-gray-100">Market data</div>
           </div>
+
           <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold <%= status_badge_class(daily[:status]) %>">
             <%= daily[:status].to_s.upcase.presence || "UNKNOWN" %>
           </span>

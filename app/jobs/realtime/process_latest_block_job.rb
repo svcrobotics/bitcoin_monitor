@@ -33,8 +33,12 @@ module Realtime
     private
 
     def process_pending_blocks
-      rpc = BitcoinRpc.new(wallet: nil)
-      best_height = rpc.getblockcount.to_i
+      best_height = layer1_best_height
+
+      if best_height <= 0
+        Rails.logger.info("[realtime] skip_no_layer1_processed_blocks")
+        return { ok: true, skipped: true, reason: "no_layer1_processed_blocks" }
+      end
 
       cursor = ScannerCursor.find_or_create_by!(name: CURSOR_NAME)
 
@@ -51,16 +55,16 @@ module Realtime
       end
 
       end_height = [best_height, start_height + MAX_BLOCKS_PER_RUN - 1].min
-      end_hash = rpc.getblockhash(end_height)
+      end_hash = block_hash_for_height(end_height)
 
       result = ClusterScanner.call(
         from_height: start_height,
         to_height: end_height,
-        rpc: rpc,
-        refresh: false
+        refresh: false,
+        mode: :realtime
       )
 
-      if result[:dirty_cluster_ids].present?
+      if result[:dirty_clusters_count].to_i.positive?
         Clusters::RefreshDirtyClustersJob.perform_later
       end
 
@@ -71,7 +75,7 @@ module Realtime
 
       Rails.logger.info(
         "[realtime] blocks_processed " \
-        "from=#{start_height} to=#{end_height} best=#{best_height} " \
+        "source=layer1 from=#{start_height} to=#{end_height} best=#{best_height} " \
         "dirty_clusters_count=#{result[:dirty_clusters_count]}"
       )
 
@@ -83,6 +87,19 @@ module Realtime
         best_height: best_height,
         more_pending: end_height < best_height
       )
+    end
+
+    def layer1_best_height
+      BlockBufferModel
+        .where(status: "processed")
+        .maximum(:height)
+        .to_i
+    end
+
+    def block_hash_for_height(height)
+      BlockBufferModel
+        .where(height: height.to_i, status: "processed")
+        .pick(:block_hash)
     end
   end
 end

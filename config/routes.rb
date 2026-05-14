@@ -1,4 +1,9 @@
 Rails.application.routes.draw do
+
+  namespace :clusters do
+    resources :events, only: [:index]
+  end
+  
   get "pages/about"
   get "/address-search", to: "address_lookup#search", as: :address_search
   get "/address/:address", to: "address_lookup#show", as: :address_lookup
@@ -79,7 +84,7 @@ Rails.application.routes.draw do
   
   post "/ai/dashboard_insight", to: "ai#dashboard_insight", as: :ai_dashboard_insight
 
-  get "/market/price", to: "market#price", as: :market_price
+  # get "/market/price", to: "market#price", as: :market_price
 
   get "/system", to: "system#index"
 

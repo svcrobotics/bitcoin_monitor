@@ -1,0 +1,268 @@
+<section class="mt-6 bg-gray-900/40 border border-gray-800 rounded-2xl p-5 sm:p-6">
+
+  <div class="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-5">
+    <div>
+      <%= link_to "← Retour au dashboard", system_path, class: "text-sm text-gray-400 hover:text-gray-200" %>
+
+      <h1 class="mt-3 text-2xl font-semibold text-white">Cluster events</h1>
+
+      <p class="mt-2 text-sm text-gray-400 max-w-4xl leading-relaxed">
+        Console d’analyse des événements cluster : mouvements whale, gros outflows,
+        clusters réactivés après sommeil, activité inhabituelle, fusions et expansion du graphe.
+      </p>
+    </div>
+
+    <div class="flex flex-wrap gap-2">
+      <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-emerald-300 bg-emerald-500/10 border border-emerald-500/20">
+        ClickHouse live
+      </span>
+
+      <span class="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold text-gray-300 bg-gray-500/10 border border-gray-500/20">
+        Derniers <%= @stats[:total] %> événements
+      </span>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-xl border border-blue-500/20 bg-blue-500/5 p-4">
+    <div class="text-sm font-semibold text-blue-200">
+      Comment lire cette page ?
+    </div>
+
+    <div class="mt-2 grid grid-cols-1 lg:grid-cols-3 gap-3 text-sm text-gray-300 leading-relaxed">
+      <div>
+        <span class="font-semibold text-gray-100">Business</span>
+        = alertes interprétables : outflows, whales, clusters réactivés.
+      </div>
+
+      <div>
+        <span class="font-semibold text-gray-100">Realtime / Batch</span>
+        = événements de construction du graphe : fusions, liens, expansion.
+      </div>
+
+      <div>
+        <span class="font-semibold text-gray-100">Action</span>
+        = ce qu’il faut vérifier : destination, répétition, exchange-like, ancienneté.
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 grid grid-cols-2 md:grid-cols-5 gap-3">
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <div class="text-xs text-gray-500 uppercase tracking-wide">Events</div>
+      <div class="mt-1 text-2xl font-semibold text-white"><%= @stats[:total] %></div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <div class="text-xs text-gray-500 uppercase tracking-wide">High</div>
+      <div class="mt-1 text-2xl font-semibold text-rose-300"><%= @stats[:high] %></div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <div class="text-xs text-gray-500 uppercase tracking-wide">Realtime</div>
+      <div class="mt-1 text-2xl font-semibold text-sky-300"><%= @stats[:realtime] %></div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <div class="text-xs text-gray-500 uppercase tracking-wide">Business</div>
+      <div class="mt-1 text-2xl font-semibold text-orange-300"><%= @stats[:business] %></div>
+    </div>
+
+    <div class="rounded-xl border border-gray-800 bg-black/20 p-4">
+      <div class="text-xs text-gray-500 uppercase tracking-wide">Top score</div>
+      <div class="mt-1 text-2xl font-semibold text-white"><%= @stats[:top_score] %></div>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-xl border border-gray-800 bg-black/20 p-4">
+    <%= form_with url: clusters_events_path, method: :get, local: true, class: "grid grid-cols-1 lg:grid-cols-12 gap-3" do %>
+
+      <div class="lg:col-span-4">
+        <label class="block text-xs text-gray-500 mb-1">Recherche</label>
+        <%= text_field_tag :q, @q,
+          placeholder: "Cluster ID, block height, signal…",
+          class: "w-full rounded-lg bg-gray-950 border border-gray-800 text-gray-200 px-3 py-2 text-sm placeholder-gray-600" %>
+      </div>
+
+      <div class="lg:col-span-2">
+        <label class="block text-xs text-gray-500 mb-1">Source</label>
+        <%= select_tag :source,
+          options_for_select([
+            ["Toutes", ""],
+            ["Business", "cluster_business"],
+            ["Realtime", "cluster_realtime"],
+            ["Batch", "cluster_batch"]
+          ], @source),
+          class: "w-full rounded-lg bg-gray-950 border border-gray-800 text-gray-200 px-3 py-2 text-sm" %>
+      </div>
+
+      <div class="lg:col-span-2">
+        <label class="block text-xs text-gray-500 mb-1">Sévérité</label>
+        <%= select_tag :severity,
+          options_for_select([
+            ["Toutes", ""],
+            ["High", "high"],
+            ["Medium", "medium"],
+            ["Low", "low"]
+          ], @severity),
+          class: "w-full rounded-lg bg-gray-950 border border-gray-800 text-gray-200 px-3 py-2 text-sm" %>
+      </div>
+
+      <div class="lg:col-span-3">
+        <label class="block text-xs text-gray-500 mb-1">Signal</label>
+        <%= select_tag :signal_type,
+          options_for_select([
+            ["Tous", ""],
+            ["Large outflow", "large_outflow"],
+            ["Whale activity", "whale_cluster_activity"],
+            ["Cluster réactivé", "cluster_reactivation"],
+            ["Activity spike", "activity_spike"],
+            ["Large links", "large_link_creation"],
+            ["Cluster merge", "cluster_merge"],
+            ["Cluster activation", "cluster_activation"]
+          ], @signal_type),
+          class: "w-full rounded-lg bg-gray-950 border border-gray-800 text-gray-200 px-3 py-2 text-sm" %>
+      </div>
+
+      <div class="lg:col-span-1 flex items-end">
+        <%= submit_tag "Filtrer",
+          class: "w-full rounded-lg bg-orange-500 hover:bg-orange-400 text-white px-4 py-2 text-sm font-semibold" %>
+      </div>
+
+      <div class="lg:col-span-12 flex flex-wrap gap-2 pt-1">
+        <%= link_to "Tout", clusters_events_path, class: "rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-1.5 text-xs" %>
+        <%= link_to "Business", clusters_events_path(source: "cluster_business"), class: "rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-1.5 text-xs" %>
+        <%= link_to "High", clusters_events_path(severity: "high"), class: "rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-1.5 text-xs" %>
+        <%= link_to "Whales", clusters_events_path(signal_type: "whale_cluster_activity"), class: "rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-1.5 text-xs" %>
+        <%= link_to "Outflows", clusters_events_path(signal_type: "large_outflow"), class: "rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-1.5 text-xs" %>
+        <%= link_to "Réactivés", clusters_events_path(signal_type: "cluster_reactivation"), class: "rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-1.5 text-xs" %>
+        <%= link_to "Realtime", clusters_events_path(source: "cluster_realtime"), class: "rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 px-3 py-1.5 text-xs" %>
+      </div>
+
+    <% end %>
+  </div>
+
+  <div class="mt-6 overflow-hidden rounded-xl border border-gray-800 bg-black/20">
+    <table class="min-w-full divide-y divide-gray-800">
+      <thead class="bg-gray-950/70">
+        <tr>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Signal</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Cluster</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Montant</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Score</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Source</th>
+          <th class="px-4 py-3 text-left text-xs font-semibold text-gray-500 uppercase">Analyse</th>
+        </tr>
+      </thead>
+
+      <tbody class="divide-y divide-gray-800">
+        <% @events.each do |event| %>
+          <% signal_type = event["signal_type"].to_s %>
+          <% severity = event["severity"].to_s %>
+          <% source = event["source"].to_s %>
+          <% score = event["score"].to_i %>
+          <% amount_btc = event["amount_btc"].to_f %>
+
+          <% label = cluster_event_label(signal_type) %>
+          <% severity_class = cluster_event_severity_class(severity) %>
+          <% score_class = cluster_event_score_class(score) %>
+          <% source_class = cluster_event_source_class(source) %>
+
+          <tr class="hover:bg-gray-900/50 align-top">
+            <td class="px-4 py-4">
+              <div class="flex items-center gap-2">
+                <div class="text-sm font-semibold text-gray-100">
+                  <%= label %>
+                </div>
+
+                <span class="inline-flex items-center rounded-full px-2 py-0.5 text-[11px] font-semibold <%= severity_class %>">
+                  <%= severity.presence || "unknown" %>
+                </span>
+              </div>
+
+              <div class="mt-1 text-xs text-gray-500">
+                <%= event["event_time"] %>
+              </div>
+
+              <div class="mt-1 text-xs text-gray-600">
+                <%= signal_type %>
+              </div>
+            </td>
+
+            <td class="px-4 py-4 text-sm text-gray-300">
+              <div class="font-medium text-gray-100">
+                #<%= event["cluster_id"] %>
+              </div>
+
+              <div class="mt-1 text-xs text-gray-500">
+                block <%= event["block_height"] %>
+              </div>
+
+              <div class="mt-1 text-xs text-gray-500">
+                <%= number_with_delimiter(event["tx_count"].to_i) %> tx ·
+                <%= number_with_delimiter(event["address_count"].to_i) %> adresses
+              </div>
+            </td>
+
+            <td class="px-4 py-4 text-sm text-gray-300 whitespace-nowrap">
+              <% if amount_btc.positive? %>
+                <span class="font-semibold text-gray-100">
+                  <%= number_with_delimiter(amount_btc.round(4)) %>
+                </span>
+                <span class="text-gray-500">BTC</span>
+              <% else %>
+                <span class="text-gray-600">—</span>
+              <% end %>
+            </td>
+
+            <td class="px-4 py-4">
+              <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold <%= score_class %>">
+                <%= score %>
+              </span>
+            </td>
+
+            <td class="px-4 py-4">
+              <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold <%= source_class %>">
+                <%= source.sub("cluster_", "") %>
+              </span>
+            </td>
+
+            <td class="px-4 py-4 w-[26rem]">
+              <details class="group">
+                <summary class="cursor-pointer select-none text-sm font-semibold text-orange-300 hover:text-orange-200">
+                  Voir l’analyse
+                </summary>
+
+                <div class="mt-3 rounded-lg border border-gray-800 bg-gray-950/70 p-3">
+                  <div class="text-sm text-gray-300 leading-relaxed">
+                    <strong class="text-gray-100">Lecture :</strong>
+                    <%= cluster_event_reading(signal_type) %>
+
+                    <div class="mt-2 text-gray-500">
+                      <%= cluster_event_next_step(signal_type) %>
+                    </div>
+
+                    <% if signal_type == "cluster_reactivation" %>
+                      <div class="mt-3 rounded-lg border border-orange-500/20 bg-orange-500/5 px-3 py-2 text-xs text-orange-200 leading-relaxed">
+                        Signal à traiter avec prudence : il indique une reprise d’activité d’un cluster ancien,
+                        mais la vraie dormance devra être confirmée avec un historique d’inactivité dédié.
+                      </div>
+                    <% end %>
+                  </div>
+                </div>
+              </details>
+            </td>
+          </tr>
+        <% end %>
+
+        <% if @events.empty? %>
+          <tr>
+            <td colspan="6" class="px-4 py-10 text-center text-sm text-gray-500">
+              Aucun événement ne correspond aux filtres.
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+
+</section>

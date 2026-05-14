@@ -4,53 +4,9 @@ require "sidekiq/cron/job"
 
 if Sidekiq.server?
   schedule = {
-    "exchange_observed_scan" => {
-      "cron" => "*/10 * * * *",
-      "class" => "ExchangeObservedScanJob",
-      "queue" => "p1_exchange",
-      "active_job" => true,
-      "description" => "Scan exchange observed UTXOs every 10 minutes"
-    },
-
-    "cluster_scan" => {
-      "cron" => "*/15 * * * *",
-      "class" => "ClusterScanJob",
-      "queue" => "p3_clusters",
-      "active_job" => true,
-      "description" => "Scan Bitcoin blocks for cluster analysis"
-    },
-
-    "inflow_outflow_build" => {
-      "cron" => "25 * * * *",
-      "class" => "InflowOutflowBuildJob",
-      "queue" => "p2_flows",
-      "active_job" => true,
-      "description" => "Build inflow/outflow V1"
-    },
-
-    "whale_scan" => {
-      "cron" => "15 * * * *",
-      "class" => "WhaleScanJob",
-      "queue" => "p2_flows",
-      "active_job" => true,
-      "description" => "Scan recent whale transactions"
-    },
-
-    "cluster_v3_build_metrics" => {
-      "cron" => "5 4 * * *",
-      "class" => "ClusterV3BuildMetricsJob",
-      "queue" => "p4_analytics",
-      "active_job" => true,
-      "description" => "Build Cluster V3 metrics"
-    },
-
-    "cluster_v3_detect_signals" => {
-      "cron" => "20 4 * * *",
-      "class" => "ClusterV3DetectSignalsJob",
-      "queue" => "p4_analytics",
-      "active_job" => true,
-      "description" => "Detect Cluster V3 signals"
-    },
+    # ------------------------------------------------------------
+    # BTC / MARKET - jobs légers, OK via Sidekiq cron
+    # ------------------------------------------------------------
 
     "btc_price_daily" => {
       "cron" => "20 0 * * *",
@@ -68,30 +24,6 @@ if Sidekiq.server?
       "description" => "Build daily market snapshot"
     },
 
-    "exchange_address_builder" => {
-      "cron" => "0,30 * * * *",
-      "class" => "ExchangeAddressBuilderJob",
-      "queue" => "p1_exchange",
-      "active_job" => true,
-      "description" => "Rebuild exchange-like address set"
-    },
-
-    "whales_reclassify_last_7d" => {
-      "cron" => "20 2 * * *",
-      "class" => "WhalesReclassifyJob",
-      "queue" => "p2_flows",
-      "active_job" => true,
-      "description" => "Reclassify whale alerts over the last 7 days"
-    },
-
-    "true_flow_rebuild" => {
-      "cron" => "10 * * * *",
-      "class" => "TrueFlowRebuildJob",
-      "queue" => "p2_flows",
-      "active_job" => true,
-      "description" => "Rebuild true exchange flow"
-    },
-
     "btc_intraday_5m" => {
       "cron" => "*/5 * * * *",
       "class" => "BtcIntraday5mJob",
@@ -106,7 +38,61 @@ if Sidekiq.server?
       "queue" => "default",
       "active_job" => true,
       "description" => "Build BTC intraday 1h candles"
-    }
+    },
+
+    # ------------------------------------------------------------
+    # CLUSTER - uniquement refresh léger
+    # Les scans cluster lourds sont pilotés par bin/cron_cluster_scan.sh
+    # ------------------------------------------------------------
+
+    # "cluster_refresh_dirty_clusters" => {
+    #  "cron" => "*/5 * * * *",
+    #  "class" => "Clusters::RefreshDirtyClustersJob",
+    #  "queue" => "p3_clusters_refresh",
+    #  "active_job" => true,
+    #  "description" => "Refresh dirty clusters in small batches"
+    # },
+
+    # ------------------------------------------------------------
+    # CLUSTER ANALYTICS - batch quotidien
+    # ------------------------------------------------------------
+
+    "cluster_v3_build_metrics" => {
+      "cron" => "5 4 * * *",
+      "class" => "ClusterV3BuildMetricsJob",
+      "queue" => "p4_analytics",
+      "active_job" => true,
+      "description" => "Build Cluster V3 metrics"
+    },
+
+    "cluster_v3_detect_signals" => {
+      "cron" => "20 4 * * *",
+      "class" => "ClusterV3DetectSignalsJob",
+      "queue" => "p4_analytics",
+      "active_job" => true,
+      "description" => "Detect Cluster V3 signals"
+    },
+
+    "system_snapshots_refresh" => {
+      "class" => "SystemSnapshotsRefreshJob",
+      "cron" => "*/5 * * * *",
+      "queue" => "low"
+    },
+
+    # ------------------------------------------------------------
+    # DÉSACTIVÉS ICI VOLONTAIREMENT
+    # ------------------------------------------------------------
+    #
+    # exchange_observed_scan
+    # exchange_address_builder
+    # inflow_outflow_build
+    # whale_scan
+    # cluster_scan
+    # true_flow_rebuild
+    # whales_reclassify_last_7d
+    #
+    # Ces jobs sont trop lourds ou déjà pilotés par cron shell.
+    # Les laisser ici provoque des backlogs Sidekiq massifs.
   }
 
   Sidekiq::Cron::Job.load_from_hash!(schedule)

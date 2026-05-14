@@ -17,12 +17,12 @@ module System
       best_height = BitcoinRpc.new(wallet: nil).getblockcount.to_i
 
       watcher = ScannerCursor.find_by(name: "zmq_block_watcher")
-      processor = ScannerCursor.find_by(name: "realtime_block_stream")
+      processing = Blockchain::State::ProcessingState.new.call
 
       {
         best_height: best_height,
         watcher: build_cursor_state(watcher, best_height),
-        processor: build_cursor_state(processor, best_height)
+        processor: build_layer1_processor_state(processing, best_height)
       }
     rescue StandardError => e
       {
@@ -41,7 +41,7 @@ module System
 
       last_height = cursor.last_blockheight.to_i
       lag = last_height.positive? ? best_height - last_height : best_height
-      age_seconds = (now - cursor.updated_at).to_i
+      age_seconds = cursor.updated_at.present? ? (now - cursor.updated_at).to_i : nil
 
       {
         status: compute_status(lag),
@@ -50,6 +50,48 @@ module System
         lag: lag,
         last_blockhash: cursor.last_blockhash,
         updated_at: cursor.updated_at,
+        age_seconds: age_seconds
+      }
+    end
+
+    def build_layer1_processor_state(processing, best_height)
+      last_height =
+        processing[:last_processed_height] ||
+        processing["last_processed_height"] ||
+        processing[:processed_height] ||
+        processing["processed_height"] ||
+        last_processed_block&.height
+
+      lag =
+        processing[:lag] ||
+        processing["lag"] ||
+        (last_height.present? ? best_height - last_height.to_i : nil)
+
+      last_processed_block =
+        BlockBufferModel
+          .where(status: "processed")
+          .order(height: :desc)
+          .limit(1)
+          .first
+
+      updated_at =
+        processing[:updated_at] ||
+        processing["updated_at"] ||
+        processing[:last_processed_at] ||
+        processing["last_processed_at"] ||
+        last_processed_block&.processed_at ||
+        last_processed_block&.updated_at
+
+      age_seconds =
+        updated_at.present? ? (now - updated_at.to_time).to_i : nil
+
+      {
+        status: compute_status(lag.to_i),
+        last_blockheight: last_height,
+        best_height: best_height,
+        lag: lag,
+        last_blockhash: nil,
+        updated_at: updated_at,
         age_seconds: age_seconds
       }
     end

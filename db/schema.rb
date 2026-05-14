@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_05_09_080527) do
+ActiveRecord::Schema[8.0].define(version: 2026_05_13_220407) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -232,6 +232,20 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_09_080527) do
     t.decimal "low_eur", precision: 20, scale: 8
     t.index ["computed_at"], name: "index_btc_price_days_on_computed_at"
     t.index ["day", "source"], name: "index_btc_price_days_on_day_and_source", unique: true
+  end
+
+  create_table "cluster_activity_states", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.integer "last_seen_height"
+    t.datetime "last_seen_at"
+    t.integer "last_active_height"
+    t.datetime "last_active_at"
+    t.integer "inactive_blocks"
+    t.integer "inactive_seconds"
+    t.integer "activity_count"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_id"], name: "index_cluster_activity_states_on_cluster_id"
   end
 
   create_table "cluster_metrics", force: :cascade do |t|
@@ -792,6 +806,15 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_09_080527) do
     t.index ["name"], name: "index_scanner_cursors_on_name", unique: true
   end
 
+  create_table "system_snapshots", force: :cascade do |t|
+    t.string "name", null: false
+    t.jsonb "payload", default: {}, null: false
+    t.datetime "captured_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["name", "captured_at"], name: "index_system_snapshots_on_name_and_captured_at"
+  end
+
   create_table "trade_simulation_points", force: :cascade do |t|
     t.bigint "trade_simulation_id", null: false
     t.date "day", null: false
@@ -948,6 +971,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_09_080527) do
   add_foreign_key "brc20_balances", "brc20_tokens"
   add_foreign_key "brc20_events", "brc20_tokens"
   add_foreign_key "brc20_token_daily_stats", "brc20_tokens"
+  add_foreign_key "cluster_activity_states", "clusters"
   add_foreign_key "cluster_metrics", "clusters"
   add_foreign_key "cluster_profiles", "clusters"
   add_foreign_key "cluster_signals", "clusters"

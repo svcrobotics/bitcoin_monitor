@@ -1,8 +1,86 @@
 <div class="px-4 py-8 sm:px-6 lg:px-8">
   <div class="mx-auto w-full max-w-7xl xl:max-w-screen-2xl">
-
     <!-- ================= HEADER ================= -->
     <header class="mb-6">
+      <% if @latest_cluster_event.present? %>
+
+        <% signal_type = @latest_cluster_event["signal_type"].to_s %>
+        <% amount_btc = @latest_cluster_event["amount_btc"].to_f %>
+        <% severity = @latest_cluster_event["severity"].to_s %>
+
+        <% title =
+          if signal_type == "large_outflow"
+            "Gros mouvement sortant détecté"
+          elsif signal_type == "whale_cluster_activity"
+            "Activité whale détectée"
+          elsif signal_type == "activity_spike"
+            "Pic d’activité cluster"
+          elsif signal_type == "large_link_creation"
+            "Expansion importante du graphe"
+          elsif signal_type == "cluster_merge"
+            "Fusion de clusters détectée"
+          elsif signal_type == "cluster_reactivation"
+            "Cluster réactivé"
+          else
+            signal_type.humanize
+          end
+        %>
+
+        <% severity_class =
+          if severity == "high"
+            "border-rose-500/30 bg-rose-500/10 text-rose-200"
+          elsif severity == "medium"
+            "border-amber-500/30 bg-amber-500/10 text-amber-200"
+          else
+            "border-gray-700 bg-gray-900/40 text-gray-200"
+          end
+        %>
+
+        <div class="mb-6 rounded-2xl border p-4 <%= severity_class %>">
+          <div class="flex items-start justify-between gap-4">
+
+            <div>
+              <div class="text-xs uppercase tracking-wide opacity-80">
+                Alerte cluster prioritaire
+              </div>
+
+              <div class="mt-1 text-base font-semibold">
+                <%= title %>
+              </div>
+
+              <div class="mt-2 text-sm opacity-90">
+                Cluster #<%= @latest_cluster_event["cluster_id"] %>
+                · score <%= @latest_cluster_event["score"] %>
+                · <%= severity %>
+              </div>
+
+              <div class="mt-1 text-sm opacity-80">
+                block <%= @latest_cluster_event["block_height"] %>
+                · <%= number_with_delimiter(@latest_cluster_event["tx_count"].to_i) %> tx
+                · <%= number_with_delimiter(@latest_cluster_event["address_count"].to_i) %> adresses
+              </div>
+
+              <% if amount_btc.positive? %>
+                <div class="mt-2 text-lg font-semibold">
+                  <%= number_with_delimiter(amount_btc.round(4)) %> BTC
+                </div>
+              <% end %>
+            </div>
+
+            <div class="flex flex-col items-end gap-2">
+              <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-black/20">
+                <%= @latest_cluster_event["source"].to_s.sub("cluster_", "") %>
+              </span>
+
+              <%= link_to "Voir les alertes →",
+                clusters_events_path,
+                class: "text-sm font-semibold hover:underline" %>
+            </div>
+
+          </div>
+        </div>
+
+      <% end %>
       <div class="flex items-start justify-between gap-4">
         <div class="min-w-0">
           <h1 class="text-3xl sm:text-4xl font-bold tracking-tight mb-1">
@@ -12,7 +90,6 @@
             <%= t("dashboard.subtitle") %>
           </p>
         </div>
-
         <div class="shrink-0">
           <div
             class="relative inline-block text-left"

@@ -16,7 +16,12 @@ module System
     end
 
     def call
-      best_height = BitcoinRpc.new(wallet: nil).getblockcount.to_i
+      bitcoin_best_height = BitcoinRpc.new(wallet: nil).getblockcount.to_i
+      layer1_best_height = BlockBufferModel.where(status: "processed").maximum(:height).to_i
+
+      best_height = layer1_best_height.positive? ? layer1_best_height : bitcoin_best_height
+
+      layer1_lag = [bitcoin_best_height - layer1_best_height, 0].max
 
       realtime_lag = cursor_lag("realtime_block_stream", best_height)
       cluster_lag  = cursor_lag("cluster_scan", best_height)
@@ -31,6 +36,9 @@ module System
       {
         state: state,
         best_height: best_height,
+        bitcoin_best_height: bitcoin_best_height,
+        layer1_best_height: layer1_best_height,
+        layer1_lag: layer1_lag,
         realtime_lag: realtime_lag,
         cluster_lag: cluster_lag,
         exchange_lag: exchange_lag,
@@ -55,7 +63,7 @@ module System
     end
 
     def compute_state(realtime_lag:, cluster_lag:, exchange_lag:)
-      return "stalled" if realtime_lag >= REALTIME_STALLED_LAG
+      return "catching_up" if realtime_lag >= REALTIME_STALLED_LAG
       return "stalled" if cluster_lag >= CLUSTER_STALLED_LAG
       return "stalled" if exchange_lag >= EXCHANGE_STALLED_LAG
 

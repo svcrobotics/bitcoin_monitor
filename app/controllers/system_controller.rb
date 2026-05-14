@@ -3,45 +3,62 @@ class SystemController < ApplicationController
   before_action :catch_up_btc_price_days_in_development, only: [:index]
 
   def index
-    @blockchain_pipeline = System::BlockchainPipelineStatus.call
-    @layer1_ingestion = Blockchain::State::IngestionState.new.call
-    @layer1_processing = Blockchain::State::ProcessingState.new.call
+    @blockchain_pipeline = measure("blockchain_pipeline") { System::BlockchainPipelineStatus.call }
+    @layer1_ingestion = measure("layer1_ingestion") { Blockchain::State::IngestionState.new.call }
+    @layer1_processing = measure("layer1_processing") { Blockchain::State::ProcessingState.new.call }
 
-    @layer1_tables = {
-      block_buffers: BlockBufferModel.count,
-      tx_outputs: TxOutput.count,
-      events: Event.count,
-      edges: Edge.count
-    }
-    @realtime = System::RealtimeSnapshotBuilder.call
-    @cluster_pipeline_status = System::ClusterPipelineStatus.call
-    @sidekiq_status = System::SidekiqStatus.call
-    @jobs = JobRun.recent.limit(200)
-    @scanner_status = build_scanner_status
-    @exchange_like_status = build_exchange_like_status
-    @btc_status = build_btc_status
+    @layer1_tables = measure("layer1_tables") do
+      {
+        block_buffers: estimated_count(BlockBufferModel),
+        tx_outputs: estimated_count(TxOutput),
+        events: estimated_count(Event),
+        edges: estimated_count(Edge)
+      }
+    end
 
-    @snapshot  = System::HealthSnapshotBuilder.call
-    @summary   = @snapshot[:summary]
-    @anomalies = @snapshot[:anomalies]
-    @job_health = @snapshot[:jobs]
-    @recovery  = @snapshot[:recovery]
-    @recovery_snapshot = System::RecoverySnapshotBuilder.call
+    @realtime = measure("realtime_snapshot") { System::RealtimeSnapshotBuilder.call }
+    @cluster_pipeline_status = measure("cluster_pipeline_status_snapshot") do
+      payload = SystemSnapshot.latest("cluster_pipeline_status")&.payload || {}
+      payload.deep_symbolize_keys
+    end
+    @jobs = measure("jobs_recent") { JobRun.order(created_at: :desc).limit(20).to_a }
+    @sidekiq_status = measure("sidekiq_status") { System::SidekiqStatus.call }
+    @scanner_status = measure("scanner_status") { build_scanner_status }
+    @exchange_like_status = measure("exchange_like_status") { build_exchange_like_status }
+    @btc_status = measure("btc_status") { build_btc_status }
 
-    @checks = {
-      bitcoind: bitcoind_check,
-      disks: disks_check,
-      bitcoind_activity: bitcoind_activity_check
-    }
+    @snapshot = measure("health_snapshot_snapshot") do
+      payload = SystemSnapshot.latest("health_snapshot")&.payload || {}
+      payload.deep_symbolize_keys
+    end
 
-    @tables = build_tables_health
-    @cluster_realtime = System::ClusterRealtimePipelineStatus.call
+    @summary = @snapshot["summary"] || {}
+    @anomalies = @snapshot["anomalies"] || []
+    @job_health = @snapshot["jobs"] || {}
+    @recovery = @snapshot["recovery"] || {}
 
-    @recent_blocks =
+    @recovery_snapshot = measure("recovery_snapshot") { System::RecoverySnapshotBuilder.call }
+
+    @checks = measure("checks") do
+      {
+        bitcoind: measure("check_bitcoind") { bitcoind_check },
+        disks: measure("check_disks") { disks_check },
+        bitcoind_activity: measure("check_bitcoind_activity") { bitcoind_activity_check }
+      }
+    end
+
+    @tables = measure("tables_health_snapshot") do
+      payload = SystemSnapshot.latest("tables_health")&.payload || {}
+      payload.deep_symbolize_keys
+    end
+    @cluster_realtime = measure("cluster_realtime_pipeline") { System::ClusterRealtimePipelineStatus.call }
+
+    @recent_blocks = measure("recent_blocks") do
       BlockBufferModel
         .order(height: :desc)
         .limit(12)
         .to_a
+    end
   end
 
   def normalize_system_status(value)
@@ -60,21 +77,67 @@ class SystemController < ApplicationController
   end
 
   def recovery
-    @blockchain_pipeline = System::BlockchainPipelineStatus.call
-    @recovery_state = System::RecoveryStateBuilder.call
-    @recovery_snapshot = System::RecoverySnapshotBuilder.call
+    @blockchain_pipeline = measure("recovery.blockchain_pipeline") { System::BlockchainPipelineStatus.call }
+    @recovery_state = measure("recovery.state") { System::RecoveryStateBuilder.call }
+    @recovery_snapshot = measure("recovery.snapshot") { System::RecoverySnapshotBuilder.call }
 
-    @recovery_snapshot[:layer1_ingestion] = Blockchain::State::IngestionState.new.call
-    @recovery_snapshot[:layer1_processing] = Blockchain::State::ProcessingState.new.call
-    @recovery_snapshot[:layer1_tables] = {
-      block_buffers: BlockBufferModel.count,
-      tx_outputs: TxOutput.count,
-      events: Event.count,
-      edges: Edge.count
-    }
+    @recovery_snapshot[:layer1_ingestion] =
+      measure("recovery.layer1_ingestion") { Blockchain::State::IngestionState.new.call }
+
+    @recovery_snapshot[:layer1_processing] =
+      measure("recovery.layer1_processing") { Blockchain::State::ProcessingState.new.call }
+
+    @recovery_snapshot[:layer1_tables] =
+      measure("recovery.layer1_tables") do
+        {
+          block_buffers: estimated_count(BlockBufferModel),
+          tx_outputs: estimated_count(TxOutput),
+          events: estimated_count(Event),
+          edges: estimated_count(Edge)
+        }
+      end
   end
 
   private
+
+  def estimated_count(model)
+    table_name = model.table_name
+
+    sql = ActiveRecord::Base.sanitize_sql_array([
+      "SELECT reltuples::bigint FROM pg_class WHERE oid = ?::regclass",
+      table_name
+    ])
+
+    ActiveRecord::Base.connection.select_value(sql).to_i
+  rescue => e
+    Rails.logger.warn(
+      "[system_perf] estimated_count #{table_name} failed: #{e.class}: #{e.message}"
+    )
+
+    nil
+  end
+
+  def measure(label)
+    started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
+
+    result = yield
+
+    duration_ms =
+      ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000).round
+
+    Rails.logger.warn("[system_perf] #{label}=#{duration_ms}ms")
+
+    result
+  rescue => e
+    duration_ms =
+      ((Process.clock_gettime(Process::CLOCK_MONOTONIC) - started_at) * 1000).round
+
+    Rails.logger.error(
+      "[system_perf] #{label}=#{duration_ms}ms ERROR #{e.class}: #{e.message}"
+    )
+
+    raise
+  end
 
   def fmt_duration_ms(value)
     return "—" if value.blank?
@@ -210,13 +273,13 @@ class SystemController < ApplicationController
       },
 
       metrics: {
-        addresses_total: ExchangeAddress.count,
-        addresses_operational: ExchangeAddress.operational.count,
-        addresses_scannable: ExchangeAddress.scannable.count,
-        observed_total: ExchangeObservedUtxo.count,
-        new_addresses_24h: ExchangeAddress.where("first_seen_at >= ?", 24.hours.ago).count,
-        seen_24h: ExchangeObservedUtxo.where("seen_day >= ?", Date.current - 1).count,
-        spent_24h: ExchangeObservedUtxo.where.not(spent_day: nil).where("spent_day >= ?", Date.current - 1).count
+        addresses_total: estimated_count(ExchangeAddress),
+        addresses_operational: "—",
+        addresses_scannable: "—",
+        observed_total: estimated_count(ExchangeObservedUtxo),
+        new_addresses_24h: "—",
+        seen_24h: "—",
+        spent_24h: "—"
       }
     }
   rescue => e
@@ -421,7 +484,7 @@ class SystemController < ApplicationController
 
     {
       "exchange_addresses" => build_table_row(
-        count: ExchangeAddress.count,
+        count: estimated_count(ExchangeAddress),
         last_at: exchange_addresses_last,
         sla_h: 26,
         hint: "Set principal des adresses exchange-like. Dernier JobRun builder: #{fmt_time(exchange_builder_last)}",
@@ -429,7 +492,7 @@ class SystemController < ApplicationController
       ),
 
       "exchange_observed_utxos" => build_table_row(
-        count: ExchangeObservedUtxo.count,
+        count: estimated_count(ExchangeObservedUtxo),
         last_at: exchange_observed_utxos_last,
         sla_h: 1,
         hint: "UTXO observés sur le set exchange-like. Dernier JobRun scanner: #{fmt_time(exchange_observed_last)}",
@@ -437,7 +500,7 @@ class SystemController < ApplicationController
       ),
 
       "clusters" => build_table_row(
-        count: Cluster.count,
+        count: estimated_count(Cluster),
         last_at: cluster_last,
         sla_h: 1,
         hint: "Clusters multi-input construits par le scanner cluster.",
@@ -445,7 +508,7 @@ class SystemController < ApplicationController
       ),
 
       "whale_alerts" => build_table_row(
-        count: WhaleAlert.count,
+        count: estimated_count(WhaleAlert),
         last_at: whale_job_last,
         sla_h: 2,
         hint: "Fraîcheur basée sur JobRun whale_scan. Dernier insert WhaleAlert: #{fmt_time(whale_data_last)}",
@@ -453,7 +516,7 @@ class SystemController < ApplicationController
       ),
 
       "market_snapshots" => build_table_row(
-        count: MarketSnapshot.count,
+        count: estimated_count(MarketSnapshot),
         last_at: snap_last,
         sla_h: 26,
         hint: "Snapshot attendu 1 fois / jour.",
@@ -461,7 +524,7 @@ class SystemController < ApplicationController
       ),
 
       "exchange_flow_days" => build_table_row(
-        count: ExchangeFlowDay.count,
+        count: estimated_count(ExchangeFlowDay),
         last_at: inflow_outflow_last,
         sla_h: 36,
         hint: "V1 : agrégats inflow/outflow journaliers calculés depuis exchange_observed_utxos.",
@@ -470,7 +533,7 @@ class SystemController < ApplicationController
       ),
 
       "exchange_flow_day_details" => build_table_row(
-        count: ExchangeFlowDayDetail.count,
+        count: estimated_count(ExchangeFlowDayDetail),
         last_at: inflow_outflow_details_last,
         sla_h: 36,
         hint: "V2 : structure des dépôts et retraits observés par buckets.",
@@ -479,7 +542,7 @@ class SystemController < ApplicationController
       ),
 
       "exchange_flow_day_behaviors" => build_table_row(
-        count: ExchangeFlowDayBehavior.count,
+        count: estimated_count(ExchangeFlowDayBehavior),
         last_at: inflow_outflow_behavior_last,
         sla_h: 36,
         hint: "V3 : ratios comportementaux retail / whale / institution et scores de comportement.",
@@ -488,7 +551,7 @@ class SystemController < ApplicationController
       ),
 
       "exchange_flow_day_capital_behaviors" => build_table_row(
-        count: ExchangeFlowDayCapitalBehavior.count,
+        count: estimated_count(ExchangeFlowDayCapitalBehavior),
         last_at: inflow_outflow_capital_behavior_last,
         sla_h: 36,
         hint: "V4 : capital behavior, whale dominance et divergence activité / capital.",
@@ -497,7 +560,7 @@ class SystemController < ApplicationController
       ),
 
       "btc_price_days" => build_table_row(
-        count: BtcPriceDay.count,
+        count: estimated_count(BtcPriceDay),
         last_at: btc_last,
         sla_h: 36,
         hint: Rails.env.development? ?
@@ -508,7 +571,7 @@ class SystemController < ApplicationController
       ),
 
       "cluster_metrics" => build_table_row(
-        count: ClusterMetric.count,
+        count: estimated_count(ClusterMetric),
         last_at: cluster_metrics_last,
         sla_h: 36,
         hint: "V3.1 : métriques agrégées cluster par snapshot_date.",
@@ -517,7 +580,7 @@ class SystemController < ApplicationController
       ),
 
       "cluster_signals" => build_table_row(
-        count: ClusterSignal.count,
+        count: estimated_count(ClusterSignal),
         last_at: cluster_signals_job_last,
         sla_h: 36,
         hint: "V3.1 : signaux cluster détectés à partir des métriques. Dernier snapshot_date présent: #{cluster_signals_last.present? ? cluster_signals_last.to_date.strftime("%Y-%m-%d") : "—"}",
@@ -569,14 +632,16 @@ class SystemController < ApplicationController
   end
 
   def catch_up_btc_price_days_in_development
-    return unless Rails.env.development?
+    measure("btc_price_days_catchup_before_action") do
+      return unless Rails.env.development?
 
-    last_day = BtcPriceDay.maximum(:day)
-    target_day = Date.yesterday
+      last_day = BtcPriceDay.maximum(:day)
+      target_day = Date.yesterday
 
-    return if last_day.present? && last_day >= target_day
+      return if last_day.present? && last_day >= target_day
 
-    BtcPriceDaysCatchup.call(target_day: target_day)
+      BtcPriceDaysCatchup.call(target_day: target_day)
+    end
   rescue => e
     Rails.logger.warn("[btc_price_days:catchup] #{e.class}: #{e.message}")
   end

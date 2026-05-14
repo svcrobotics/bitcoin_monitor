@@ -24,6 +24,19 @@ class DashboardController < ApplicationController
     load_sell_score!(flow, points)
 
     load_ai_insight!
+
+    @latest_cluster_event =
+      Clusters::ClickHouseEventReader.recent(limit: 50)
+        .sort_by do |event|
+          [
+            event["source"] == "cluster_business" ? 1 : 0,
+            event["severity"] == "high" ? 1 : 0,
+            event["score"].to_i,
+            event["amount_btc"].to_f
+          ]
+        end
+        .last
+
   rescue => e
     handle_dashboard_error!(e)
   end

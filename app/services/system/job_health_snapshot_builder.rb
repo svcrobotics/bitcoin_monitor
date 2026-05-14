@@ -53,7 +53,15 @@ module System
       ref_time = last_ok&.finished_at || last_ok&.started_at || last_run&.finished_at || last_run&.started_at || last_run&.created_at
 
       expected_every_seconds = cfg[:expected_every].to_i
-      late_after_seconds     = (cfg[:late_after] || (cfg[:expected_every] * 2)).to_i
+
+      late_after_seconds =
+        if cfg[:late_after].present?
+          cfg[:late_after].to_i
+        elsif expected_every_seconds.positive?
+          expected_every_seconds * 2
+        else
+          600
+        end
 
       delay_seconds =
         if cfg[:active] && ref_time.present?
@@ -114,8 +122,8 @@ module System
         lock_file: cfg[:lock_file],
         lock_present: lock_active?(cfg[:lock_file]),
 
-        expected_every: cfg[:expected_every],
-        late_after: cfg[:late_after] || (cfg[:expected_every] * 2),
+        expected_every: expected_every_seconds,
+        late_after: late_after_seconds,
         max_runtime: cfg[:max_runtime],
 
         status: status,

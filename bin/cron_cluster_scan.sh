@@ -28,7 +28,7 @@ JobRunner.run!(
 
   JobRunner.heartbeat!(jr)
 
-  limit = ENV.fetch("LIMIT", "1").to_i
+  limit = ENV.fetch("CLUSTER_SCAN_LIMIT", ENV.fetch("LIMIT", "5")).to_i
   puts "[cluster_scan] limit=#{limit}"
   result = Clusters::ScanAndDispatch.call(
     limit: limit,

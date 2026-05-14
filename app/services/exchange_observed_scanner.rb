@@ -186,12 +186,22 @@ class ExchangeObservedScanner
     total_blocks = end_height - start_height + 1
 
     (start_height..end_height).each_with_index do |height, index|
+      update_job_progress!(
+        current: index + 1,
+        total: total_blocks,
+        height: height,
+        force: true,
+        label_suffix: "starting block"
+      )
+
       scan_height(height, exchange_addresses)
 
       update_job_progress!(
         current: index + 1,
         total: total_blocks,
-        height: height
+        height: height,
+        force: true,
+        label_suffix: "finished block"
       )
     end
   end
@@ -308,12 +318,15 @@ class ExchangeObservedScanner
   # Logging
   # ---------------------------------------------------------------------------
 
-  def update_job_progress!(current:, total:, height:)
+  def update_job_progress!(current:, total:, height:, force: false, label_suffix: nil)
     return if total.to_i <= 0
-    return unless (current % 5).zero? || current == total
+    return unless force || (current % 5).zero? || current == total
 
     pct = ((current.to_f / total.to_f) * 100).round(1)
     pct = [[pct, 0].max, 100].min
+
+    label = "block #{height} • #{current} / #{total} blocs"
+    label = "#{label} • #{label_suffix}" if label_suffix.present?
 
     job = JobRun
       .where(name: CURSOR_NAME, status: "running")
@@ -324,7 +337,7 @@ class ExchangeObservedScanner
 
     job.update!(
       progress_pct: pct,
-      progress_label: "block #{height} • #{current} / #{total} blocs",
+      progress_label: label,
       heartbeat_at: Time.current
     )
   rescue StandardError => e
