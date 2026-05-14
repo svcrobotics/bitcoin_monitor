@@ -36,10 +36,10 @@
             const path_to_root = "";
             const default_light_theme = "light";
             const default_dark_theme = "navy";
-            window.path_to_searchindex_js = "searchindex-dd9a9f14.js";
+            window.path_to_searchindex_js = "searchindex-57eef606.js";
         </script>
         <!-- Start loading toc.js asap -->
-        <script src="toc-89da91d8.js"></script>
+        <script src="toc-cb092047.js"></script>
     </head>
     <body>
     <div id="mdbook-help-container">
@@ -5464,6 +5464,394 @@ BTC reste séparé car il vient de sources marché externes
 <p>collecter d’abord proprement, analyser ensuite.</p>
 </blockquote>
 <p>C’est l’une des décisions les plus importantes du projet.</p>
+<div style="break-before: page; page-break-before: always;"></div>
+<h1 id="chapitre--cluster-events-temps-réel-et-clickhouse"><a class="header" href="#chapitre--cluster-events-temps-réel-et-clickhouse">Chapitre — Cluster Events, temps réel et ClickHouse</a></h1>
+<blockquote>
+<p>« À partir du moment où un système produit des événements, il cesse d’être une simple base de données. Il devient un organisme vivant. »</p>
+</blockquote>
+<h2 id="introduction-1"><a class="header" href="#introduction-1">Introduction</a></h2>
+<p>Le module cluster de Bitcoin Monitor a commencé de manière relativement simple.</p>
+<p>L’objectif initial était surtout de :</p>
+<ul>
+<li>scanner les transactions Bitcoin,</li>
+<li>relier les adresses,</li>
+<li>construire des clusters,</li>
+<li>détecter des relations entre entités.</li>
+</ul>
+<p>À cette époque, le système fonctionnait principalement comme un moteur d’analyse statique.</p>
+<p>On construisait :</p>
+<ul>
+<li>des profils,</li>
+<li>des statistiques,</li>
+<li>des agrégats,</li>
+<li>des graphes.</li>
+</ul>
+<p>Mais progressivement, un problème est apparu.</p>
+<p>Le système savait stocker des données.</p>
+<p>Mais il ne savait pas raconter ce qui se passait.</p>
+<p>Et cette différence est énorme.</p>
+<hr>
+<h2 id="le-problème-des-données-statiques"><a class="header" href="#le-problème-des-données-statiques">Le problème des données statiques</a></h2>
+<p>Au début, les clusters étaient essentiellement représentés par :</p>
+<ul>
+<li>Cluster,</li>
+<li>ClusterProfile,</li>
+<li>ClusterMetric,</li>
+<li>ClusterSignal.</li>
+</ul>
+<p>Le système pouvait répondre à des questions comme :</p>
+<ul>
+<li>combien d’adresses possède un cluster,</li>
+<li>combien de transactions il a effectué,</li>
+<li>quel volume il a transféré,</li>
+<li>quand il a été vu pour la première fois.</li>
+</ul>
+<p>Mais une application blockchain analytique ne peut pas rester purement statique.</p>
+<p>Car la blockchain est un flux vivant.</p>
+<p>À chaque bloc :</p>
+<ul>
+<li>des clusters fusionnent,</li>
+<li>des whales deviennent actives,</li>
+<li>des flux massifs apparaissent,</li>
+<li>des comportements changent,</li>
+<li>des entités se réveillent après des mois d’inactivité.</li>
+</ul>
+<p>Et à ce moment-là, quelque chose devient évident :</p>
+<p>les utilisateurs ne veulent pas seulement consulter des données.</p>
+<p>Ils veulent voir des événements.</p>
+<hr>
+<h2 id="le-moment-où-tout-change"><a class="header" href="#le-moment-où-tout-change">Le moment où tout change</a></h2>
+<p>L’une des plus grandes transformations de Bitcoin Monitor a été cette prise de conscience :</p>
+<p>le système devait devenir événementiel.</p>
+<p>Au lieu de simplement construire des tables analytiques,
+il fallait produire des signaux temps réel.</p>
+<p>Cela change complètement la manière de penser l’architecture.</p>
+<p>Avant :</p>
+<pre><code class="language-text">scanner -&gt; PostgreSQL -&gt; dashboard
+</code></pre>
+<p>Après :</p>
+<pre><code class="language-text">blockchain -&gt; Layer 1 -&gt; classifier -&gt; events -&gt; analytics -&gt; dashboards
+</code></pre>
+<p>Le système ne stocke plus seulement des états.</p>
+<p>Il produit des événements interprétables.</p>
+<hr>
+<h2 id="pourquoi-postgresql-commençait-à-montrer-ses-limites"><a class="header" href="#pourquoi-postgresql-commençait-à-montrer-ses-limites">Pourquoi PostgreSQL commençait à montrer ses limites</a></h2>
+<p>Au début, PostgreSQL suffisait largement.</p>
+<p>Mais lorsque les événements sont devenus plus nombreux, plusieurs problèmes sont apparus :</p>
+<ul>
+<li>lectures analytiques répétitives,</li>
+<li>dashboards temps réel,</li>
+<li>événements append-only,</li>
+<li>gros volumes de signaux,</li>
+<li>tris chronologiques permanents,</li>
+<li>filtres rapides par source ou sévérité.</li>
+</ul>
+<p>PostgreSQL restait excellent pour :</p>
+<ul>
+<li>les données relationnelles,</li>
+<li>les profils,</li>
+<li>les clusters,</li>
+<li>les relations d’adresses.</li>
+</ul>
+<p>Mais pour les événements analytiques temps réel, une autre approche devenait pertinente.</p>
+<p>C’est là que ClickHouse est entré dans le projet.</p>
+<hr>
+<h2 id="pourquoi-clickhouse-était-intéressant"><a class="header" href="#pourquoi-clickhouse-était-intéressant">Pourquoi ClickHouse était intéressant</a></h2>
+<p>ClickHouse est particulièrement adapté aux systèmes analytiques temps réel.</p>
+<p>Ce qui le rend extrêmement intéressant pour Bitcoin Monitor :</p>
+<ul>
+<li>lectures ultra rapides,</li>
+<li>agrégations massives,</li>
+<li>stockage append-only,</li>
+<li>compression,</li>
+<li>requêtes temporelles,</li>
+<li>dashboards live.</li>
+</ul>
+<p>Et surtout :</p>
+<p>le modèle événementiel devient naturel.</p>
+<p>Au lieu de mettre constamment à jour des lignes,
+le système écrit simplement de nouveaux événements.</p>
+<p>Cette différence simplifie énormément l’architecture.</p>
+<hr>
+<h2 id="la-naissance-de-cluster_events"><a class="header" href="#la-naissance-de-cluster_events">La naissance de cluster_events</a></h2>
+<p>Une nouvelle table est apparue :</p>
+<pre><code class="language-text">cluster_events
+</code></pre>
+<p>Cette table devient le journal vivant du système cluster.</p>
+<p>Chaque ligne représente un événement.</p>
+<p>Par exemple :</p>
+<pre><code class="language-text">event_time
+cluster_id
+signal_type
+severity
+score
+amount_btc
+tx_count
+address_count
+source
+</code></pre>
+<p>Le système commence alors à produire des événements comme :</p>
+<ul>
+<li>whale_cluster_activity,</li>
+<li>large_outflow,</li>
+<li>large_inflow,</li>
+<li>cluster_merge,</li>
+<li>large_link_creation,</li>
+<li>cluster_reactivation,</li>
+<li>activity_spike.</li>
+</ul>
+<p>Et à partir de ce moment-là,
+Bitcoin Monitor cesse d’être uniquement un scanner blockchain.</p>
+<p>Il devient un moteur d’événements analytiques.</p>
+<hr>
+<h2 id="séparer-signaux-techniques-et-signaux-métier"><a class="header" href="#séparer-signaux-techniques-et-signaux-métier">Séparer signaux techniques et signaux métier</a></h2>
+<p>Très rapidement, un autre problème apparaît.</p>
+<p>Tous les événements n’ont pas la même nature.</p>
+<p>Certaines alertes sont purement techniques.</p>
+<p>D’autres sont interprétables métier.</p>
+<p>Cette distinction devient très importante.</p>
+<hr>
+<h2 id="les-signaux-techniques"><a class="header" href="#les-signaux-techniques">Les signaux techniques</a></h2>
+<p>Les signaux techniques décrivent l’évolution du graphe.</p>
+<p>Par exemple :</p>
+<pre><code class="language-text">cluster_merge
+large_link_creation
+</code></pre>
+<p>Ces événements signifient :</p>
+<ul>
+<li>le cluster grandit,</li>
+<li>des liens apparaissent,</li>
+<li>deux groupes d’adresses semblent connectés.</li>
+</ul>
+<p>Ils sont utiles pour :</p>
+<ul>
+<li>comprendre la structure du graphe,</li>
+<li>améliorer les heuristiques,</li>
+<li>observer les merges.</li>
+</ul>
+<p>Mais ce ne sont pas forcément des signaux marché.</p>
+<hr>
+<h2 id="les-signaux-métier"><a class="header" href="#les-signaux-métier">Les signaux métier</a></h2>
+<p>Les signaux métier sont beaucoup plus interprétables.</p>
+<p>Par exemple :</p>
+<pre><code class="language-text">whale_cluster_activity
+large_outflow
+cluster_reactivation
+</code></pre>
+<p>Cette fois, l’objectif est différent.</p>
+<p>Le système tente de détecter :</p>
+<ul>
+<li>des comportements importants,</li>
+<li>des mouvements anormaux,</li>
+<li>des activités significatives.</li>
+</ul>
+<p>On commence alors à entrer dans une logique proche des plateformes professionnelles d’analyse blockchain.</p>
+<hr>
+<h2 id="le-pipeline-temps-réel"><a class="header" href="#le-pipeline-temps-réel">Le pipeline temps réel</a></h2>
+<p>L’architecture du système évolue progressivement.</p>
+<p>Le Layer 1 devient la source canonique.</p>
+<p>Il fournit :</p>
+<ul>
+<li>les transactions,</li>
+<li>les UTXO,</li>
+<li>les spent outputs,</li>
+<li>les données blockchain brutes.</li>
+</ul>
+<p>Puis les modules Layer 2 consomment cet état.</p>
+<p>Le module cluster ne lit plus directement Bitcoin Core.</p>
+<p>Il consomme le Layer 1.</p>
+<p>Cette séparation devient fondamentale.</p>
+<hr>
+<h2 id="realtime-et-batch"><a class="header" href="#realtime-et-batch">Realtime et batch</a></h2>
+<p>Le système cluster finit par posséder deux pipelines distincts.</p>
+<h3 id="realtime"><a class="header" href="#realtime">Realtime</a></h3>
+<p>Le pipeline realtime traite les nouveaux blocs immédiatement.</p>
+<p>Objectifs :</p>
+<ul>
+<li>faible latence,</li>
+<li>alertes rapides,</li>
+<li>signaux immédiats,</li>
+<li>dashboards live.</li>
+</ul>
+<hr>
+<h3 id="batch"><a class="header" href="#batch">Batch</a></h3>
+<p>Le pipeline batch travaille plus lentement.</p>
+<p>Objectifs :</p>
+<ul>
+<li>recalculs,</li>
+<li>scans complets,</li>
+<li>merges,</li>
+<li>reconstruction analytique.</li>
+</ul>
+<p>Cette séparation améliore énormément :</p>
+<ul>
+<li>la stabilité,</li>
+<li>la résilience,</li>
+<li>l’observabilité,</li>
+<li>les performances.</li>
+</ul>
+<hr>
+<h2 id="les-cluster-reactivations"><a class="header" href="#les-cluster-reactivations">Les cluster reactivations</a></h2>
+<p>L’un des événements les plus intéressants ajoutés au système est :</p>
+<pre><code class="language-text">cluster_reactivation
+</code></pre>
+<p>L’idée paraît simple.</p>
+<p>Un cluster peut rester silencieux pendant longtemps,
+puis redevenir soudainement actif.</p>
+<p>Mais un problème important apparaît immédiatement.</p>
+<p>Bitcoin Monitor utilise un node Bitcoin pruned.</p>
+<p>Donc il est impossible de reconstruire parfaitement tout l’historique ancien.</p>
+<p>Le système doit devenir pragmatique.</p>
+<hr>
+<h2 id="une-approche-progressive"><a class="header" href="#une-approche-progressive">Une approche progressive</a></h2>
+<p>La solution choisie a été très intéressante architecturalement.</p>
+<p>Plutôt que de vouloir reconstruire le passé complet,
+Bitcoin Monitor commence à suivre les clusters à partir de maintenant.</p>
+<p>Une nouvelle table apparaît :</p>
+<pre><code class="language-text">ClusterActivityState
+</code></pre>
+<p>Elle stocke progressivement :</p>
+<ul>
+<li>last_seen_height,</li>
+<li>last_active_height,</li>
+<li>inactive_blocks,</li>
+<li>inactive_seconds.</li>
+</ul>
+<p>Le système apprend donc progressivement le comportement des clusters.</p>
+<p>C’est une approche incrémentale.</p>
+<p>Et c’est souvent ce type d’approche qui permet réellement de faire avancer les projets complexes.</p>
+<hr>
+<h2 id="transformer-les-événements-techniques-en-langage-humain"><a class="header" href="#transformer-les-événements-techniques-en-langage-humain">Transformer les événements techniques en langage humain</a></h2>
+<p>Une autre transformation importante a eu lieu dans les dashboards.</p>
+<p>Au début, les événements étaient affichés tels quels :</p>
+<pre><code class="language-text">large_link_creation
+</code></pre>
+<p>Mais cela restait trop technique.</p>
+<p>Le système devait devenir lisible.</p>
+<p>Les événements commencent alors à être traduits :</p>
+<pre><code class="language-text">Expansion du graphe
+</code></pre>
+<p>Puis enrichis :</p>
+<ul>
+<li>score,</li>
+<li>sévérité,</li>
+<li>analyse,</li>
+<li>interprétation,</li>
+<li>pistes de vérification.</li>
+</ul>
+<p>Par exemple :</p>
+<pre><code class="language-text">Lecture :
+évolution du graphe. Deux groupes d’adresses semblent reliés.
+</code></pre>
+<p>À ce moment-là,
+Bitcoin Monitor commence réellement à devenir un produit analytique.</p>
+<hr>
+<h2 id="le-dashboard-cluster-events"><a class="header" href="#le-dashboard-cluster-events">Le dashboard Cluster Events</a></h2>
+<p>Une nouvelle interface apparaît :</p>
+<pre><code class="language-text">/system/clusters/events
+</code></pre>
+<p>Cette page devient une console d’observabilité cluster.</p>
+<p>Elle regroupe :</p>
+<ul>
+<li>les signaux techniques,</li>
+<li>les alertes métier,</li>
+<li>les whales,</li>
+<li>les outflows,</li>
+<li>les merges,</li>
+<li>les réactivations.</li>
+</ul>
+<p>Et surtout :</p>
+<p>elle permet de lire le système en temps réel.</p>
+<hr>
+<h2 id="limportance-des-scores-et-de-la-sévérité"><a class="header" href="#limportance-des-scores-et-de-la-sévérité">L’importance des scores et de la sévérité</a></h2>
+<p>Rapidement, tous les événements deviennent trop nombreux.</p>
+<p>Il faut alors hiérarchiser.</p>
+<p>Le système introduit :</p>
+<ul>
+<li>low,</li>
+<li>medium,</li>
+<li>high.</li>
+</ul>
+<p>Mais aussi un score numérique.</p>
+<p>Par exemple :</p>
+<pre><code class="language-text">score 88
+</code></pre>
+<p>Ce score permet :</p>
+<ul>
+<li>de filtrer,</li>
+<li>de prioriser,</li>
+<li>de détecter les événements majeurs.</li>
+</ul>
+<p>L’observabilité devient progressivement exploitable à grande échelle.</p>
+<hr>
+<h2 id="les-dashboards-opérationnels"><a class="header" href="#les-dashboards-opérationnels">Les dashboards opérationnels</a></h2>
+<p>Le projet commence ensuite à évoluer vers quelque chose de beaucoup plus ambitieux.</p>
+<p>Les dashboards ne montrent plus uniquement :</p>
+<ul>
+<li>des données,</li>
+<li>des tables,</li>
+<li>des métriques.</li>
+</ul>
+<p>Ils montrent :</p>
+<ul>
+<li>l’état du système,</li>
+<li>les pipelines,</li>
+<li>les jobs actifs,</li>
+<li>les locks,</li>
+<li>les lags,</li>
+<li>les buffers,</li>
+<li>les événements temps réel.</li>
+</ul>
+<p>L’application commence alors à ressembler à une véritable plateforme de données blockchain.</p>
+<hr>
+<h2 id="ce-que-cette-architecture-change"><a class="header" href="#ce-que-cette-architecture-change">Ce que cette architecture change</a></h2>
+<p>Cette architecture ouvre énormément de possibilités.</p>
+<p>Par exemple :</p>
+<ul>
+<li>alertes live,</li>
+<li>notifications,</li>
+<li>APIs analytiques,</li>
+<li>dashboards professionnels,</li>
+<li>détection comportementale,</li>
+<li>monitoring whales,</li>
+<li>observabilité blockchain,</li>
+<li>analyses institutionnelles.</li>
+</ul>
+<p>Et surtout :</p>
+<p>le système devient extensible.</p>
+<p>De nouveaux signaux peuvent être ajoutés facilement.</p>
+<hr>
+<h2 id="ce-que-ce-travail-ma-appris"><a class="header" href="#ce-que-ce-travail-ma-appris">Ce que ce travail m’a appris</a></h2>
+<p>Avant ce module,
+je pensais surtout en termes de tables et de modèles.</p>
+<p>Aujourd’hui,
+je pense davantage en termes de flux et d’événements.</p>
+<p>Cette différence change complètement la manière de concevoir une application.</p>
+<p>Un système analytique moderne n’est pas seulement :</p>
+<ul>
+<li>une base de données,</li>
+<li>un backend,</li>
+<li>un dashboard.</li>
+</ul>
+<p>C’est un moteur d’événements.</p>
+<hr>
+<h2 id="conclusion-2"><a class="header" href="#conclusion-2">Conclusion</a></h2>
+<p>Le module Cluster Events a profondément transformé Bitcoin Monitor.</p>
+<p>Avant :</p>
+<ul>
+<li>les clusters étaient passifs,</li>
+<li>les données étaient statiques,</li>
+<li>les dashboards étaient descriptifs.</li>
+</ul>
+<p>Après :</p>
+<ul>
+<li>le système devient vivant,</li>
+<li>les événements apparaissent en temps réel,</li>
+<li>les comportements deviennent visibles,</li>
+<li>les signaux deviennent interprétables.</li>
+</ul>
+<p>Et surtout :</p>
+<p>Bitcoin Monitor commence progressivement à devenir une véritable plateforme d’observabilité blockchain temps réel.</p>
 
                     </main>
 
