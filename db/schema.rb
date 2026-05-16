@@ -10,9 +10,25 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_05_13_220407) do
+ActiveRecord::Schema[8.0].define(version: 2026_05_16_221037) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+
+  create_table "actor_labels", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.string "label", null: false
+    t.integer "confidence", default: 0, null: false
+    t.string "source", default: "cluster_profile", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "first_seen_at"
+    t.datetime "last_seen_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_id", "label", "source"], name: "index_actor_labels_on_cluster_id_and_label_and_source", unique: true
+    t.index ["cluster_id"], name: "index_actor_labels_on_cluster_id"
+    t.index ["confidence"], name: "index_actor_labels_on_confidence"
+    t.index ["label"], name: "index_actor_labels_on_label"
+  end
 
   create_table "address_links", force: :cascade do |t|
     t.bigint "address_a_id", null: false
@@ -965,6 +981,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_13_220407) do
     t.index ["txid"], name: "index_whale_alerts_on_txid", unique: true
   end
 
+  add_foreign_key "actor_labels", "clusters"
   add_foreign_key "address_links", "addresses", column: "address_a_id"
   add_foreign_key "address_links", "addresses", column: "address_b_id"
   add_foreign_key "addresses", "clusters"

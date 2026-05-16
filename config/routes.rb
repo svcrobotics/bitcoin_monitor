@@ -1,4 +1,5 @@
 Rails.application.routes.draw do
+  get "search/index"
 
   namespace :clusters do
     resources :events, only: [:index]
@@ -105,5 +106,8 @@ Rails.application.routes.draw do
   get "/cluster_signals", to: "cluster_signals#index"
   get "/cluster_signals/top", to: "cluster_signals#top", as: :top_cluster_signals
 
+  get "search", to: "search#index", as: :search
+  get "search/live", to: "search#live", as: :live_search
 
+  resources :actor_labels, only: [:index]
 end
