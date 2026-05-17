@@ -99,3 +99,4 @@ gem "ffi-rzmq", "~> 2.0"
 
 gem "faraday"
 
+gem "elasticsearch", "~> 8.17"

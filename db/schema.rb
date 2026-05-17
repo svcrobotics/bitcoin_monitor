@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_05_16_221037) do
+ActiveRecord::Schema[8.0].define(version: 2026_05_17_171901) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -981,7 +981,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_16_221037) do
     t.index ["txid"], name: "index_whale_alerts_on_txid", unique: true
   end
 
-  add_foreign_key "actor_labels", "clusters"
+  add_foreign_key "actor_labels", "clusters", on_delete: :cascade
   add_foreign_key "address_links", "addresses", column: "address_a_id"
   add_foreign_key "address_links", "addresses", column: "address_b_id"
   add_foreign_key "addresses", "clusters"

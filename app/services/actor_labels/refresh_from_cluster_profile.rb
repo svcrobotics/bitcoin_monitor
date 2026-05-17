@@ -13,27 +13,45 @@ module ActorLabels
       "unknown" => "unknown"
     }.freeze
 
-    def self.call(limit: nil)
-      new(limit: limit).call
+    PROGRESS_EVERY = 500
+
+    def self.call(limit: nil, job_run: nil)
+      new(limit: limit, job_run: job_run).call
     end
 
-    def initialize(limit: nil)
+    def initialize(limit: nil, job_run: nil)
       @limit = limit
+      @job_run = job_run
       @created = 0
       @updated = 0
       @skipped = 0
+      @processed = 0
+      @total = nil
+      @current_cluster_id = nil
     end
 
     def call
       scope = ClusterProfile.order(:cluster_id)
       scope = scope.limit(@limit) if @limit.present?
 
+      @total = @limit || scope.count
+
+      progress!("starting", 5)
+
       scope.find_each do |profile|
+        @current_cluster_id = profile.cluster_id
         refresh_profile(profile)
+        @processed += 1
+
+        progress!("refreshing", computed_pct) if (@processed % PROGRESS_EVERY).zero?
       end
+
+      progress!("done", 100)
 
       {
         ok: true,
+        processed: @processed,
+        total: @total,
         created: @created,
         updated: @updated,
         skipped: @skipped
@@ -56,7 +74,6 @@ module ActorLabels
         label.last_seen_at = Time.current
 
         label.new_record? ? @created += 1 : @updated += 1
-
         label.save!
       end
     rescue StandardError => e
@@ -88,7 +105,6 @@ module ActorLabels
 
       traits_for(profile).each do |trait|
         mapped_trait = CLASSIFICATION_LABEL_MAP[trait]
-
         next unless mapped_trait.present?
 
         labels << {
@@ -119,6 +135,32 @@ module ActorLabels
 
     def normalize_score(score)
       [[score, 0].max, 100].min
+    end
+
+    def computed_pct
+      return 5 if @total.to_i <= 0
+
+      progress = (@processed.to_f / @total.to_f * 95).round(1)
+      [[5 + progress, 99].min, 5].max
+    end
+
+    def progress!(label, pct)
+      return unless @job_run
+
+      JobRunner.progress!(
+        @job_run,
+        pct: pct,
+        label: label,
+        meta: {
+          limit: @limit,
+          processed: @processed,
+          total: @total,
+          created: @created,
+          updated: @updated,
+          skipped: @skipped,
+          current_cluster_id: @current_cluster_id
+        }
+      )
     end
   end
 end

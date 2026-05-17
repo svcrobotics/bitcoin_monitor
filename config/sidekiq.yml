@@ -1,14 +1,13 @@
-:concurrency: 1
+:concurrency: 2
 
 :queues:
-  - [realtime, 8]
   - [process, 6]
+  - [realtime, 5]
   - [ingest, 4]
-  - [p1_exchange, 4]
-  - [p2_flows, 3]
-  - [p3_clusters, 2]
+  - [p1_exchange, 3]
+  - [p3_clusters_scan, 3]
   - [p3_clusters_refresh, 2]
-  - [p3_clusters_scan, 2]
+  - [p2_flows, 2]
   - [p4_analytics, 1]
   - [default, 1]
   - [low, 1]

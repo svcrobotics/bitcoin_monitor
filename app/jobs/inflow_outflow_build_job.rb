@@ -6,7 +6,7 @@ class InflowOutflowBuildJob < ApplicationJob
   def perform(days_back: 2)
     JobRunner.run!(
       "inflow_outflow_build",
-      triggered_by: "cron",
+      triggered_by: "sidekiq_cron",
       meta: { days_back: days_back }
     ) do
       InflowOutflowPipelineBuilder.call(days_back: days_back)

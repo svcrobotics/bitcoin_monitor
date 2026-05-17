@@ -8,7 +8,7 @@ class WhaleScanJob < ApplicationJob
   def perform(last_n_blocks: DEFAULT_BLOCKS)
     JobRunner.run!(
       "whale_scan",
-      triggered_by: ENV.fetch("TRIGGERED_BY", "cron"),
+      triggered_by: ENV.fetch("TRIGGERED_BY", "sidekiq_cron"),
       meta: {
         last_n_blocks: last_n_blocks,
         source: "layer1"

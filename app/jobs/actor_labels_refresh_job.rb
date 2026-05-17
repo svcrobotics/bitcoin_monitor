@@ -33,7 +33,10 @@ class ActorLabelsRefreshJob < ApplicationJob
           }
         )
 
-        result = ActorLabels::RefreshFromClusterProfile.call(limit: limit)
+        result = ActorLabels::RefreshFromClusterProfile.call(
+          limit: limit,
+          job_run: jr
+        )
 
         JobRunner.progress!(
           jr,

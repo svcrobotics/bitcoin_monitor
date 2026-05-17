@@ -59,6 +59,8 @@ class SystemController < ApplicationController
         .limit(12)
         .to_a
     end
+
+    @actor_labels_status = System::ActorLabelsStatus.call
   end
 
   def normalize_system_status(value)
@@ -97,6 +99,9 @@ class SystemController < ApplicationController
         }
       end
     @queue_contents = System::SidekiqQueueContentsSnapshot.call
+
+    @actor_labels_last_run =
+      JobRun.where(name: "actor_labels_refresh").order(started_at: :desc).first
   end
 
   private

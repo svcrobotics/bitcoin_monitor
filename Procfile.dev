@@ -1,3 +1,6 @@
 web: bin/rails server
 css: bin/rails tailwindcss:watch
-sidekiq: bundle exec sidekiq -c 1 -q ingest -q process -q default
+
+sidekiq_realtime: bundle exec sidekiq -c 1 -q realtime -q ingest -q process
+sidekiq_cluster: bundle exec sidekiq -c 1 -q p3_clusters -q p3_clusters_scan -q p3_clusters_refresh
+sidekiq_default: bundle exec sidekiq -c 1 -q p1_exchange -q p2_flows -q p4_analytics -q default -q low
