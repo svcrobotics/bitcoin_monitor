@@ -79,6 +79,12 @@ if Sidekiq.server?
       "queue" => "low"
     },
 
+    "search_refresh" => {
+      "class" => "SearchRefreshJob",
+      "cron" => "*/10 * * * *",
+      "queue" => "low"
+    }
+
     # ------------------------------------------------------------
     # DÉSACTIVÉS ICI VOLONTAIREMENT
     # ------------------------------------------------------------

@@ -25,15 +25,18 @@
   label_class = "text-xs font-semibold uppercase tracking-wide text-gray-500"
   muted_class = "text-sm text-gray-400"
 
+  status_class_map = {
+    "ok" => "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    "healthy" => "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    "processed" => "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    "critical" => "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    "stalled" => "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    "fail" => "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    "failed" => "border-rose-500/20 bg-rose-500/10 text-rose-300"
+  }
+
   status_classes = lambda do |status|
-    case status.to_s
-    when "ok", "healthy", "processed"
-      "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-    when "critical", "stalled", "fail", "failed"
-      "border-rose-500/20 bg-rose-500/10 text-rose-300"
-    else
-      "border-amber-500/20 bg-amber-500/10 text-amber-300"
-    end
+    status_class_map[status.to_s] || "border-amber-500/20 bg-amber-500/10 text-amber-300"
   end
 
   ms_to_label = lambda do |ms|
@@ -66,16 +69,62 @@
     end
   end
 
-  progress_pct = lambda do |pipe|
-    best = pipe[:best_height].to_i
-    last = pipe[:last_height].to_i
-
-    best <= 0 ? 100 : [[(last.to_f / best * 100).round(2), 100].min, 0].max
-  end
-
   lag_label = lambda do |lag_value|
     lag_value.to_i <= 0 ? "À jour" : "#{lag_value.to_i} blocs de retard"
   end
+
+  job_titles = {
+    "Blockchain::Jobs::BlockProcessJob" => "Layer 1 processing",
+    "WhaleScanJob" => "Whale analytics",
+    "Clusters::RefreshDirtyClustersJob" => "Cluster refresh",
+    "ClusterScanJob" => "Cluster batch scanner",
+    "Realtime::ProcessLatestBlockJob" => "Realtime block processing",
+    "InflowOutflowBuildJob" => "Exchange flows analytics",
+    "ExchangeObservedScanJob" => "Exchange observed scan",
+    "SearchRefreshJob" => "Search indexing",
+    "ClusterV3BuildMetricsJob" => "Cluster metrics builder",
+    "ClusterV3DetectSignalsJob" => "Cluster signal detector",
+    "SystemSnapshotsRefreshJob" => "System snapshots refresh",
+    "Realtime::BlockStreamConsumerJob" => "Realtime stream consumer"
+  }
+
+  job_run_names = {
+    "ClusterScanJob" => "cluster_scan",
+    "ExchangeObservedScanJob" => "exchange_observed_scan",
+    "Realtime::ProcessLatestBlockJob" => "realtime_process_latest_block",
+    "Blockchain::Jobs::BlockProcessJob" => "block_process",
+    "Clusters::RefreshDirtyClustersJob" => "cluster_refresh_dirty_clusters",
+    "InflowOutflowBuildJob" => "inflow_outflow_build",
+    "WhaleScanJob" => "whale_scan",
+    "SearchRefreshJob" => "search_refresh",
+    "ClusterV3BuildMetricsJob" => "cluster_v3_build_metrics",
+    "ClusterV3DetectSignalsJob" => "cluster_v3_detect_signals",
+    "SystemSnapshotsRefreshJob" => "system_snapshots_refresh",
+    "Realtime::BlockStreamConsumerJob" => "realtime_block_stream_consumer"
+  }
+
+  lock_titles = {
+    "realtime_processing_lock" => "Realtime processing",
+    "exchange_observed_scan_lock" => "Exchange observed scan",
+    "recovery_orchestrator_lock" => "Recovery orchestrator",
+    "lock:cluster_scan" => "Cluster batch scanner",
+    "cluster_scan_lock" => "Cluster batch scanner"
+  }
+
+  lock_descriptions = {
+    "realtime_processing_lock" => "Empêche deux traitements realtime de tourner en même temps.",
+    "exchange_observed_scan_lock" => "Protège le scan exchange-like contre les doubles exécutions.",
+    "recovery_orchestrator_lock" => "Évite plusieurs orchestrations recovery simultanées.",
+    "lock:cluster_scan" => "Protège le scanner cluster batch contre les doubles exécutions.",
+    "cluster_scan_lock" => "Protège le scanner cluster batch contre les doubles exécutions."
+  }
+
+  lock_classes_map = {
+    "active" => "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    "stale" => "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    "error" => "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    "clear" => "border-sky-500/20 bg-sky-500/10 text-sky-300"
+  }
 
   lag = layer1[:lag].to_i
   eta = layer1[:eta_minutes]
@@ -540,20 +589,42 @@
 
     <div class="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
       <% snapshot[:pipelines].to_h.each do |_key, pipe| %>
-        <% pct = progress_pct.call(pipe) %>
+        <%
+          pipe_lag = pipe[:lag].to_i
+
+          lag_pct =
+            if pipe_lag <= 0
+              100
+            elsif pipe_lag >= 150
+              0
+            else
+              (100 - (pipe_lag.to_f / 150.0 * 100)).round(1)
+            end
+
+          lag_state_label =
+            if pipe_lag <= 0
+              "À jour"
+            else
+              "#{pipe_lag} blocs de retard"
+            end
+        %>
 
         <div class="rounded-2xl border border-gray-800 bg-gray-900 p-5">
           <div class="flex items-center justify-between gap-4">
             <div>
               <div class="text-sm text-gray-400"><%= pipe[:priority] %></div>
               <div class="text-lg font-semibold"><%= pipe[:label] %></div>
+
               <% if pipe[:cursor_name].present? %>
                 <div class="mt-1 text-xs font-mono text-gray-500">
                   cursor=<%= pipe[:cursor_name] %>
                 </div>
               <% end %>
+
               <% if pipe[:lag].present? %>
-                <div class="mt-1 text-sm text-gray-500"><%= lag_label.call(pipe[:lag]) %></div>
+                <div class="mt-1 text-sm <%= pipe_lag > 50 ? "text-rose-300" : pipe_lag > 5 ? "text-amber-300" : "text-emerald-300" %>">
+                  <%= lag_state_label %>
+                </div>
               <% end %>
             </div>
 
@@ -565,15 +636,15 @@
           <% if pipe[:lag].present? %>
             <div class="mt-5">
               <div class="mb-2 flex items-center justify-between text-xs text-gray-500">
-                <span><%= pipe[:last_height] %></span>
-                <span><%= pct %>%</span>
-                <span><%= pipe[:best_height] %></span>
+                <span>Last <%= pipe[:last_height] %></span>
+                <span><%= lag_state_label %></span>
+                <span>Best <%= pipe[:best_height] %></span>
               </div>
 
               <div class="h-2 overflow-hidden rounded-full bg-gray-800">
                 <div
-                  class="h-full rounded-full <%= pipe[:status].to_s == "critical" ? "bg-rose-400" : pipe[:status].to_s == "ok" ? "bg-emerald-400" : "bg-amber-400" %>"
-                  style="width: <%= pct %>%">
+                  class="h-full rounded-full <%= pipe_lag > 50 ? "bg-rose-400" : pipe_lag > 5 ? "bg-amber-400" : "bg-emerald-400" %>"
+                  style="width: <%= lag_pct %>%">
                 </div>
               </div>
 
@@ -590,8 +661,8 @@
 
                 <div class="rounded-xl bg-gray-950 p-3">
                   <div class="text-gray-500">Lag</div>
-                  <div class="font-semibold <%= pipe[:lag].to_i > 24 ? "text-rose-300" : pipe[:lag].to_i > 5 ? "text-amber-300" : "text-emerald-300" %>">
-                    <%= pipe[:lag] %>
+                  <div class="font-semibold <%= pipe_lag > 50 ? "text-rose-300" : pipe_lag > 5 ? "text-amber-300" : "text-emerald-300" %>">
+                    <%= pipe_lag %>
                   </div>
                 </div>
               </div>
@@ -671,6 +742,68 @@
       </table>
     </div>
 
+    <section class="<%= section_class %>">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <div class="<%= label_class %>">Queued jobs</div>
+          <h2 class="mt-1 text-xl font-semibold text-gray-100">Jobs en attente par queue</h2>
+          <p class="mt-2 <%= muted_class %>">
+            Vue des jobs Sidekiq en attente, regroupés par classe, pour détecter doublons et backlogs anormaux.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-4 overflow-x-auto">
+        <table class="min-w-full text-sm">
+          <thead class="text-xs uppercase text-gray-500">
+            <tr>
+              <th class="py-2 pr-4 text-left">Queue</th>
+              <th class="py-2 pr-4 text-left">Size</th>
+              <th class="py-2 pr-4 text-left">Job</th>
+              <th class="py-2 pr-4 text-left">Count</th>
+              <th class="py-2 pr-4 text-left">Oldest</th>
+            </tr>
+          </thead>
+
+          <tbody class="divide-y divide-gray-800">
+            <% Array(@queue_contents).each do |queue| %>
+              <% jobs = queue[:jobs] || [] %>
+
+              <% if jobs.empty? %>
+                <tr>
+                  <td class="py-2 pr-4 font-medium text-gray-200"><%= queue[:queue] %></td>
+                  <td class="py-2 pr-4 text-gray-400"><%= queue[:size] %></td>
+                  <td class="py-2 pr-4 text-gray-500">—</td>
+                  <td class="py-2 pr-4 text-gray-500">—</td>
+                  <td class="py-2 pr-4 text-gray-500">—</td>
+                </tr>
+              <% else %>
+                <% jobs.each_with_index do |job, index| %>
+                  <tr>
+                    <td class="py-2 pr-4 font-medium text-gray-200">
+                      <%= queue[:queue] if index.zero? %>
+                    </td>
+                    <td class="py-2 pr-4 text-gray-400">
+                      <%= queue[:size] if index.zero? %>
+                    </td>
+                    <td class="py-2 pr-4 text-gray-300"><%= job[:klass] %></td>
+                    <td class="py-2 pr-4 text-gray-300"><%= job[:count] %></td>
+                    <td class="py-2 pr-4 text-gray-400">
+                      <% if job[:oldest_age_seconds].present? %>
+                        <%= distance_of_time_in_words(job[:oldest_age_seconds].seconds) %>
+                      <% else %>
+                        —
+                      <% end %>
+                    </td>
+                  </tr>
+                <% end %>
+              <% end %>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    </section>
+    
     <div class="mt-10 grid grid-cols-1 gap-6 lg:grid-cols-2">
       <div>
         <div class="flex items-center justify-between">
@@ -697,26 +830,60 @@
                 job_class = w[:job_class].to_s
                 args = Array(w[:args])
 
-                job_title =
-                  if job_class == "Blockchain::Jobs::BlockProcessJob"
-                    "Layer 1 processing"
-                  elsif job_class == "WhaleScanJob"
-                    "Whale analytics"
-                  elsif job_class == "Clusters::RefreshDirtyClustersJob"
-                    "Cluster refresh"
-                  elsif job_class == "ClusterScanJob"
-                    "Cluster batch scanner"
-                  elsif job_class == "Realtime::ProcessLatestBlockJob"
-                    "Realtime block processing"
-                  elsif job_class == "InflowOutflowBuildJob"
-                    "Exchange flows analytics"
-                  else
-                    job_class.presence || "Unknown job"
+                job_title = job_titles[job_class] || job_class.presence || "Unknown job"
+
+                block_height = args.first
+
+                layer1_block = nil
+                layer1_progress_pct = nil
+                layer1_progress_label = nil
+
+                if job_class == "Blockchain::Jobs::BlockProcessJob"
+                  layer1_block = BlockBufferModel.find_by(height: block_height.to_i)
+
+                  if layer1_block.present?
+                    age =
+                      if layer1_block.processing_started_at.present?
+                        seconds_to_label.call(Time.current - layer1_block.processing_started_at)
+                      else
+                        "—"
+                      end
+
+                    heartbeat =
+                      if layer1_block.last_heartbeat_at.present?
+                        seconds_to_label.call(Time.current - layer1_block.last_heartbeat_at)
+                      else
+                        "—"
+                      end
+
+                    layer1_progress_pct =
+                      if layer1_block.status == "processed"
+                        100
+                      elsif layer1_block.status == "processing"
+                        50
+                      elsif layer1_block.status == "enqueued"
+                        10
+                      else
+                        0
+                      end
+
+                    layer1_progress_label =
+                      if layer1_block.status == "enqueued"
+                        "Job Sidekiq démarré · bloc encore marqué ENQUEUED"
+                      elsif layer1_block.status == "processing"
+                        "Bloc en traitement · age=#{age} · heartbeat=#{heartbeat}"
+                      elsif layer1_block.status == "processed"
+                        "Bloc traité"
+                      elsif layer1_block.status == "failed"
+                        "Bloc en erreur : #{layer1_block.error_class} #{layer1_block.error_message}"
+                      else
+                        "status=#{layer1_block.status}"
+                      end
                   end
+                end
 
                 job_description =
                   if job_class == "Blockchain::Jobs::BlockProcessJob"
-                    block_height = args.first
                     "Traitement du bloc Bitcoin ##{block_height}"
                   elsif job_class == "WhaleScanJob"
                     "Détection des gros mouvements BTC"
@@ -726,10 +893,32 @@
                     "Analyse batch du graphe cluster"
                   elsif job_class == "Realtime::ProcessLatestBlockJob"
                     "Traitement realtime du dernier bloc Bitcoin"
+                  elsif job_class == "Realtime::BlockStreamConsumerJob"
+                    "Consommation du Redis Stream bitcoin.blocks et déclenchement des consommateurs Layer 2"
                   elsif job_class == "InflowOutflowBuildJob"
                     "Construction des flux entrants / sortants exchange-like"
+                  elsif job_class == "ExchangeObservedScanJob"
+                    "Observation des UTXO exchange-like et mise à jour du curseur P1"
+                  elsif job_class == "SearchRefreshJob"
+                    "Synchronisation Elasticsearch"
                   else
                     "Job Sidekiq actif"
+                  end
+
+                job_run_name = job_run_names[job_class]
+
+                current_run =
+                  if job_run_name.present?
+                    JobRun
+                      .where(name: job_run_name)
+                      .where(status: ["running", "started"])
+                      .order(started_at: :desc)
+                      .first
+                  end
+
+                progress_pct_value =
+                  if current_run&.progress_pct.present?
+                    [[current_run.progress_pct.to_f, 0].max, 100].min
                   end
               %>
 
@@ -761,6 +950,175 @@
                     RUNNING
                   </span>
                 </div>
+
+                <% if layer1_block.present? %>
+                  <div class="mt-4 rounded-xl border border-gray-800 bg-black/20 p-3">
+                    <div class="mb-2 flex items-center justify-between text-xs text-gray-500">
+                      <span>Progression Layer 1</span>
+                      <span><%= layer1_progress_pct %>%</span>
+                    </div>
+
+                    <div class="h-2 overflow-hidden rounded-full bg-gray-800">
+                      <div
+                        class="h-full rounded-full bg-sky-400"
+                        style="width: <%= layer1_progress_pct %>%">
+                      </div>
+                    </div>
+
+                    <div class="mt-2 text-xs text-gray-400">
+                      <%= layer1_progress_label %>
+                    </div>
+
+                    <div class="mt-3 grid grid-cols-3 gap-2 text-xs text-gray-500">
+                      <div>
+                        <div>RPC</div>
+                        <div class="font-mono text-gray-300">
+                          <%= ms_to_label.call(layer1_block.rpc_duration_ms) %>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div>Parse</div>
+                        <div class="font-mono text-gray-300">
+                          <%= ms_to_label.call(layer1_block.parse_duration_ms) %>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div>Flush</div>
+                        <div class="font-mono text-gray-300">
+                          <%= ms_to_label.call(layer1_block.flush_duration_ms) %>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div class="mt-3 grid grid-cols-2 gap-2 text-xs text-gray-500">
+                      <div>
+                        <div>Started</div>
+                        <div class="font-mono text-gray-300">
+                          <%= layer1_block.processing_started_at || "—" %>
+                        </div>
+                      </div>
+
+                      <div>
+                        <div>Updated</div>
+                        <div class="font-mono text-gray-300">
+                          <%= layer1_block.updated_at || "—" %>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                <% elsif current_run.present? %>
+                  <div class="mt-4 rounded-xl border border-gray-800 bg-black/20 p-3">
+                    <div class="mb-2 flex items-center justify-between text-xs text-gray-500">
+                      <span>Progression</span>
+                      <span><%= progress_pct_value ? "#{progress_pct_value.round(1)}%" : "—" %></span>
+                    </div>
+
+                    <% if progress_pct_value.present? %>
+                      <div class="h-2 overflow-hidden rounded-full bg-gray-800">
+                        <div class="h-full rounded-full bg-sky-400" style="width: <%= progress_pct_value %>%"></div>
+                      </div>
+                    <% end %>
+
+                    <div class="mt-2 text-xs text-gray-400">
+                      <%= current_run.progress_label.presence || "Job en cours" %>
+                    </div>
+
+                    <% if current_run.progress_meta.present? %>
+                      <% meta = current_run.progress_meta || {} %>
+
+                      <div class="mt-2 text-xs text-gray-600">
+
+                        <% if meta["from_height"].present? && meta["to_height"].present? && meta["current_height"].present? %>
+
+                          block=<%= meta["current_height"] %> / <%= meta["to_height"] %>
+
+                          <% if meta["scanned_blocks"].present? %>
+                            · scanned_blocks=<%= meta["scanned_blocks"] %>
+                          <% end %>
+
+                          <% if meta["scanned_txs"].present? %>
+                            · scanned_txs=<%= meta["scanned_txs"] %>
+                          <% end %>
+
+                          <% if meta["whale_txs"].present? %>
+                            · whale_txs=<%= meta["whale_txs"] %>
+                          <% end %>
+
+                          <% if meta["upserted"].present? %>
+                            · upserted=<%= meta["upserted"] %>
+                          <% end %>
+
+                        <% elsif meta["current_height"].present? || meta["to_height"].present? || meta["end_height"].present? %>
+
+                          height=<%= meta["current_height"] || "—" %>/<%= meta["to_height"] || meta["end_height"] || "—" %>
+
+                          <% if meta["scanned_blocks"].present? %>
+                            · scanned_blocks=<%= meta["scanned_blocks"] %>
+                          <% end %>
+
+                          <% if meta["scanned_txs"].present? %>
+                            · scanned_txs=<%= meta["scanned_txs"] %>
+                          <% end %>
+
+                          <% if meta["links_created"].present? %>
+                            · links=<%= meta["links_created"] %>
+                          <% end %>
+
+                        <% elsif meta["scanned_blocks"].present? || meta["scanned_txs"].present? %>
+
+                          <% if meta["scanned_blocks"].present? %>
+                            blocks=<%= meta["scanned_blocks"] %>
+                          <% end %>
+
+                          <% if meta["scanned_txs"].present? %>
+                            · txs=<%= meta["scanned_txs"] %>
+                          <% end %>
+
+                        <% elsif meta["dirty_queue_size_after"].present? %>
+
+                          dirty_after=<%= meta["dirty_queue_size_after"] %>
+
+                          <% if meta["removed_from_queue"].present? %>
+                            · removed=<%= meta["removed_from_queue"] %>
+                          <% end %>
+
+                          <% if meta["refreshed"].present? %>
+                            · refreshed=<%= meta["refreshed"] %>
+                          <% end %>
+
+                        <% else %>
+
+                          <%= meta
+                                .to_h
+                                .slice(
+                                  "layer1_lag",
+                                  "batch_size",
+                                  "refreshed",
+                                  "removed_from_queue",
+                                  "step",
+                                  "current_step",
+                                  "total_steps",
+                                  "processed",
+                                  "enqueued_realtime",
+                                  "enqueued_exchange",
+                                  "enqueued_cluster"
+                                )
+                                .map { |k, v| "#{k}=#{v}" }
+                                .join(" · ")
+                                .presence || "—" %>
+
+                        <% end %>
+
+                      </div>
+                    <% end %>
+                  </div>
+                <% else %>
+                  <div class="mt-4 rounded-xl border border-gray-800 bg-black/20 p-3 text-xs text-gray-500">
+                    Progression non exposée pour ce job.
+                  </div>
+                <% end %>
 
                 <details class="mt-4">
                   <summary class="cursor-pointer text-xs font-semibold text-gray-400 hover:text-gray-200">
@@ -824,45 +1182,11 @@
           <% snapshot[:locks].to_a.each do |lock| %>
             <%
               lock_name = lock[:name].to_s
-
-              lock_title =
-                if lock_name == "realtime_processing_lock"
-                  "Realtime processing"
-                elsif lock_name == "exchange_observed_scan_lock"
-                  "Exchange observed scan"
-                elsif lock_name == "recovery_orchestrator_lock"
-                  "Recovery orchestrator"
-                elsif lock_name == "lock:cluster_scan" || lock_name == "cluster_scan_lock"
-                  "Cluster batch scanner"
-                else
-                  lock_name
-                end
-
-              lock_description =
-                if lock_name == "realtime_processing_lock"
-                  "Empêche deux traitements realtime de tourner en même temps."
-                elsif lock_name == "exchange_observed_scan_lock"
-                  "Protège le scan exchange-like contre les doubles exécutions."
-                elsif lock_name == "recovery_orchestrator_lock"
-                  "Évite plusieurs orchestrations recovery simultanées."
-                elsif lock_name == "lock:cluster_scan" || lock_name == "cluster_scan_lock"
-                  "Protège le scanner cluster batch contre les doubles exécutions."
-                else
-                  "Verrou technique Redis."
-                end
-
               lock_status = lock[:status].to_s
 
-              lock_classes =
-                if lock_status == "active"
-                  "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-                elsif lock_status == "stale" || lock_status == "error"
-                  "border-rose-500/20 bg-rose-500/10 text-rose-300"
-                elsif lock_status == "clear"
-                  "border-sky-500/20 bg-sky-500/10 text-sky-300"
-                else
-                  "border-gray-500/20 bg-gray-500/10 text-gray-300"
-                end
+              lock_title = lock_titles[lock_name] || lock_name
+              lock_description = lock_descriptions[lock_name] || "Verrou technique Redis."
+              lock_classes = lock_classes_map[lock_status] || "border-gray-500/20 bg-gray-500/10 text-gray-300"
             %>
 
             <div class="rounded-2xl border border-gray-800 bg-gray-900 p-4">

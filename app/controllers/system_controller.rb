@@ -96,6 +96,7 @@ class SystemController < ApplicationController
           edges: estimated_count(Edge)
         }
       end
+    @queue_contents = System::SidekiqQueueContentsSnapshot.call
   end
 
   private
