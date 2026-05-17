@@ -1,0 +1,309 @@
+<div class="px-4 py-8 sm:px-6 lg:px-8">
+  <div class="mx-auto w-full max-w-7xl xl:max-w-screen-2xl">
+    <!-- ================= HEADER ================= -->
+    <header class="mb-6">
+      <% if @latest_cluster_event.present? %>
+
+        <% signal_type = @latest_cluster_event["signal_type"].to_s %>
+        <% amount_btc = @latest_cluster_event["amount_btc"].to_f %>
+        <% severity = @latest_cluster_event["severity"].to_s %>
+
+        <% title =
+          if signal_type == "large_outflow"
+            "Gros mouvement sortant détecté"
+          elsif signal_type == "whale_cluster_activity"
+            "Activité whale détectée"
+          elsif signal_type == "activity_spike"
+            "Pic d’activité cluster"
+          elsif signal_type == "large_link_creation"
+            "Expansion importante du graphe"
+          elsif signal_type == "cluster_merge"
+            "Fusion de clusters détectée"
+          elsif signal_type == "cluster_reactivation"
+            "Cluster réactivé"
+          else
+            signal_type.humanize
+          end
+        %>
+
+        <% severity_class =
+          if severity == "high"
+            "border-rose-500/30 bg-rose-500/10 text-rose-200"
+          elsif severity == "medium"
+            "border-amber-500/30 bg-amber-500/10 text-amber-200"
+          else
+            "border-gray-700 bg-gray-900/40 text-gray-200"
+          end
+        %>
+
+        <div class="mb-6 rounded-2xl border p-4 <%= severity_class %>">
+          <div class="flex items-start justify-between gap-4">
+
+            <div>
+              <div class="text-xs uppercase tracking-wide opacity-80">
+                Alerte cluster prioritaire
+              </div>
+
+              <div class="mt-1 text-base font-semibold">
+                <%= title %>
+              </div>
+
+              <div class="mt-2 text-sm opacity-90">
+                Cluster #<%= @latest_cluster_event["cluster_id"] %>
+                · score <%= @latest_cluster_event["score"] %>
+                · <%= severity %>
+              </div>
+
+              <div class="mt-1 text-sm opacity-80">
+                block <%= @latest_cluster_event["block_height"] %>
+                · <%= number_with_delimiter(@latest_cluster_event["tx_count"].to_i) %> tx
+                · <%= number_with_delimiter(@latest_cluster_event["address_count"].to_i) %> adresses
+              </div>
+
+              <% if amount_btc.positive? %>
+                <div class="mt-2 text-lg font-semibold">
+                  <%= number_with_delimiter(amount_btc.round(4)) %> BTC
+                </div>
+              <% end %>
+            </div>
+
+            <div class="flex flex-col items-end gap-2">
+              <span class="inline-flex items-center rounded-full px-2.5 py-1 text-xs font-semibold bg-black/20">
+                <%= @latest_cluster_event["source"].to_s.sub("cluster_", "") %>
+              </span>
+
+              <%= link_to "Voir les alertes →",
+                clusters_events_path,
+                class: "text-sm font-semibold hover:underline" %>
+            </div>
+
+          </div>
+        </div>
+
+      <% end %>
+      <div class="flex items-start justify-between gap-4">
+        <div class="min-w-0">
+          <h1 class="text-3xl sm:text-4xl font-bold tracking-tight mb-1">
+            <%= t("dashboard.title") %>
+          </h1>
+          <p class="text-sm text-gray-400">
+            <%= t("dashboard.subtitle") %>
+          </p>
+        </div>
+        <div class="shrink-0">
+          <div
+            class="relative inline-block text-left"
+            data-controller="dropdown"
+            data-action="click@window->dropdown#closeOnOutside keydown@window->dropdown#closeOnEsc"
+          >
+            <button type="button"
+              data-action="dropdown#toggle"
+              class="inline-flex items-center gap-2 rounded-xl bg-gray-900/40 border border-gray-800 px-3 py-2 text-sm font-medium text-gray-200 hover:bg-white/5 focus:outline-none">
+
+              <% current_locale_label =
+                   case I18n.locale.to_s
+                   when "fr" then "🇫🇷 FR"
+                   when "es" then "🇪🇸 ES"
+                   when "zh-CN" then "🇨🇳 中文"
+                   else "🇺🇸 EN"
+                   end
+              %>
+              <%= current_locale_label %>
+
+              <svg class="w-4 h-4 opacity-60" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+
+            <div
+              data-dropdown-target="menu"
+              class="hidden absolute right-0 mt-2 w-40 origin-top-right rounded-xl bg-gray-950 border border-gray-800 shadow-xl"
+            >
+              <div class="py-1 text-sm">
+                <%= link_to url_for(locale: :fr),
+                  class: "block px-3 py-2 hover:bg-white/5 #{'bg-white/5' if I18n.locale == :fr}" do %>
+                  🇫🇷 Français
+                <% end %>
+
+                <%= link_to url_for(locale: :es),
+                  class: "block px-3 py-2 hover:bg-white/5 #{'bg-white/5' if I18n.locale == :es}" do %>
+                  🇪🇸 Español
+                <% end %>
+
+                <%= link_to url_for(locale: "zh-CN"),
+                  class: "block px-3 py-2 hover:bg-white/5 #{'bg-white/5' if I18n.locale.to_s == 'zh-CN'}" do %>
+                  🇨🇳 中文（简体）
+                <% end %>
+
+                <%= link_to url_for(locale: :en),
+                  class: "block px-3 py-2 hover:bg-white/5 #{'bg-white/5' if I18n.locale == :en}" do %>
+                  🇺🇸 English
+                <% end %>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <%= render "dashboard/shortcuts" %>
+    </header>
+
+    <div class="mb-6">
+      <%= render "address_lookup/search" %>
+    </div>
+
+    <!-- ================= HERO : SYNTHÈSE MARCHÉ ================= -->
+    <% if @snapshot.present? %>
+      <section class="mb-6">
+        <%= render "market/dashboard_summary",
+              snapshot: @snapshot,
+              one_liner: @one_liner,
+              perf_pct: @perf_pct,
+              high: @high,
+              low: @low,
+              pos_pct: @pos_pct,
+              max_drawdown_pct: @max_drawdown_pct,
+              vol_label: @vol_label,
+              vol_pct: @vol_pct,
+              ma200: @ma200,
+              ma_badge: @ma_badge,
+              px_vs_ma200_pct: @px_vs_ma200_pct,
+              px_now: @px_now,
+              alignment: @alignment,
+              sell_verdict: @sell_verdict,
+              trader_alerts: @trader_alerts,
+              range: (@range || "30d"),
+              alerts_mode: (@alerts_mode || "strict") %>
+      </section>
+    <% end %>
+
+    <!-- ================= CARTES DE SYNTHÈSE ================= -->
+    <section class="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-6">
+
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/30 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Stress</p>
+        <div class="flex items-end justify-between gap-3">
+          <div>
+            <p class="text-2xl font-bold text-gray-100">
+              <%= @sell_verdict.presence || "—" %>
+            </p>
+            <p class="text-sm text-gray-400 mt-1">
+              Market pressure overview
+            </p>
+          </div>
+          <div class="h-3 w-3 rounded-full bg-orange-400 shrink-0"></div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/30 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Flow</p>
+        <div class="flex items-end justify-between gap-3">
+          <div>
+            <p class="text-2xl font-bold text-gray-100">
+              <%= @range || "30d" %>
+            </p>
+            <p class="text-sm text-gray-400 mt-1">
+              Exchange flow context
+            </p>
+          </div>
+          <div class="h-3 w-3 rounded-full bg-green-400 shrink-0"></div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/30 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Trend</p>
+        <div class="flex items-end justify-between gap-3">
+          <div>
+            <p class="text-2xl font-bold text-gray-100">
+              <%= @ma_badge.presence || "—" %>
+            </p>
+            <p class="text-sm text-gray-400 mt-1">
+              Price vs MA200
+            </p>
+          </div>
+          <div class="h-3 w-3 rounded-full bg-indigo-400 shrink-0"></div>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-gray-800 bg-gray-900/30 p-4">
+        <p class="text-[11px] uppercase tracking-wide text-gray-500 mb-2">Volatility</p>
+        <div class="flex items-end justify-between gap-3">
+          <div>
+            <p class="text-2xl font-bold text-gray-100">
+              <%= @vol_label.presence || "—" %>
+            </p>
+            <p class="text-sm text-gray-400 mt-1">
+              Current market conditions
+            </p>
+          </div>
+          <div class="h-3 w-3 rounded-full bg-red-400 shrink-0"></div>
+        </div>
+      </div>
+
+    </section>
+
+    <!-- ================= BLOC ANALYTIQUE CENTRAL ================= -->
+    <section class="space-y-6">
+
+      <section class="rounded-2xl border border-gray-800 bg-gray-900/20 overflow-hidden">
+        <%= render "dashboard/true_exchange_flow" %>
+      </section>
+
+      <section class="rounded-2xl border border-gray-800 bg-gray-900/20 overflow-hidden">
+        <%= render "dashboard/price_zones" %>
+      </section>
+
+    </section>
+
+    <!-- ================= BLOCS CONTEXTE / AIDE ================= -->
+    <section class="grid grid-cols-1 xl:grid-cols-2 gap-6 mt-6">
+
+      <section class="rounded-2xl border border-gray-800 bg-gray-900/20 overflow-hidden">
+        <%= render "dashboard/ai_insight", ai_insight: @ai_insight %>
+      </section>
+
+      <section class="bg-gray-900/40 border border-gray-800 rounded-2xl p-4 sm:p-5">
+        <div class="flex items-start justify-between gap-4">
+          <div class="min-w-0">
+            <p class="text-xs uppercase tracking-wide text-gray-500">
+              <%= t("dashboard.security.label") %>
+            </p>
+
+            <h3 class="mt-1 text-sm sm:text-base font-semibold text-gray-100">
+              <%= t("dashboard.security.title") %>
+            </h3>
+
+            <p class="mt-2 text-xs sm:text-sm text-gray-400 max-w-2xl leading-relaxed">
+              <%= t("dashboard.security.description_html").html_safe %>
+            </p>
+
+            <div class="mt-3 text-[11px] text-gray-500">
+              <%= t("dashboard.security.disclaimer") %>
+            </div>
+          </div>
+
+          <div class="shrink-0 flex flex-col items-end gap-2">
+            <%= link_to t("dashboard.security.button"), opsec_path,
+              class: "inline-flex items-center justify-center gap-2 rounded-xl px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white font-semibold shadow" %>
+            <span class="text-[11px] text-gray-500"><%= t("dashboard.security.duration") %></span>
+          </div>
+        </div>
+      </section>
+
+    </section>
+
+    <!-- ================= ERREURS / STATUS ================= -->
+    <% if @error %>
+      <section class="mt-6 rounded-2xl border border-red-700 bg-red-900/30 p-4">
+        <p class="text-sm font-semibold text-red-200 mb-1">
+          <%= t("dashboard.errors.rpc") %>
+        </p>
+        <p class="text-sm text-red-300 break-words">
+          <%= @error %>
+        </p>
+      </section>
+    <% end %>
+
+    <%= render "shared/footer" %>
+  </div>
+</div>
