@@ -20,6 +20,14 @@ module Blockchain
           return
         end
 
+        if result[:ok]
+          Blockchain::Jobs::SpentOutputResolveJob.perform_async(block_height)
+
+          Rails.logger.info(
+            "[block_process_job] spent_output_resolve_enqueued height=#{block_height}"
+          )
+        end
+
         Rails.logger.info(
           "[block_process_job] done height=#{block_height} " \
           "txs=#{result[:txs].to_i} errors=#{result[:errors].to_i}"

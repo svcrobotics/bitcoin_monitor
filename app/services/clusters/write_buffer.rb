@@ -16,7 +16,7 @@ module Clusters
       @redis.xadd(
         STREAM,
         {
-          event: event,
+          event: event, 
           payload: payload.to_json,
           created_at: Time.current.iso8601
         },

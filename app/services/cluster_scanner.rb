@@ -2,7 +2,6 @@
 
 require "set"
 
-# app/services/cluster_scanner.rb
 class ClusterScanner
   class Error < StandardError; end
 
@@ -20,20 +19,18 @@ class ClusterScanner
     new(**args).call
   end
 
-  def initialize(from_height: nil, to_height: nil, limit: nil, rpc: nil, job_run: nil, refresh: true, mode: :batch)
+  def initialize(from_height: nil, to_height: nil, limit: nil, rpc: nil, job_run: nil, refresh: false, mode: :batch)
     @redis = ::Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
     @lock_acquired = false
     @from_height = from_height&.to_i
-    @to_height   = to_height&.to_i
-    @limit       = limit&.to_i
-    @rpc         = rpc # kept for compatibility, no longer used for normal scan
-    @job_run     = job_run
-    @refresh     = refresh
-    @mode        = mode.to_sym
-
+    @to_height = to_height&.to_i
+    @limit = limit&.to_i
+    @rpc = rpc
+    @job_run = job_run
+    @refresh = refresh
+    @mode = mode.to_sym
     @dirty_clusters_count = 0
-    @known_linked_txids = Set.new
-
+    @pending_link_rows = []
     @stats = default_stats
   end
 
@@ -46,13 +43,11 @@ class ClusterScanner
     return empty_range_response(range, best_height) if range[:start_height] > range[:end_height]
 
     log_start(range)
-
     update_progress!(range[:start_height], range[:start_height], range[:end_height])
 
     scan_range(range)
 
     refresh_dirty_clusters! if @refresh
-    # update_cursor!(range[:end_height]) if range[:mode] == :incremental
 
     build_result(range, best_height)
   ensure
@@ -60,10 +55,6 @@ class ClusterScanner
   end
 
   private
-
-  # -------------------------
-  # MAIN LOOP
-  # -------------------------
 
   def scan_range(range)
     (range[:start_height]..range[:end_height]).each do |height|
@@ -80,26 +71,62 @@ class ClusterScanner
   end
 
   def scan_block(height)
-    txids = layer1_spending_txids_for_height(height)
+    started_at = monotonic_ms
+    @pending_link_rows = []
 
-    linked_txids = AddressLink
-      .where(txid: txids, link_type: "multi_input")
-      .pluck(:txid)
-      .to_set
+    txids = timed("Layer1Txids") do
+      layer1_spending_txids_for_height(height)
+    end
+
+    linked_txids = timed("AlreadyLinkedTxids") do
+      AddressLink
+        .where(txid: txids, link_type: "multi_input")
+        .pluck(:txid)
+        .to_set
+    end
+
+    inputs_by_txid = timed("Layer1InputsBatch") do
+      layer1_inputs_for_txids(txids)
+    end
+
+    address_cache = timed("AddressPreload") do
+      preload_addresses_for_block(inputs_by_txid, height)
+    end
 
     ActiveRecord::Base.transaction do
       txids.each do |txid|
         @stats[:scanned_txs] += 1
-        scan_layer1_transaction(txid, height, linked_txids)
+
+        scan_layer1_transaction(
+          txid,
+          height,
+          linked_txids,
+          input_rows: inputs_by_txid[txid] || [],
+          address_cache: address_cache
+        )
       end
+
+      links_created = timed("BlockLinkWriter") do
+        Clusters::BlockLinkWriter.call(link_rows: @pending_link_rows)
+      end
+
+      @stats[:links_created] += links_created
     end
+
+    duration_ms = monotonic_ms - started_at
+
+    puts(
+      "[cluster_scan] block_done height=#{height} " \
+      "txids=#{txids.size} pending_links=#{@pending_link_rows.size} " \
+      "duration_ms=#{duration_ms}"
+    )
 
     true
   rescue StandardError => e
     raise Error, "scan_block failed height=#{height}: #{e.class} - #{e.message}"
   end
 
-  def scan_layer1_transaction(txid, height, linked_txids)
+  def scan_layer1_transaction(txid, height, linked_txids, input_rows: nil, address_cache: nil)
     txid = txid.to_s
     return if txid.blank?
 
@@ -108,7 +135,7 @@ class ClusterScanner
       return
     end
 
-    input_rows = layer1_inputs_for_txid(txid)
+    input_rows ||= layer1_inputs_for_txid(txid)
     return if input_rows.size < 2
 
     @stats[:multi_input_candidates] += 1
@@ -116,16 +143,14 @@ class ClusterScanner
     grouped = grouped_layer1_inputs(input_rows)
     return if grouped.empty? || grouped.size < 2
 
-    max_addresses =
-      Integer(ENV.fetch("CLUSTER_REALTIME_MAX_GROUPED_ADDRESSES", "50"))
+    max_addresses = Integer(ENV.fetch("CLUSTER_REALTIME_MAX_GROUPED_ADDRESSES", "50"))
 
     if @mode == :realtime && grouped.size > max_addresses
       @stats[:tx_skipped_too_large] += 1
       return
     end
 
-    min_addresses =
-      Integer(ENV.fetch("CLUSTER_REALTIME_MIN_GROUPED_ADDRESSES", "3"))
+    min_addresses = Integer(ENV.fetch("CLUSTER_REALTIME_MIN_GROUPED_ADDRESSES", "3"))
 
     if @mode == :realtime && grouped.size < min_addresses
       @stats[:tx_skipped_too_small] += 1
@@ -139,7 +164,8 @@ class ClusterScanner
     address_records = timed("AddressWriter") do
       Clusters::AddressWriter.call(
         grouped_inputs: grouped.index_by { |g| g[:address] },
-        height: height
+        height: height,
+        address_cache: address_cache
       )
     end
 
@@ -148,49 +174,73 @@ class ClusterScanner
     end
 
     @stats[:clusters_created] += merge_result.created
-    @stats[:clusters_merged]  += merge_result.merged
+    @stats[:clusters_merged] += merge_result.merged
 
-    links_created = timed("LinkWriter") do
-      Clusters::LinkWriter.call(
-        address_records: address_records,
-        txid: txid,
-        height: height
-      )
+    links_created = collect_link_rows!(
+      address_records: address_records,
+      txid: txid,
+      height: height
+    )
+
+    if @refresh || @mode == :realtime
+      timed("DirtyMarker") do
+        mark_cluster_dirty!(
+          merge_result.cluster,
+          links_created: links_created,
+          addresses_touched: grouped.size,
+          clusters_created: merge_result.created,
+          clusters_merged: merge_result.merged
+        )
+      end
     end
 
-    @stats[:links_created] += links_created
-
-    mark_cluster_dirty!(
-      merge_result.cluster,
-      links_created: links_created,
-      addresses_touched: grouped.size,
-      clusters_created: merge_result.created,
-      clusters_merged: merge_result.merged
-    )
-
-    write_clickhouse_cluster_event!(
-      cluster: merge_result.cluster,
-      height: height,
-      links_created: links_created,
-      address_count: grouped.size,
-      input_rows_count: input_rows.size,
-      clusters_created: merge_result.created,
-      clusters_merged: merge_result.merged
-    )
+    if @mode == :realtime
+      timed("ClickHouseEvent") do
+        write_clickhouse_cluster_event!(
+          cluster: merge_result.cluster,
+          height: height,
+          links_created: links_created,
+          address_count: grouped.size,
+          input_rows_count: input_rows.size,
+          clusters_created: merge_result.created,
+          clusters_merged: merge_result.merged
+        )
+      end
+    end
 
     @stats[:addresses_touched] += grouped.size
   rescue StandardError => e
     raise Error, "scan_layer1_transaction failed txid=#{txid} height=#{height}: #{e.class} - #{e.message}"
   end
 
-  # -------------------------
-  # LAYER 1 SOURCE
-  # -------------------------
+  def collect_link_rows!(address_records:, txid:, height:)
+    records = Array(address_records).compact.sort_by(&:id)
+    return 0 if records.size < 2
+
+    now = Time.current
+    pivot = records.first
+    rows = []
+
+    records.drop(1).each do |other|
+      id_a, id_b = [pivot.id, other.id].sort
+
+      rows << {
+        address_a_id: id_a,
+        address_b_id: id_b,
+        link_type: "multi_input",
+        txid: txid,
+        block_height: height,
+        created_at: now,
+        updated_at: now
+      }
+    end
+
+    @pending_link_rows.concat(rows)
+    rows.size
+  end
+
   def layer1_best_height
-    BlockBufferModel
-      .where(status: "processed")
-      .maximum(:height)
-      .to_i
+    BlockBufferModel.where(status: "processed").maximum(:height).to_i
   end
 
   def block_hash_for_height(height)
@@ -220,6 +270,26 @@ class ClusterScanner
       end
   end
 
+  def layer1_inputs_for_txids(txids)
+    rows =
+      TxOutput
+        .where(spent_txid: txids)
+        .where.not(address: nil)
+        .where.not(amount_btc: nil)
+        .pluck(:spent_txid, :address, :amount_btc)
+
+    grouped = Hash.new { |h, k| h[k] = [] }
+
+    rows.each do |spent_txid, address, amount_btc|
+      grouped[spent_txid] << {
+        address: address,
+        value_sats: btc_to_sats(amount_btc)
+      }
+    end
+
+    grouped
+  end
+
   def grouped_layer1_inputs(input_rows)
     grouped = input_rows.group_by { |row| row[:address] }
 
@@ -236,31 +306,24 @@ class ClusterScanner
     (value.to_d * SATS_PER_BTC).to_i
   end
 
-  # -------------------------
-  # TIMING HELPER
-  # -------------------------
-
   def timed(label)
     return yield unless ENABLE_TIMING_LOGS
 
-    t0 = Time.now
+    started_at = monotonic_ms
     result = yield
-    puts "#{label}: #{((Time.now - t0) * 1000).round(2)}ms"
+    puts "#{label}: #{monotonic_ms - started_at}ms"
     result
   end
 
-  # -------------------------
-  # RANGE LOGIC
-  # -------------------------
+  def monotonic_ms
+    (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000).round
+  end
 
   def compute_scan_range(best_height)
     if manual_mode?
       start_height = @from_height || [0, best_height - default_manual_span + 1].max
-      end_height   = @to_height || best_height
-
-      if @limit&.positive?
-        end_height = [end_height, start_height + @limit - 1].min
-      end
+      end_height = @to_height || best_height
+      end_height = [end_height, start_height + @limit - 1].min if @limit&.positive?
 
       return {
         mode: :manual,
@@ -296,10 +359,6 @@ class ClusterScanner
     @limit&.positive? ? @limit : INITIAL_BLOCKS_BACK
   end
 
-  # -------------------------
-  # CURSOR
-  # -------------------------
-
   def scanner_cursor
     @scanner_cursor ||= ScannerCursor.find_or_create_by!(name: CURSOR_NAME)
   end
@@ -310,10 +369,6 @@ class ClusterScanner
       last_blockhash: block_hash_for_height(height)
     )
   end
-
-  # -------------------------
-  # DIRTY CLUSTERS
-  # -------------------------
 
   def mark_cluster_dirty!(cluster, links_created:, addresses_touched:, clusters_created:, clusters_merged:)
     return if cluster.blank?
@@ -340,20 +395,21 @@ class ClusterScanner
     Clusters::DirtyClusterRefresher.call(cluster_ids: cluster_ids)
   end
 
-  # -------------------------
-  # LOGGING
-  # -------------------------
-
   def log_start(range)
-    puts "[cluster_scan] start source=layer1 mode=#{range[:mode]} start_height=#{range[:start_height]} end_height=#{range[:end_height]}"
+    puts(
+      "[cluster_scan] start source=layer1 mode=#{range[:mode]} " \
+      "start_height=#{range[:start_height]} end_height=#{range[:end_height]}"
+    )
   end
 
   def log_progress(height)
     return unless (@stats[:scanned_blocks] % 10).zero?
 
-    puts "[cluster_scan] progress source=layer1 height=#{height} " \
-         "blocks=#{@stats[:scanned_blocks]} txs=#{@stats[:scanned_txs]} " \
-         "multi_input_txs=#{@stats[:multi_input_txs]} links=#{@stats[:links_created]}"
+    puts(
+      "[cluster_scan] progress source=layer1 height=#{height} " \
+      "blocks=#{@stats[:scanned_blocks]} txs=#{@stats[:scanned_txs]} " \
+      "multi_input_txs=#{@stats[:multi_input_txs]} links=#{@stats[:links_created]}"
+    )
   end
 
   def update_progress_if_needed(height, range)
@@ -370,10 +426,10 @@ class ClusterScanner
   def update_progress!(current, start_h, end_h)
     return if @job_run.blank?
 
-    total = (end_h - start_h + 1)
+    total = end_h - start_h + 1
     return if total <= 0
 
-    done = (current - start_h + 1)
+    done = current - start_h + 1
     pct = ((done.to_f / total) * 100).round(1)
 
     JobRunner.progress!(
@@ -388,10 +444,6 @@ class ClusterScanner
       )
     )
   end
-
-  # -------------------------
-  # RESPONSE
-  # -------------------------
 
   def empty_range_response(range, best_height)
     {
@@ -446,12 +498,13 @@ class ClusterScanner
   end
 
   def acquire_lock!
-    @lock_acquired = @redis.set(
-      lock_key,
-      Time.current.to_i,
-      nx: true,
-      ex: LOCK_TTL
-    )
+    @lock_acquired =
+      @redis.set(
+        lock_key,
+        Time.current.to_i,
+        nx: true,
+        ex: LOCK_TTL
+      )
 
     @lock_acquired
   end
@@ -481,13 +534,14 @@ class ClusterScanner
   )
     return if cluster.blank?
 
-    alert = Clusters::RealtimeAlertClassifier.call(
-      links_created: links_created,
-      address_count: address_count,
-      input_rows_count: input_rows_count,
-      clusters_created: clusters_created,
-      clusters_merged: clusters_merged
-    )
+    alert =
+      Clusters::RealtimeAlertClassifier.call(
+        links_created: links_created,
+        address_count: address_count,
+        input_rows_count: input_rows_count,
+        clusters_created: clusters_created,
+        clusters_merged: clusters_merged
+      )
 
     return if alert.blank?
 
@@ -504,5 +558,39 @@ class ClusterScanner
     )
   rescue StandardError => e
     Rails.logger.warn("[clickhouse_cluster_event] failed #{e.class}: #{e.message}")
+  end
+
+  def preload_addresses_for_block(inputs_by_txid, height)
+    addresses =
+      inputs_by_txid
+        .values
+        .flatten
+        .map { |row| row[:address] }
+        .compact
+        .uniq
+
+    return {} if addresses.empty?
+
+    now = Time.current
+
+    rows =
+      addresses.map do |address|
+        {
+          address: address,
+          first_seen_height: height,
+          last_seen_height: height,
+          total_sent_sats: 0,
+          tx_count: 0,
+          created_at: now,
+          updated_at: now
+        }
+      end
+
+    Address.insert_all(
+      rows,
+      unique_by: :index_addresses_on_address
+    )
+
+    Address.where(address: addresses).index_by(&:address)
   end
 end
