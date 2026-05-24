@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_05_17_171901) do
+ActiveRecord::Schema[8.0].define(version: 2026_05_24_114308) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -30,6 +30,27 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_17_171901) do
     t.index ["label"], name: "index_actor_labels_on_label"
   end
 
+  create_table "actor_metrics", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.integer "address_count", default: 0, null: false
+    t.integer "total_tx_count", default: 0, null: false
+    t.bigint "total_received_sats", default: 0, null: false
+    t.bigint "total_sent_sats", default: 0, null: false
+    t.integer "first_seen_height"
+    t.integer "last_seen_height"
+    t.integer "activity_span_blocks"
+    t.integer "exchange_score", default: 0, null: false
+    t.integer "whale_score", default: 0, null: false
+    t.integer "service_score", default: 0, null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_id"], name: "index_actor_metrics_on_cluster_id", unique: true
+    t.index ["exchange_score"], name: "index_actor_metrics_on_exchange_score"
+    t.index ["service_score"], name: "index_actor_metrics_on_service_score"
+    t.index ["whale_score"], name: "index_actor_metrics_on_whale_score"
+  end
+
   create_table "address_links", force: :cascade do |t|
     t.bigint "address_a_id", null: false
     t.bigint "address_b_id", null: false
@@ -42,6 +63,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_17_171901) do
     t.index ["address_a_id"], name: "index_address_links_on_address_a_id"
     t.index ["address_b_id"], name: "index_address_links_on_address_b_id"
     t.index ["block_height"], name: "index_address_links_on_block_height"
+    t.index ["txid", "link_type"], name: "index_address_links_on_txid_and_link_type"
     t.index ["txid"], name: "index_address_links_on_txid"
   end
 
@@ -368,6 +390,40 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_17_171901) do
     t.index ["address"], name: "index_exchange_addresses_on_address", unique: true
   end
 
+  create_table "exchange_core_flow_days", force: :cascade do |t|
+    t.date "day", null: false
+    t.decimal "inflow_btc", precision: 18, scale: 8, default: "0.0", null: false
+    t.decimal "outflow_btc", precision: 18, scale: 8, default: "0.0", null: false
+    t.decimal "netflow_btc", precision: 18, scale: 8, default: "0.0", null: false
+    t.integer "events_count", default: 0, null: false
+    t.string "source", default: "actor_graph_core", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["day"], name: "index_exchange_core_flow_days_on_day", unique: true
+  end
+
+  create_table "exchange_core_flow_events", force: :cascade do |t|
+    t.integer "block_height", null: false
+    t.string "block_hash"
+    t.string "txid", null: false
+    t.string "address", null: false
+    t.bigint "cluster_id"
+    t.string "direction", null: false
+    t.decimal "amount_btc", precision: 18, scale: 8, default: "0.0", null: false
+    t.datetime "event_time"
+    t.string "source", default: "actor_graph", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_exchange_core_flow_events_on_address"
+    t.index ["block_height"], name: "index_exchange_core_flow_events_on_block_height"
+    t.index ["cluster_id"], name: "index_exchange_core_flow_events_on_cluster_id"
+    t.index ["direction"], name: "index_exchange_core_flow_events_on_direction"
+    t.index ["event_time"], name: "index_exchange_core_flow_events_on_event_time"
+    t.index ["txid", "address", "direction"], name: "idx_on_txid_address_direction_bbf0aea31e", unique: true
+    t.index ["txid"], name: "index_exchange_core_flow_events_on_txid"
+  end
+
   create_table "exchange_flow_day_behaviors", force: :cascade do |t|
     t.date "day", null: false
     t.decimal "retail_deposit_ratio", precision: 10, scale: 6, default: "0.0"
@@ -648,6 +704,51 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_17_171901) do
     t.index ["nonce"], name: "index_login_challenges_on_nonce", unique: true
   end
 
+  create_table "macro_indicators", force: :cascade do |t|
+    t.string "source", null: false
+    t.string "code", null: false
+    t.date "observed_on", null: false
+    t.decimal "value", precision: 20, scale: 8, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["code", "observed_on"], name: "index_macro_indicators_on_code_and_observed_on"
+    t.index ["source", "code", "observed_on"], name: "index_macro_indicators_on_source_and_code_and_observed_on", unique: true
+  end
+
+  create_table "market_predictions", force: :cascade do |t|
+    t.string "source", null: false
+    t.string "indicator", null: false
+    t.string "direction", null: false
+    t.integer "confidence", default: 50, null: false
+    t.date "predicted_on", null: false
+    t.date "target_on", null: false
+    t.decimal "btc_price_at_prediction", precision: 20, scale: 8
+    t.decimal "btc_price_at_target", precision: 20, scale: 8
+    t.decimal "performance_pct", precision: 10, scale: 4
+    t.string "result"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["direction"], name: "index_market_predictions_on_direction"
+    t.index ["result"], name: "index_market_predictions_on_result"
+    t.index ["source", "indicator", "predicted_on", "target_on"], name: "idx_on_source_indicator_predicted_on_target_on_696ff8ece9", unique: true
+  end
+
+  create_table "market_signals", force: :cascade do |t|
+    t.string "source", null: false
+    t.string "indicator", null: false
+    t.string "direction", null: false
+    t.integer "confidence", default: 50, null: false
+    t.date "observed_on", null: false
+    t.text "reason"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["direction"], name: "index_market_signals_on_direction"
+    t.index ["indicator", "observed_on"], name: "index_market_signals_on_indicator_and_observed_on"
+    t.index ["source", "indicator", "observed_on"], name: "index_market_signals_on_source_and_indicator_and_observed_on", unique: true
+  end
+
   create_table "market_snapshots", force: :cascade do |t|
     t.datetime "computed_at", null: false
     t.decimal "price_now_usd", precision: 20, scale: 8
@@ -704,6 +805,27 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_17_171901) do
     t.index ["computed_at"], name: "index_price_zones_on_computed_at"
     t.index ["kind", "timeframe", "computed_at"], name: "index_price_zones_on_kind_and_timeframe_and_computed_at"
     t.index ["kind"], name: "index_price_zones_on_kind"
+  end
+
+  create_table "question_definitions", force: :cascade do |t|
+    t.string "key", null: false
+    t.string "module_name", null: false
+    t.string "tier", null: false
+    t.text "question", null: false
+    t.string "intent", null: false
+    t.string "answer_service", null: false
+    t.string "historical_path"
+    t.boolean "active", default: true, null: false
+    t.integer "position", default: 0, null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["active"], name: "index_question_definitions_on_active"
+    t.index ["intent"], name: "index_question_definitions_on_intent"
+    t.index ["key"], name: "index_question_definitions_on_key", unique: true
+    t.index ["module_name", "tier", "position"], name: "idx_on_module_name_tier_position_c1ea07863e"
+    t.index ["module_name"], name: "index_question_definitions_on_module_name"
+    t.index ["tier"], name: "index_question_definitions_on_tier"
   end
 
   create_table "rune_balances", force: :cascade do |t|
@@ -878,6 +1000,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_17_171901) do
     t.index ["address"], name: "index_tx_outputs_on_address"
     t.index ["block_height"], name: "index_tx_outputs_on_block_height"
     t.index ["spent"], name: "index_tx_outputs_on_spent"
+    t.index ["spent_block_height", "spent_txid"], name: "index_tx_outputs_on_spent_block_height_and_spent_txid"
+    t.index ["spent_txid", "address"], name: "index_tx_outputs_on_spent_txid_and_address"
     t.index ["spent_txid"], name: "index_tx_outputs_on_spent_txid"
     t.index ["txid", "vout"], name: "index_tx_outputs_on_txid_and_vout", unique: true
   end
@@ -982,6 +1106,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_17_171901) do
   end
 
   add_foreign_key "actor_labels", "clusters", on_delete: :cascade
+  add_foreign_key "actor_metrics", "clusters", on_delete: :cascade
   add_foreign_key "address_links", "addresses", column: "address_a_id"
   add_foreign_key "address_links", "addresses", column: "address_b_id"
   add_foreign_key "addresses", "clusters"
