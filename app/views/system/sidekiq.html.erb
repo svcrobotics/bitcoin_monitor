@@ -1,0 +1,617 @@
+<%
+  section_class = "rounded-2xl border border-white/10 bg-gray-950/70 p-5 shadow-sm"
+  label_class = "text-xs font-semibold uppercase tracking-wide text-gray-500"
+  muted_class = "text-sm text-gray-400"
+
+  status_class_map = {
+    "ok" => "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    "healthy" => "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    "clear" => "border-emerald-500/20 bg-emerald-500/10 text-emerald-300",
+    "warning" => "border-amber-500/20 bg-amber-500/10 text-amber-300",
+    "running" => "border-amber-500/20 bg-amber-500/10 text-amber-300",
+    "critical" => "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    "fail" => "border-rose-500/20 bg-rose-500/10 text-rose-300",
+    "failed" => "border-rose-500/20 bg-rose-500/10 text-rose-300"
+  }
+
+  status_classes = lambda do |status|
+    status_class_map[status.to_s] || "border-gray-500/20 bg-gray-500/10 text-gray-300"
+  end
+
+  queues = @queues || []
+  workers = @workers || []
+  recent_jobs = @recent_jobs || []
+  busy_queues = queues.select { |q| q[:size].to_i > 0 || q[:latency].to_f > 30 }
+%>
+
+<section class="<%= section_class %> mt-10">
+
+  <!-- Header -->
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <div class="<%= label_class %>">Sidekiq runtime</div>
+
+      <h2 class="mt-1 text-xl font-semibold">
+        Queues & backlogs
+      </h2>
+
+      <p class="mt-2 <%= muted_class %>">
+        Vue consolidée des queues Sidekiq : Layer 1 rapide,
+        spent resolver asynchrone, realtime, clusters et analytics.
+      </p>
+    </div>
+
+    <span class="shrink-0 rounded-full border px-3 py-1 text-sm font-semibold <%= busy_queues.any? ? status_classes.call("warning") : status_classes.call("ok") %>">
+      <%= busy_queues.any? ? "#{busy_queues.size} BACKLOG" : "CLEAR" %>
+    </span>
+  </div>
+
+  <!-- Runtime cards -->
+  <%
+    layer1_process = queues.find { |q| q[:name].to_s == "process" } || {}
+    layer1_ingest  = queues.find { |q| q[:name].to_s == "ingest" } || {}
+    spent_queue    = queues.find { |q| q[:name].to_s == "low" } || {}
+  %>
+
+  <div class="mt-6 grid grid-cols-1 gap-4 md:grid-cols-3">
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">
+        Layer 1 processor
+      </div>
+
+      <div class="mt-3 text-3xl font-bold <%= layer1_process[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= layer1_process[:size].to_i %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue</span>
+          <span class="font-mono text-gray-200">process</span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Latency</span>
+          <span class="font-mono text-gray-200">
+            <%= layer1_process[:latency].to_f.round(1) %>s
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        BlockProcessJob · pipeline Layer 1 principal
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">
+        Layer 1 ingest
+      </div>
+
+      <div class="mt-3 text-3xl font-bold <%= layer1_ingest[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= layer1_ingest[:size].to_i %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue</span>
+          <span class="font-mono text-gray-200">ingest</span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Latency</span>
+          <span class="font-mono text-gray-200">
+            <%= layer1_ingest[:latency].to_f.round(1) %>s
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Backfill blockchain & ingestion RPC/ZMQ
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">
+        Spent resolver
+      </div>
+
+      <div class="mt-3 text-3xl font-bold <%= spent_queue[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= spent_queue[:size].to_i %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue</span>
+          <span class="font-mono text-gray-200">low</span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Latency</span>
+          <span class="font-mono text-gray-200">
+            <%= spent_queue[:latency].to_f.round(1) %>s
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        SpentOutputResolveJob · calcul des outflows
+      </p>
+    </div>
+  </div>
+
+  <!-- Cluster runtime cards -->
+  <%
+    cluster_main    = queues.find { |q| q[:name].to_s == "p3_clusters" } || {}
+    cluster_scan    = queues.find { |q| q[:name].to_s == "p3_clusters_scan" } || {}
+    cluster_refresh = queues.find { |q| q[:name].to_s == "p3_clusters_refresh" } || {}
+  %>
+
+  <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Cluster realtime</div>
+
+      <div class="mt-3 text-3xl font-bold <%= cluster_main[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= cluster_main[:size].to_i %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue</span>
+          <span class="font-mono text-gray-200">p3_clusters</span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Latency</span>
+          <span class="font-mono text-gray-200"><%= cluster_main[:latency].to_f.round(1) %>s</span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Cluster realtime · consommation du Layer 1.
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Cluster scanner</div>
+
+      <div class="mt-3 text-3xl font-bold <%= cluster_scan[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= cluster_scan[:size].to_i %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue</span>
+          <span class="font-mono text-gray-200">p3_clusters_scan</span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Latency</span>
+          <span class="font-mono text-gray-200"><%= cluster_scan[:latency].to_f.round(1) %>s</span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Batch scanner · construction du graph d’adresses.
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Dirty refresh</div>
+
+      <div class="mt-3 text-3xl font-bold <%= cluster_refresh[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= cluster_refresh[:size].to_i %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue</span>
+          <span class="font-mono text-gray-200">p3_clusters_refresh</span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Latency</span>
+          <span class="font-mono text-gray-200"><%= cluster_refresh[:latency].to_f.round(1) %>s</span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Refresh des dirty clusters · profils et actor labels.
+      </p>
+    </div>
+  </div>
+
+  <!-- Actor Labels runtime -->
+  <%
+    actor_queue =
+      queues.find { |q| q[:name].to_s == "actor_labels" } || {}
+
+    actor_busy =
+      workers.count do |worker|
+        queue =
+          worker[:queue].to_s.presence ||
+          worker["queue"].to_s
+
+        queue == "actor_labels"
+      end
+
+    actor_labels = @actor_labels_status || {}
+
+    total_labels = actor_labels[:total].to_i
+    exchange_like_count = actor_labels[:exchange_like].to_i
+    whale_like_count = actor_labels[:whale_like].to_i
+    service_like_count = actor_labels[:service_like].to_i
+  %>
+
+  <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">
+        Actor labels runtime
+      </div>
+
+      <div class="mt-3 text-3xl font-bold <%= actor_queue[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= actor_queue[:size].to_i %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue</span>
+          <span class="font-mono text-gray-200">
+            actor_labels
+          </span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Busy</span>
+          <span class="font-mono <%= actor_busy > 0 ? "text-sky-300" : "text-gray-300" %>">
+            <%= actor_busy %>
+          </span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Latency</span>
+          <span class="font-mono text-gray-200">
+            <%= actor_queue[:latency].to_f.round(1) %>s
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Queue dédiée Actor Labels · classification économique.
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">
+        Label coverage
+      </div>
+
+      <div class="mt-3 text-3xl font-bold text-gray-100">
+        <%= number_with_delimiter(total_labels) %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Exchange-like</span>
+          <span class="font-mono text-blue-300">
+            <%= number_with_delimiter(exchange_like_count) %>
+          </span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Whale-like</span>
+          <span class="font-mono text-purple-300">
+            <%= number_with_delimiter(whale_like_count) %>
+          </span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Service-like</span>
+          <span class="font-mono text-emerald-300">
+            <%= number_with_delimiter(service_like_count) %>
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Labels produits par l’Actor Graph.
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">
+        Runtime state
+      </div>
+
+      <div class="mt-3 text-3xl font-bold <%= actor_busy > 0 ? "text-sky-300" : actor_queue[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <% if actor_busy > 0 %>
+          RUN
+        <% elsif actor_queue[:size].to_i > 0 %>
+          WAIT
+        <% else %>
+          IDLE
+        <% end %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue size</span>
+          <span class="font-mono text-gray-200">
+            <%= actor_queue[:size].to_i %>
+          </span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Worker</span>
+          <span class="font-mono text-gray-200">
+            <%= actor_busy %>
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Producteur de classifications pour les modules consommateurs.
+      </p>
+    </div>
+  </div>
+
+  <!-- Exchange Core Flow runtime -->
+  <%
+    exchange_queue = queues.find { |q| q[:name].to_s == "p1_exchange" } || {}
+
+    exchange_busy =
+      workers.count do |worker|
+        queue =
+          worker[:queue].to_s.presence ||
+          worker["queue"].to_s
+
+        queue == "p1_exchange"
+      end
+
+    flow_today = Dashboard::ExchangeCoreNetflowToday.call rescue {}
+
+    flow_events_count = flow_today[:events_count].to_i
+    last_flow_height = ExchangeCoreFlowEvent.maximum(:block_height) rescue nil
+  %>
+
+  <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Exchange Core Flow runtime</div>
+
+      <div class="mt-3 text-3xl font-bold <%= exchange_queue[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= exchange_queue[:size].to_i %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue</span>
+          <span class="font-mono text-gray-200">p1_exchange</span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Busy</span>
+          <span class="font-mono <%= exchange_busy > 0 ? "text-sky-300" : "text-gray-300" %>">
+            <%= exchange_busy %>
+          </span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Latency</span>
+          <span class="font-mono text-gray-200">
+            <%= exchange_queue[:latency].to_f.round(1) %>s
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Consommateur des labels exchange_like.
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Flow events</div>
+
+      <div class="mt-3 text-3xl font-bold text-gray-100">
+        <%= number_with_delimiter(flow_events_count) %>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        événements exchange détectés aujourd’hui
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Runtime state</div>
+
+      <div class="mt-3 text-3xl font-bold <%= exchange_busy > 0 ? "text-sky-300" : exchange_queue[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <% if exchange_busy > 0 %>
+          RUN
+        <% elsif exchange_queue[:size].to_i > 0 %>
+          WAIT
+        <% else %>
+          IDLE
+        <% end %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Last flow block</span>
+          <span class="font-mono text-gray-200">
+            <%= last_flow_height || "—" %>
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Calcul des inflows / outflows exchange-like.
+      </p>
+    </div>
+  </div>
+
+  <!-- Existing table -->
+  <%
+    pipeline_labels = {
+      "process" => "Layer 1",
+      "ingest" => "Layer 1",
+      "low" => "Spent / flows",
+      "realtime" => "Realtime",
+      "p1_exchange" => "Exchange",
+      "p2_flows" => "Flows",
+      "p3_clusters" => "Actor Graph",
+      "p3_clusters_scan" => "Actor Graph",
+      "p3_clusters_refresh" => "Cluster Refresh",
+      "actor_labels" => "Actor Labels",
+      "p4_analytics" => "Analytics",
+      "default" => "System"
+    }
+
+    critical_queues = %w[
+      process
+      ingest
+      low
+      realtime
+      p3_clusters
+      p3_clusters_scan
+      p3_clusters_refresh
+      actor_labels
+    ]
+  %>
+  <%
+    expected_queue_names = %w[
+      realtime
+      ingest
+      process
+      low
+      p1_exchange
+      p2_flows
+      p3_clusters
+      p3_clusters_scan
+      p3_clusters_refresh
+      actor_labels
+      p4_analytics
+      default
+    ]
+
+    queue_by_name = queues.index_by { |q| q[:name].to_s }
+
+    display_queues =
+      expected_queue_names.map do |name|
+        queue_by_name[name] || { name: name, size: 0, latency: 0 }
+      end
+  %>
+  <div class="mt-6 overflow-hidden rounded-2xl border border-gray-800">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-gray-900 text-gray-400">
+        <tr>
+          <th class="px-4 py-3">Pipeline</th>
+          <th class="px-4 py-3">Queue</th>
+          <th class="px-4 py-3">Size</th>
+          <th class="px-4 py-3">Busy</th>
+          <th class="px-4 py-3">Latency</th>
+          <th class="px-4 py-3">Job dominant</th>
+          <th class="px-4 py-3">Oldest</th>
+          <th class="px-4 py-3">Lecture</th>
+          <th class="px-4 py-3">État</th>
+        </tr>
+      </thead>
+
+      <tbody class="divide-y divide-gray-800 bg-gray-950">
+        <% display_queues.each do |q| %>
+          <%
+            queue_name = q[:name].to_s
+
+            latency = q[:latency].to_f
+            size = q[:size].to_i
+
+            queue_data =
+              Array(@queue_contents).find { |x| x[:queue].to_s == queue_name } || {}
+
+            jobs = queue_data[:jobs] || []
+            top_job = jobs.first
+
+            busy_count =
+              workers.count do |worker|
+                worker[:queue].to_s == queue_name ||
+                  worker["queue"].to_s == queue_name
+              end
+
+            critical_queue = critical_queues.include?(queue_name)
+            consumer_queues = %w[p1_exchange p2_flows p4_analytics default]
+            queue_state =
+              if critical_queue && (latency > 1800 || size > 50)
+                "critical"
+              elsif critical_queue && (size > 0 || latency > 120)
+                "warning"
+              elsif consumer_queues.include?(queue_name) && busy_count.zero? && size.positive?
+                "warning"
+              elsif consumer_queues.include?(queue_name) && latency > 3600
+                "critical"
+              elsif !critical_queue && (latency > 86_400 || size > 500)
+                "critical"
+              elsif !critical_queue && (latency > 3600 || size > 50)
+                "warning"
+              else
+                "ok"
+              end
+
+            reading =
+              if size.zero? && busy_count.zero?
+                "Aucun backlog"
+              elsif busy_count.positive?
+                "Traitement actif"
+              elsif size.positive? && busy_count.zero?
+                "Backlog sans worker actif"
+              else
+                "Surveillance"
+              end
+          %>
+
+          <tr>
+            <td class="px-4 py-3 text-gray-300">
+              <%= pipeline_labels[queue_name] || "Other" %>
+            </td>
+
+            <td class="px-4 py-3 font-medium text-gray-200">
+              <%= queue_name %>
+            </td>
+
+            <td class="px-4 py-3 font-mono <%= size > 0 ? "text-amber-300" : "text-gray-300" %>">
+              <%= size %>
+            </td>
+
+            <td class="px-4 py-3 font-mono <%= busy_count > 0 ? "text-sky-300" : "text-gray-400" %>">
+              <%= busy_count %>
+            </td>
+
+            <td class="px-4 py-3 font-mono text-gray-300">
+              <%= latency.round(1) %>s
+            </td>
+
+            <td class="px-4 py-3 text-gray-300">
+              <%= top_job&.dig(:klass) || "—" %>
+            </td>
+
+            <td class="px-4 py-3 text-gray-400">
+              <% if top_job&.dig(:oldest_age_seconds).present? %>
+                <%= distance_of_time_in_words(top_job[:oldest_age_seconds].seconds) %>
+              <% else %>
+                —
+              <% end %>
+            </td>
+
+            <td class="px-4 py-3 text-gray-400">
+              <%= reading %>
+            </td>
+
+            <td class="px-4 py-3">
+              <span class="rounded-full border px-2 py-1 text-xs font-semibold <%= status_classes.call(queue_state) %>">
+                <%= queue_state == "ok" ? "CLEAR" : queue_state.upcase %>
+              </span>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+
+</section>

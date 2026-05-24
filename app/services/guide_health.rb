@@ -2,25 +2,6 @@
 
 class GuideHealth
   MODULES = {
-    "inflow-outflow" => {
-      label: "Inflow / Outflow",
-      jobs: %w[
-        inflow_outflow_build
-        inflow_outflow_details_build
-        inflow_outflow_behavior_build
-        inflow_outflow_capital_behavior_build
-      ],
-      tables: %w[
-        exchange_flow_days
-        exchange_flow_day_details
-        exchange_flow_day_behaviors
-        exchange_flow_day_capital_behaviors
-        exchange_observed_utxos
-      ],
-      scanners: %w[
-        exchange_observed_scan
-      ]
-    },
 
     "whales" => {
       label: "Whale Alerts",
@@ -60,19 +41,10 @@ class GuideHealth
         exchange_observed_scan
         cluster_v3_build_metrics
         cluster_v3_detect_signals
-        inflow_outflow_build
-        inflow_outflow_details_build
-        inflow_outflow_behavior_build
-        inflow_outflow_capital_behavior_build
         market_snapshot
       ],
       tables: %w[
         btc_price_days
-        exchange_true_flows
-        exchange_flow_days
-        exchange_flow_day_details
-        exchange_flow_day_behaviors
-        exchange_flow_day_capital_behaviors
         whale_alerts
         cluster_metrics
         cluster_signals
@@ -200,16 +172,6 @@ class GuideHealth
       case table_name
       when "btc_price_days"
         BtcPriceDay.order(day: :desc).pick(:day)
-      when "exchange_true_flows"
-        ExchangeTrueFlow.order(day: :desc).pick(:day)
-      when "exchange_flow_days"
-        ExchangeFlowDay.order(day: :desc).pick(:day)
-      when "exchange_flow_day_details"
-        ExchangeFlowDayDetail.order(day: :desc).pick(:day)
-      when "exchange_flow_day_behaviors"
-        ExchangeFlowDayBehavior.order(day: :desc).pick(:day)
-      when "exchange_flow_day_capital_behaviors"
-        ExchangeFlowDayCapitalBehavior.order(day: :desc).pick(:day)
       when "whale_alerts"
         WhaleAlert.maximum(:created_at)
       when "cluster_metrics"

@@ -35,7 +35,6 @@ module System
     JOB_NAMES = [
       "recovery_orchestrator",
       "exchange_observed_scan",
-      "inflow_outflow_build",
       "cluster_scan",
       "cluster_refresh_dirty_clusters",
       "cluster_v3_build_metrics",
@@ -114,6 +113,9 @@ module System
         best_height: best_height,
         highest_buffered_height: highest_buffered_height,
         last_processed_height: last_processed_height,
+        spent_max_height: TxOutput.where.not(spent_block_height: nil).maximum(:spent_block_height),
+        exchange_flow_max_height: ExchangeCoreFlowEvent.maximum(:block_height),
+        fast_path: ENV.fetch("LAYER1_FAST_PATH", "true") == "true",
         lag: lag,
         status_counts: BlockBufferModel.group(:status).count,
         redis_buffers: redis_buffer_sizes,
@@ -196,8 +198,13 @@ module System
 
       {
         
-        p1_exchange: pipeline_cursor("P1", "Exchange observed scan", CURSORS[:exchange], layer1_best_height),
-        p2_flows: pipeline_data("P2", "Inflow / Outflow", flow_tables),
+        p1_exchange: pipeline_cursor(
+          "P1",
+          "Exchange actor enrichment",
+          CURSORS[:exchange],
+          layer1_best_height,
+          description: "Enrichit les acteurs exchange_like utilisés par Exchange Core Flow."
+        ),
 
         p3_cluster_realtime: pipeline_cursor(
           "P3A",
@@ -211,13 +218,12 @@ module System
           "Cluster batch scanner",
           CURSORS[:cluster],
           layer1_best_height
-        ),
+        )
 
-        p4_analytics: pipeline_data("P4", "Cluster analytics", analytics_tables)
       }
     end
 
-    def pipeline_cursor(priority, label, cursor_name, best_height)
+    def pipeline_cursor(priority, label, cursor_name, best_height, description: nil)
       cursor = ScannerCursor.find_by(name: cursor_name)
       height = cursor&.last_blockheight.to_i
       lag = height.positive? ? [best_height - height, 0].max : best_height
@@ -225,6 +231,7 @@ module System
       {
         priority: priority,
         label: label,
+        description: description,
         cursor_name: cursor_name,
         status: cursor_status(lag),
         last_height: height,
@@ -233,70 +240,6 @@ module System
         updated_at: cursor&.updated_at,
         age_seconds: cursor&.updated_at ? (now - cursor.updated_at).to_i : nil,
         progress_pct: best_height.positive? && height.positive? ? ((height.to_f / best_height) * 100).round(4) : nil
-      }
-    end
-
-    def pipeline_data(priority, label, tables)
-      worst_status =
-        if tables.any? { |t| t[:status] == "critical" }
-          "critical"
-        elsif tables.any? { |t| t[:status] == "warning" }
-          "warning"
-        else
-          "ok"
-        end
-
-      {
-        priority: priority,
-        label: label,
-        status: worst_status,
-        tables: tables
-      }
-    end
-
-    def flow_tables
-      expected = Date.yesterday
-
-      [
-        table_day_status("exchange_flow_days", ExchangeFlowDay.maximum(:day), expected),
-        table_day_status("exchange_flow_day_details", ExchangeFlowDayDetail.maximum(:day), expected),
-        table_day_status("exchange_flow_day_behaviors", ExchangeFlowDayBehavior.maximum(:day), expected),
-        table_day_status("exchange_flow_day_capital_behaviors", ExchangeFlowDayCapitalBehavior.maximum(:day), expected)
-      ]
-    end
-
-    def analytics_tables
-      expected = Date.yesterday
-
-      [
-        table_day_status("cluster_metrics", ClusterMetric.maximum(:snapshot_date), expected),
-        table_day_status("cluster_signals", ClusterSignal.maximum(:snapshot_date), expected)
-      ]
-    end
-
-    def table_day_status(name, last_day, expected_day)
-      lag_days =
-        if last_day.present?
-          [expected_day - last_day.to_date, 0].max.to_i
-        end
-
-      status =
-        if last_day.blank?
-          "critical"
-        elsif lag_days >= 2
-          "critical"
-        elsif lag_days == 1
-          "warning"
-        else
-          "ok"
-        end
-
-      {
-        name: name,
-        status: status,
-        last_day: last_day,
-        expected_day: expected_day,
-        lag_days: lag_days
       }
     end
 

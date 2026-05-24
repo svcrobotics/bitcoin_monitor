@@ -1,6 +1,14 @@
 web: bin/rails server
 css: bin/rails tailwindcss:watch
 
-sidekiq_realtime: bundle exec sidekiq -c 1 -q realtime -q ingest -q process
-sidekiq_cluster: bundle exec sidekiq -c 1 -q p3_clusters -q p3_clusters_scan -q p3_clusters_refresh
-sidekiq_default: bundle exec sidekiq -c 1 -q p1_exchange -q p2_flows -q p4_analytics -q default -q low
+sidekiq_layer1: bundle exec sidekiq -c 1 -q process -q ingest
+sidekiq_spent: nice -n 5 bundle exec sidekiq -c 1 -q low
+sidekiq_realtime: nice -n 5 bundle exec sidekiq -c 1 -q realtime
+sidekiq_btc: nice -n 0 bundle exec sidekiq -c 1 -q btc_realtime
+sidekiq_cluster: nice -n 10 bundle exec sidekiq -c 1 -q p3_clusters -q p3_clusters_scan -q p3_clusters_refresh
+sidekiq_actor_labels: nice -n 10 bundle exec sidekiq -c 1 -q actor_labels
+
+# optionnel, seulement si tu veux vider l'ancienne queue default
+sidekiq_default: nice -n 19 bundle exec sidekiq -c 1 -q default
+
+sidekiq_p1_exchange: nice -n 15 bundle exec sidekiq -c 1 -q p1_exchange

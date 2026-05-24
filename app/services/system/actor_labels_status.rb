@@ -2,23 +2,18 @@
 
 module System
   class ActorLabelsStatus
-    INTERESTING_LABELS = %w[
-      exchange_like
-      whale_like
-      service_like
-    ].freeze
-
     def self.call
-      labels = ActorLabel.where(label: INTERESTING_LABELS)
-
       {
-        total: labels.count,
+        total: ActorLabel.count,
+        displayed: 100,
 
-        exchange_like: labels.where(label: "exchange_like").count,
-        whale_like: labels.where(label: "whale_like").count,
-        service_like: labels.where(label: "service_like").count,
+        exchange_like: ActorLabel.where(label: "exchange_like").count,
+        whale_like: ActorLabel.where(label: "whale_like").count,
+        service_like: ActorLabel.where(label: "service_like").count,
+        retail_like: ActorLabel.where(label: "retail_like").count,
+        unknown: ActorLabel.where(label: "unknown").count,
 
-        last_updated_at: labels.maximum(:updated_at)
+        last_updated_at: ActorLabel.maximum(:updated_at)
       }
     end
   end

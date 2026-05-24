@@ -70,15 +70,6 @@ class RecoveryOrchestratorJob < ApplicationJob
     ExchangeObservedScanJob.perform_later
   end
 
-  def recover_p2_flows!
-    latest_flow_day = ExchangeFlowDay.maximum(:day)
-    return if latest_flow_day.present? && latest_flow_day >= Date.current
-
-    Rails.logger.info("[recovery][P2] enqueue inflow/outflow rebuild")
-
-    InflowOutflowBuildJob.perform_later
-  end
-
   def recover_p3_clusters!(best_height)
     lag = cursor_lag("cluster_scan", best_height)
     return if lag <= 1
@@ -106,5 +97,9 @@ class RecoveryOrchestratorJob < ApplicationJob
     height = cursor&.last_blockheight.to_i
 
     height.positive? ? best_height - height : best_height
+  end
+
+  def recover_p2_flows!
+    Rails.logger.info("[recovery] P2 flows disabled: no active p2_flows jobs")
   end
 end

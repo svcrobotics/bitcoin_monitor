@@ -84,56 +84,6 @@ SYSTEM_JOBS = {
   },
 
   # -------------------------------------------------------------------
-  # INFLOW / OUTFLOW PIPELINE
-  # -------------------------------------------------------------------
-
-  "inflow_outflow_build" => {
-    label: "Inflow / Outflow pipeline",
-    cron: "25 * * * *",
-    expected_every: 2.hour,
-    late_after: 3.hours,
-    max_runtime: 30.minutes,
-    critical: true,
-    category: "inflow_outflow",
-    lock_file: "/tmp/bitcoin_monitor_inflow_outflow_build.lock",
-    command: "InflowOutflowPipelineBuilder",
-    active: true,
-    order: 70
-  },
-
-  # -------------------------------------------------------------------
-  # LEGACY PIPELINES (DISABLED)
-  # -------------------------------------------------------------------
-
-  "inflow_outflow_details_build" => {
-    label: "Inflow / Outflow details legacy",
-    active: false,
-    category: "legacy",
-    order: 80
-  },
-
-  "inflow_outflow_behavior_build" => {
-    label: "Inflow / Outflow behavior legacy",
-    active: false,
-    category: "legacy",
-    order: 90
-  },
-
-  "inflow_outflow_capital_behavior_build" => {
-    label: "Inflow / Outflow capital behavior legacy",
-    active: false,
-    category: "legacy",
-    order: 100
-  },
-
-  # "clusters_realtime_pipeline" => {
-  #  label: "Clusters realtime pipeline legacy",
-  #  active: false,
-  #  category: "legacy",
-  #  order: 105
-  # },
-
-  # -------------------------------------------------------------------
   # CLUSTERS
   # -------------------------------------------------------------------
 

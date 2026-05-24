@@ -61,6 +61,7 @@ class SystemController < ApplicationController
     end
 
     @actor_labels_status = System::ActorLabelsStatus.call
+
   end
 
   def normalize_system_status(value)
@@ -79,6 +80,8 @@ class SystemController < ApplicationController
   end
 
   def recovery
+    @actor_labels_status = System::ActorLabelsStatus.call
+    
     @blockchain_pipeline = measure("recovery.blockchain_pipeline") { System::BlockchainPipelineStatus.call }
     @recovery_state = measure("recovery.state") { System::RecoveryStateBuilder.call }
     @recovery_snapshot = measure("recovery.snapshot") { System::RecoverySnapshotBuilder.call }
@@ -102,6 +105,16 @@ class SystemController < ApplicationController
 
     @actor_labels_last_run =
       JobRun.where(name: "actor_labels_refresh").order(started_at: :desc).first
+  end
+
+  def sidekiq
+    snapshot = System::RecoverySnapshotBuilder.call
+
+    @queues = snapshot[:queues] || []
+    @workers = snapshot[:workers] || []
+    @recent_jobs = snapshot[:recent_job_runs] || []
+    @locks = snapshot[:locks] || []
+    @queue_contents = System::SidekiqQueueContentsSnapshot.call
   end
 
   private
