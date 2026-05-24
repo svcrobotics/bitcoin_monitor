@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class BtcPriceDailyJob < ApplicationJob
-  queue_as :default
+  queue_as :btc_realtime
 
   def perform
     JobRunner.run!(

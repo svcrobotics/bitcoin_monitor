@@ -38,23 +38,13 @@
       <p class="mt-1 text-lg font-semibold text-white"><%= @summary_ui[:ath_label] %></p>
     </div>
   </div>
-
-  <div class="mt-6 rounded-xl border border-gray-800 bg-black/20 p-4">
-    <div class="flex items-center justify-between gap-4">
-      <p class="text-sm font-medium text-white">Courbe daily</p>
-      <p class="text-xs text-gray-500">
-        <%= @range %> • <%= @summary_ui[:source_label] %>
-      </p>
-    </div>
-
-    <div
-      class="mt-4 w-full rounded-xl overflow-hidden"
-      data-controller="btc-chart"
-      data-btc-chart-series-value="<%= @chart_data.to_json %>"
-      style="height: 320px;">
-    </div>
-  </div>
-
+  <%= turbo_stream_from "btc_dashboard" %>
+  <%= render "btc/dashboard/live_price",
+    price: @chart_data.last[:y] %>
+  <%= render "btc/dashboard/main_chart",
+    range: @range,
+    source_label: @summary_ui[:source_label],
+    chart_data: @chart_data %>
   <%= render "btc/shared/candles_chart",
     range: @range,
     candles_market: @candles_market,

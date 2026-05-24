@@ -1,3 +1,4 @@
+# app/presenters/btc/chart_presenter.rb
 # frozen_string_literal: true
 
 module Btc
@@ -15,7 +16,7 @@ module Btc
     def call
       @history.map do |row|
         {
-          x: row[:day].strftime("%Y-%m-%d"),
+          x: row[:day],
           y: row[:close_usd].to_f
         }
       end

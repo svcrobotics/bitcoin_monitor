@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class BtcIntraday1hJob < ApplicationJob
-  queue_as :default
+  queue_as :btc_realtime
 
   def perform
     JobRunner.run!(

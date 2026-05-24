@@ -19,6 +19,19 @@ module Btc
       @summary_ui = Btc::SummaryPresenter.call(@summary)
       @chart_data = Btc::ChartPresenter.call(@history)
 
+      latest_5m_close = BtcCandle
+        .for_market("btcusd")
+        .for_timeframe("5m")
+        .order(open_time: :desc)
+        .pick(:close)
+
+      if latest_5m_close.present?
+        @chart_data << {
+          x: Date.current,
+          y: latest_5m_close.to_f
+        }
+      end
+
       @candles_data = Btc::CandlesQuery.call(
         market: @candles_market,
         timeframe: @candles_timeframe,

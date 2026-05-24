@@ -1,0 +1,15 @@
+<div id="btc-main-chart" class="mt-6 rounded-xl border border-gray-800 bg-black/20 p-4">
+  <div class="flex items-center justify-between gap-4">
+    <p class="text-sm font-medium text-white">Courbe daily</p>
+    <p class="text-xs text-gray-500">
+      <%= range %> • <%= source_label %>
+    </p>
+  </div>
+
+  <div
+    class="mt-4 w-full rounded-xl overflow-hidden"
+    data-controller="btc-chart"
+    data-btc-chart-series-value="<%= chart_data.to_json %>"
+    style="height: 320px;">
+  </div>
+</div>
