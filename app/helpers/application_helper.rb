@@ -6,6 +6,10 @@ module ApplicationHelper
 	              title: text
 	end
 
+	def nav_item_class(_key = nil)
+      "block rounded-xl px-3 py-2 text-sm text-zinc-300 hover:bg-white/5 hover:text-white transition"
+    end
+
 	def mempool_size_badge(bytes)
 	  mem_mb = bytes.to_f / 1_000_000.0
 

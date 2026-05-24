@@ -17,7 +17,6 @@ class DashboardController < ApplicationController
 
     flow = load_flow!
     load_buy_decision!(flow)
-    load_daily_reading!(flow)
 
     points = load_active_position_and_curve!
     load_sell_now!
@@ -37,8 +36,18 @@ class DashboardController < ApplicationController
         end
         .last
 
+    @question_answers = Questions::ModuleAnswers.call(module_name: "exchange_flows", tier: "free")
+
   rescue => e
     handle_dashboard_error!(e)
+  end
+
+  def exchange_core_netflow
+    @netflow = Dashboard::ExchangeCoreNetflowToday.call
+
+    render partial: "dashboard/exchange_core_netflow", locals: {
+      netflow: @netflow
+    }
   end
 
   private
@@ -93,7 +102,6 @@ class DashboardController < ApplicationController
 
     # Decisions
     @buy_decision = nil
-    @daily_reading = nil
 
     # Position
     @active_position = nil
@@ -307,7 +315,7 @@ class DashboardController < ApplicationController
   # -------------------------
 
   def load_flow!
-    ExchangeTrueFlow.recent.first
+    Dashboard::ExchangeCoreNetflowToday.call
   end
 
   def load_buy_decision!(flow)
@@ -323,19 +331,6 @@ class DashboardController < ApplicationController
     # Si ton BuyNow renvoie une action, tu peux influencer sell_verdict ici
     # (optionnel) :
     # @sell_verdict = @buy_decision[:action].to_s.downcase if @buy_decision.is_a?(Hash)
-  end
-
-  def load_daily_reading!(flow)
-    @daily_reading = DailyReadingEngine.call(
-      price_live: @price_live,
-      price_close: @price_now,
-      flow: flow,
-      zones: @price_zones,
-      market_snapshot: @snapshot
-    )
-
-    # Si ton daily_reading contient une phrase ou verdict, tu peux le brancher :
-    # @one_liner ||= @daily_reading["one_liner"] if @daily_reading.is_a?(Hash)
   end
 
   # -------------------------

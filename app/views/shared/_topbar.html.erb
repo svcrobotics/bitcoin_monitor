@@ -1,0 +1,139 @@
+<!-- app/views/shared/_topbar.html.erb -->
+
+<%
+  health =
+    if defined?(@recovery_snapshot) && @recovery_snapshot.present?
+      layer1 = @recovery_snapshot[:layer1] || {}
+
+      if layer1[:lag].to_i > 24
+        :critical
+      elsif layer1[:lag].to_i > 0
+        :warning
+      else
+        :healthy
+      end
+    else
+      :unknown
+    end
+
+  status_classes =
+    case health
+    when :healthy
+      "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
+    when :warning
+      "border-amber-500/20 bg-amber-500/10 text-amber-300"
+    when :critical
+      "border-rose-500/20 bg-rose-500/10 text-rose-300"
+    else
+      "border-white/10 bg-white/[0.04] text-slate-400"
+    end
+
+  dot_classes =
+    case health
+    when :healthy
+      "bg-emerald-400 shadow-emerald-400/40"
+    when :warning
+      "bg-amber-400 shadow-amber-400/40"
+    when :critical
+      "bg-rose-400 shadow-rose-400/40"
+    else
+      "bg-slate-500"
+    end
+
+  health_label =
+    case health
+    when :healthy then "Platform healthy"
+    when :warning then "Platform degraded"
+    when :critical then "Platform critical"
+    else "Platform unknown"
+    end
+
+  layer1_lag =
+    if defined?(@recovery_snapshot)
+      (@recovery_snapshot.dig(:layer1, :lag) || 0)
+    else
+      0
+    end
+
+  best_height =
+    if defined?(@recovery_snapshot)
+      @recovery_snapshot.dig(:layer1, :best_height)
+    end
+%>
+
+<header class="sticky top-0 z-30 border-b border-white/10 bg-[#081018]/85 backdrop-blur-xl">
+  <div class="flex h-16 items-center justify-between gap-4 px-4 lg:px-6">
+    <!-- LEFT -->
+    <div class="flex min-w-0 items-center gap-4">
+      <!-- Mobile menu -->
+      <button
+        type="button"
+        class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400 transition hover:bg-white/[0.06] hover:text-white lg:hidden"
+      >
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M4 7h16" />
+          <path d="M4 12h16" />
+          <path d="M4 17h16" />
+        </svg>
+      </button>
+
+    </div>
+
+    <!-- RIGHT -->
+    <div class="flex items-center gap-3">
+      <!-- Platform status -->
+      <div class="hidden lg:flex items-center gap-3 rounded-2xl border px-4 py-2 <%= status_classes %>">
+        <div class="flex items-center gap-2">
+          <span class="h-2.5 w-2.5 rounded-full shadow-lg <%= dot_classes %>"></span>
+
+          <div>
+            <div class="text-[11px] font-semibold uppercase tracking-[0.18em]">
+              <%= health_label %>
+            </div>
+
+            <div class="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+              <span>
+                Layer1 lag:
+                <span class="font-semibold text-white">
+                  <%= layer1_lag %>
+                </span>
+              </span>
+
+              <% if best_height.present? %>
+                <span class="text-slate-600">•</span>
+
+                <span>
+                  height:
+                  <span class="font-semibold text-white">
+                    <%= best_height %>
+                  </span>
+                </span>
+              <% end %>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Recovery -->
+      <%= link_to system_recovery_path,
+        class: "inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400 transition hover:border-cyan-400/30 hover:bg-white/[0.06] hover:text-cyan-300" do %>
+
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M4 12a8 8 0 1 1 2.34 5.66" />
+          <path d="M4 18v-6h6" />
+        </svg>
+      <% end %>
+
+      <!-- System -->
+      <%= link_to system_path,
+        class: "inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400 transition hover:border-cyan-400/30 hover:bg-white/[0.06] hover:text-cyan-300" do %>
+
+        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+          <path d="M4 14h4v6H4z" />
+          <path d="M10 9h4v11h-4z" />
+          <path d="M16 4h4v16h-4z" />
+        </svg>
+      <% end %>
+    </div>
+  </div>
+</header>

@@ -1,393 +1,117 @@
-<div class="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 sm:px-6 lg:px-8">
-  <div class="mx-auto w-full max-w-7xl">
+<div class="relative min-h-[calc(100vh-7rem)] overflow-hidden">
+  <!-- Background glow -->
+  <div class="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
+    <span class="absolute h-72 w-72 -translate-x-56 -translate-y-24 rounded-full bg-cyan-500/10 blur-3xl"></span>
+    <span class="absolute h-96 w-96 translate-x-40 -translate-y-10 rounded-full bg-blue-500/10 blur-3xl"></span>
+    <span class="absolute h-72 w-72 translate-y-28 rounded-full bg-emerald-500/10 blur-3xl"></span>
+    <span class="absolute h-40 w-[42rem] rounded-full bg-white/[0.035] blur-3xl"></span>
+  </div>
 
-    <!-- HEADER / HERO -->
-    <header class="mb-8 rounded-[2rem] border border-slate-700/70 bg-gradient-to-br from-slate-900 via-slate-900/90 to-slate-950 p-8 shadow-2xl shadow-black/30">
-      <div class="max-w-4xl">
-        <div class="text-xs font-semibold uppercase tracking-[0.28em] text-cyan-300">
-          Bitcoin Monitor
-        </div>
-
-        <h1 class="mt-5 text-4xl font-bold tracking-tight text-white sm:text-6xl">
-          Intelligence on-chain pour Bitcoin
-        </h1>
-
-        <p class="mt-5 max-w-3xl text-base leading-relaxed text-slate-400 sm:text-lg">
-          Une vue unifiée du marché Bitcoin : données on-chain, clusters,
-          flux exchange, alertes whale, événements temps réel et santé opérationnelle.
-        </p>
-
-        <div class="mt-6 flex flex-wrap gap-3 text-sm">
-          <span class="rounded-full border border-slate-700 bg-slate-950/50 px-4 py-2 text-slate-300">
-            Layer 1 canonique
-          </span>
-
-          <span class="rounded-full border border-slate-700 bg-slate-950/50 px-4 py-2 text-slate-300">
-            Cluster intelligence
-          </span>
-
-          <span class="rounded-full border border-slate-700 bg-slate-950/50 px-4 py-2 text-slate-300">
-            ClickHouse realtime
-          </span>
-        </div>
-      </div>
-    </header>
-
-    <!-- ALERT DISCRETE -->
-    <% if @latest_cluster_event.present? %>
-      <% signal_type = @latest_cluster_event["signal_type"].to_s %>
-      <% amount_btc = @latest_cluster_event["amount_btc"].to_f %>
-
-      <% alert_label =
-        if signal_type == "large_outflow"
-          "Gros mouvement sortant"
-        elsif signal_type == "whale_cluster_activity"
-          "Activité whale"
-        elsif signal_type == "activity_spike"
-          "Pic d’activité cluster"
-        elsif signal_type == "large_link_creation"
-          "Expansion du graphe"
-        elsif signal_type == "cluster_merge"
-          "Fusion de clusters"
-        elsif signal_type == "cluster_reactivation"
-          "Cluster ancien actif"
-        else
-          signal_type.humanize
-        end
-      %>
-
-      <section class="mb-6 rounded-2xl border border-slate-700/70 bg-slate-900/80 px-4 py-3 shadow-lg shadow-black/20">
-        <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div class="flex flex-wrap items-center gap-x-3 gap-y-2 text-sm">
-            <span class="inline-flex h-2.5 w-2.5 rounded-full bg-cyan-400"></span>
-
-            <span class="font-semibold text-white">
-              <%= alert_label %>
-            </span>
-
-            <span class="text-slate-500">
-              cluster #<%= @latest_cluster_event["cluster_id"] %>
-            </span>
-
-            <span class="text-slate-500">
-              score <%= @latest_cluster_event["score"] %>
-            </span>
-
-            <% if amount_btc.positive? %>
-              <span class="font-semibold text-cyan-300">
-                <%= number_with_delimiter(amount_btc.round(2)) %> BTC
-              </span>
-            <% end %>
-          </div>
-
-          <%= link_to "Voir les alertes",
-            clusters_events_path,
-            class: "text-sm font-semibold text-cyan-300 hover:text-cyan-200" %>
-        </div>
-      </section>
-    <% end %>
-
-    <!-- GLOBAL SEARCH -->
-    <section class="mb-8 rounded-[2rem] border border-slate-700/70 bg-gradient-to-b from-slate-900 to-slate-950 p-6 shadow-2xl shadow-black/30">
-
-      <div class="mb-6">
-        <div class="text-[11px] font-semibold uppercase tracking-[0.25em] text-cyan-300">
-          Recherche globale
-        </div>
-
-        <h2 class="mt-3 text-3xl font-bold tracking-tight text-white">
-          Explorer Bitcoin Monitor
-        </h2>
-
-        <p class="mt-3 max-w-3xl text-sm leading-relaxed text-slate-400">
-          Recherche unifiée Elasticsearch : clusters, adresses, txids, whale alerts,
-          événements temps réel ClickHouse, signaux analytiques et modules système.
-        </p>
+  <div class="relative z-10 mx-auto flex min-h-[calc(100vh-7rem)] max-w-5xl flex-col items-center justify-center px-4 py-8">
+    <!-- Title -->
+    <div class="mb-8 text-center">
+      <div class="mb-4 inline-flex items-center rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-1.5 text-xs font-medium text-cyan-200">
+        探査 — Tansa · On-chain Intelligence
       </div>
 
-      <div
-        data-controller="search"
-        class="relative"
-      >
-        <form action="<%= search_path %>" method="get">
-          <div class="flex flex-col gap-3 md:flex-row">
+      <h1 class="text-3xl font-semibold tracking-tight text-white md:text-5xl">
+        Où va le Bitcoin aujourd’hui ?
+      </h1>
 
-            <div class="relative flex-1">
+      <p class="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-500 md:text-base">
+        Recherchez une adresse, explorez les modules on-chain ou posez une question
+        sur les whales, les exchanges, les flux BTC et les signaux du marché.
+      </p>
+    </div>
 
-              <!-- ICON -->
-              <div class="pointer-events-none absolute inset-y-0 left-4 flex items-center">
-                <svg
-                  class="h-5 w-5 text-slate-500"
-                  fill="none"
-                  stroke="currentColor"
-                  stroke-width="2"
-                  viewBox="0 0 24 24"
-                >
-                  <path
-                    stroke-linecap="round"
-                    stroke-linejoin="round"
-                    d="m21 21-4.35-4.35m1.85-5.15a7 7 0 1 1-14 0 7 7 0 0 1 14 0Z"
-                  />
-                </svg>
+    <!-- AI/Search box -->
+    <div class="w-full max-w-4xl">
+      <div data-controller="search" class="relative">
+        <form action="<%= search_path %>" method="get" data-action="submit->search#submit">
+          <div class="group relative">
+            <div class="absolute -inset-0.5 rounded-[2rem] bg-gradient-to-r from-cyan-500/25 via-blue-500/20 to-emerald-500/20 opacity-70 blur transition group-focus-within:opacity-100"></div>
+
+            <div class="relative overflow-hidden rounded-[2rem] border border-white/[0.08] bg-[#101722]/90 shadow-2xl shadow-black/40 backdrop-blur-xl">
+              <div class="flex min-h-20 items-start gap-3 px-5 py-4">
+                <div class="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-400/20">
+                  <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+                    <path d="M7.4 12.8a1.04 1.04 0 0 0 1.59-.51l.45-1.37a2.34 2.34 0 0 1 1.47-1.48l1.4-.45A1.04 1.04 0 0 0 12.25 7l-1.37-.45A2.34 2.34 0 0 1 9.4 5.08L8.95 3.7a1.03 1.03 0 0 0-1.97.02l-.46 1.4a2.34 2.34 0 0 1-1.44 1.45L3.7 7a1.04 1.04 0 0 0 .02 1.97l1.37.45a2.33 2.33 0 0 1 1.48 1.48l.46 1.4c.07.2.2.37.38.5Z" />
+                  </svg>
+                </div>
+
+                <textarea
+                  name="q"
+                  rows="1"
+                  autocomplete="off"
+                  placeholder="Demander à Bitcoin Monitor…"
+                  data-search-target="input"
+                  data-action="input->search#search"
+                  class="min-h-10 flex-1 resize-none bg-transparent pt-2 text-[15px] font-medium leading-6 text-white outline-none placeholder:text-slate-500"
+                ></textarea>
+
+                <div class="hidden items-center gap-2 md:flex">
+                  <kbd class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-slate-500">⌘ E</kbd>
+
+                  <button
+                    type="submit"
+                    class="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400 text-slate-950 transition hover:bg-cyan-300"
+                    aria-label="Rechercher"
+                  >
+                    <svg class="h-4 w-4 rotate-90" viewBox="0 0 20 20" fill="currentColor">
+                      <path d="M3.2 8.73a.75.75 0 1 0 1.1 1.04l4.95-5.24v12.72a.75.75 0 0 0 1.5 0V4.52l4.95 5.25a.75.75 0 1 0 1.1-1.04l-6.08-6.41a1 1 0 0 0-1.45 0L3.2 8.73Z" />
+                    </svg>
+                  </button>
+                </div>
               </div>
 
-              <!-- INPUT -->
-              <input
-                type="text"
-                name="q"
-                autocomplete="off"
-                placeholder="Adresse, cluster, whale, txid, outflow, recovery..."
-                data-search-target="input"
-                data-action="input->search#search"
-                class="w-full rounded-2xl border border-slate-700 bg-slate-950/80 py-4 pl-12 pr-5 text-base text-white placeholder-slate-600 outline-none transition duration-200 focus:border-cyan-400/60 focus:bg-slate-950 focus:ring-2 focus:ring-cyan-400/20"
-              >
+              <div class="flex items-center justify-between border-t border-white/[0.06] px-5 py-3">
+                <div class="flex items-center gap-2">
+                  <button type="button" class="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-slate-300">
+                    Rapide
+                  </button>
+
+                  <button type="button" class="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-slate-400">
+                    On-chain
+                  </button>
+                </div>
+
+                <div class="text-xs text-slate-600">
+                  Search · Questions · Actors · Exchange Flows · Whale Activity
+                </div>
+              </div>
             </div>
-
-            <!-- BUTTON -->
-            <button
-              type="submit"
-              class="inline-flex items-center justify-center rounded-2xl border border-cyan-400/30 bg-cyan-500/10 px-6 py-4 text-sm font-bold text-cyan-100 transition duration-200 hover:border-cyan-300/50 hover:bg-cyan-500/20 hover:text-white"
-            >
-              Rechercher
-            </button>
-
           </div>
         </form>
 
-        <!-- LIVE RESULTS -->
-        <div
-          data-search-target="results"
-          class="absolute left-0 right-0 z-50"
-        ></div>
+        <div data-search-target="results" class="absolute left-0 right-0 z-50 mt-3"></div>
       </div>
+    </div>
 
-      <!-- QUICK SEARCH SUGGESTIONS -->
-      <div class="mt-5 flex flex-wrap gap-2">
+    <!-- Questions -->
+    <div
+      data-controller="dashboard-answer"
+      class="mt-6 grid w-full max-w-5xl grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
 
-        <% [
-          "whale",
-          "cluster",
-          "outflow",
-          "txid",
-          "recovery",
-          "exchange"
-        ].each do |term| %>
-
-          <button
-            type="button"
-            onclick="document.querySelector('[name=q]').value='<%= term %>'"
-            class="rounded-full border border-slate-700 bg-slate-950/60 px-3 py-1.5 text-xs font-medium text-slate-400 transition hover:border-cyan-400/40 hover:text-cyan-200"
-          >
-            <%= term %>
-          </button>
-
-        <% end %>
-
-      </div>
-
-    </section>
-
-    <!-- PRODUCT VALUE CARDS -->
-    <section class="mb-8 grid grid-cols-1 gap-4 lg:grid-cols-3">
-      <div class="rounded-2xl border border-slate-700/70 bg-slate-900/70 p-5 shadow-lg shadow-black/20">
-        <div class="text-xs font-semibold uppercase tracking-wide text-cyan-300">
-          Analyse plus profonde
-        </div>
-
-        <h3 class="mt-2 text-lg font-semibold text-white">
-          Voir ce que le prix seul ne montre pas
-        </h3>
-
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
-          Clusters, flux, whales et signaux comportementaux donnent un contexte
-          que les graphiques de prix ne suffisent pas à révéler.
-        </p>
-      </div>
-
-      <div class="rounded-2xl border border-slate-700/70 bg-slate-900/70 p-5 shadow-lg shadow-black/20">
-        <div class="text-xs font-semibold uppercase tracking-wide text-cyan-300">
-          Vue unifiée
-        </div>
-
-        <h3 class="mt-2 text-lg font-semibold text-white">
-          Layer 1, Layer 2 et événements temps réel
-        </h3>
-
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
-          Bitcoin Monitor relie les données blockchain brutes, les pipelines
-          analytiques et les événements ClickHouse dans une même lecture.
-        </p>
-      </div>
-
-      <div class="rounded-2xl border border-slate-700/70 bg-slate-900/70 p-5 shadow-lg shadow-black/20">
-        <div class="text-xs font-semibold uppercase tracking-wide text-cyan-300">
-          Observabilité intégrée
-        </div>
-
-        <h3 class="mt-2 text-lg font-semibold text-white">
-          Comprendre aussi l’état du système
-        </h3>
-
-        <p class="mt-2 text-sm leading-relaxed text-slate-400">
-          Recovery, Sidekiq, Redis, dirty clusters et snapshots système rendent
-          la plateforme surveillable et pilotable.
-        </p>
-      </div>
-    </section>
-
-    <!-- MAIN MODULES -->
-    <section class="mb-8">
-      <div class="mb-4">
-        <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-          Modules principaux
-        </div>
-
-        <h2 class="mt-1 text-xl font-bold text-white">
-          Explorer Bitcoin Monitor
-        </h2>
-      </div>
-
-      <div class="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-4">
-        <%= link_to btc_dashboard_path, class: "rounded-2xl border border-slate-700/70 bg-slate-900/80 p-5 shadow-lg shadow-black/20 transition hover:border-cyan-400/50 hover:bg-slate-800/80" do %>
-          <div class="text-xs uppercase tracking-wide text-cyan-300">Marché</div>
-          <div class="mt-2 text-lg font-semibold text-white">BTC Dashboard</div>
-          <p class="mt-2 text-sm text-slate-400">Prix, candles, MA200, ATH.</p>
-        <% end %>
-
-        <%= link_to clusters_events_path, class: "rounded-2xl border border-slate-700/70 bg-slate-900/80 p-5 shadow-lg shadow-black/20 transition hover:border-cyan-400/50 hover:bg-slate-800/80" do %>
-          <div class="text-xs uppercase tracking-wide text-cyan-300">Temps réel</div>
-          <div class="mt-2 text-lg font-semibold text-white">Cluster Events</div>
-          <p class="mt-2 text-sm text-slate-400">ClickHouse, whales, outflows.</p>
-        <% end %>
-
-        <%= link_to inflow_outflow_path, class: "rounded-2xl border border-slate-700/70 bg-slate-900/80 p-5 shadow-lg shadow-black/20 transition hover:border-cyan-400/50 hover:bg-slate-800/80" do %>
-          <div class="text-xs uppercase tracking-wide text-cyan-300">Flux</div>
-          <div class="mt-2 text-lg font-semibold text-white">Exchange Flows</div>
-          <p class="mt-2 text-sm text-slate-400">Inflow, outflow, netflow.</p>
-        <% end %>
-
-        <%= link_to whale_alerts_path, class: "rounded-2xl border border-slate-700/70 bg-slate-900/80 p-5 shadow-lg shadow-black/20 transition hover:border-cyan-400/50 hover:bg-slate-800/80" do %>
-          <div class="text-xs uppercase tracking-wide text-cyan-300">Whales</div>
-          <div class="mt-2 text-lg font-semibold text-white">Whale Alerts</div>
-          <p class="mt-2 text-sm text-slate-400">Gros mouvements BTC.</p>
-        <% end %>
-      </div>
-    </section>
-
-    <!-- SECONDARY LINKS -->
-    <% shortcut_groups = [
-      {
-        title_key: "dashboard.shortcuts.groups.market",
-        items: [
-          { label_key: "dashboard.shortcuts.items.btc_dashboard", path: btc_dashboard_path },
-          { label_key: "dashboard.shortcuts.items.trade_simulator", path: trade_simulations_path }
-        ]
-      },
-      {
-        title_key: "dashboard.shortcuts.groups.onchain",
-        items: [
-          { label_key: "dashboard.shortcuts.items.whale_alerts", path: whale_alerts_path },
-          { label_key: "dashboard.shortcuts.items.exchange_like", path: exchange_like_path },
-          { label_key: "dashboard.shortcuts.items.inflow_outflow", path: inflow_outflow_path },
-          { label_key: "dashboard.shortcuts.items.brc20", path: brc20_path },
-          { label_key: "dashboard.shortcuts.items.runes", path: runes_path },
-          { label_key: "dashboard.shortcuts.items.clusters", path: clusters_path },
-          { label_key: "dashboard.shortcuts.items.cluster_signals", path: cluster_signals_path },
-          { label_key: "dashboard.shortcuts.items.top_clusters", path: top_cluster_signals_path },
-          { label_key: "dashboard.shortcuts.items.clusters_events", path: clusters_events_path },
-          { label_key: "dashboard.shortcuts.items.actor_labels", path: actor_labels_path }
-        ]
-      },
-      {
-        title_key: "dashboard.shortcuts.groups.research",
-        items: [
-          { label_key: "dashboard.shortcuts.items.blocks", path: blocks_path },
-          { label_key: "dashboard.shortcuts.items.p2wsh_wallets", path: vaults_path },
-          { label_key: "dashboard.shortcuts.items.journal", path: journal_entries_path }
-        ]
-      },
-      {
-        title_key: "dashboard.shortcuts.groups.docs",
-        items: [
-          { label_key: "dashboard.shortcuts.items.guides", path: guides_path },
-          { label_key: "dashboard.shortcuts.items.feature_requests", path: feature_requests_path },
-          { label_key: "dashboard.shortcuts.items.about", path: about_path }
-        ]
-      },
-      {
-        title_key: "dashboard.shortcuts.groups.security",
-        items: [
-          { label_key: "dashboard.shortcuts.items.opsec", path: opsec_path }
-        ]
-      },
-      {
-        title_key: "dashboard.shortcuts.groups.system",
-        items: [
-          { label_key: "dashboard.shortcuts.items.system", path: system_path },
-          { label_key: "dashboard.shortcuts.items.recovery", path: system_recovery_path }
-        ]
-      }
-    ] %>
-
-    <section
-      data-controller="toggle"
-      class="mb-8 rounded-2xl border border-slate-700/70 bg-slate-900/60 p-5 shadow-lg shadow-black/20"
-    >
-      <div class="flex items-center justify-between gap-4">
-        <div>
-          <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Navigation complète
-          </div>
-
-          <p class="mt-1 text-sm text-slate-400">
-            Tous les modules avancés restent accessibles sans surcharger la page principale.
-          </p>
-        </div>
-
+      <% @question_answers.each do |answer| %>
         <button
           type="button"
-          data-action="toggle#toggle"
-          data-toggle-show-value="Afficher"
-          data-toggle-hide-value="Masquer"
-          class="inline-flex items-center gap-2 rounded-full border border-slate-700 bg-slate-950/50 px-3 py-1.5 text-xs font-semibold text-slate-300 transition hover:bg-slate-800 hover:text-white"
-        >
-          <span data-toggle-target="icon" class="text-slate-500">▸</span>
-          <span data-toggle-target="label">Afficher</span>
+          data-action="click->dashboard-answer#load"
+          data-dashboard-answer-url-param="<%= question_path(answer[:key]) %>"
+          class="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3 text-left text-sm text-slate-400 transition hover:border-cyan-400/25 hover:bg-cyan-500/10 hover:text-cyan-100">
+          <%= answer[:question] %>
         </button>
-      </div>
+      <% end %>
+    </div>
 
-      <div
-        data-toggle-target="content"
-        class="hidden mt-5 space-y-6"
-      >
-        <% shortcut_groups.each do |group| %>
-          <div>
-            <div class="mb-2 text-xs font-semibold uppercase tracking-wide text-cyan-300">
-              <%= t(group[:title_key]) %>
-            </div>
-
-            <div class="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
-              <% group[:items].each do |it| %>
-                <%= link_to it[:path],
-                  class: "group flex items-center justify-between gap-3 rounded-xl border border-slate-700/60 bg-slate-950/40 px-4 py-3 text-slate-200 transition hover:border-cyan-400/30 hover:bg-slate-800/70" do %>
-
-                  <span class="min-w-0 flex-1 text-sm font-semibold leading-tight">
-                    <%= t(it[:label_key]) %>
-                  </span>
-
-                  <span class="text-slate-600 transition group-hover:text-cyan-300">
-                    ›
-                  </span>
-                <% end %>
-              <% end %>
-            </div>
-          </div>
-        <% end %>
-      </div>
-    </section>
+    <!-- Réponse -->
+    <div class="mt-8 w-full max-w-5xl">
+      <%= turbo_frame_tag "dashboard_answer" do %>
+        
+      <% end %>
+    </div>
 
     <% if @error %>
-      <section class="mb-8 rounded-2xl border border-red-700 bg-red-900/30 p-4">
+      <div class="mt-6 w-full max-w-5xl rounded-2xl border border-red-700 bg-red-900/30 p-4">
         <p class="mb-1 text-sm font-semibold text-red-200">
           <%= t("dashboard.errors.rpc") %>
         </p>
@@ -395,9 +119,7 @@
         <p class="break-words text-sm text-red-300">
           <%= @error %>
         </p>
-      </section>
+      </div>
     <% end %>
-
-    <%= render "shared/footer" %>
   </div>
 </div>

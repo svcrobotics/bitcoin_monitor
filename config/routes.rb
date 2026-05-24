@@ -1,4 +1,5 @@
 Rails.application.routes.draw do
+  get "market_signals/index"
   get "search/index"
 
   namespace :clusters do
@@ -100,7 +101,7 @@ Rails.application.routes.draw do
   get "/contact", to: "pages#contact", as: :contact
 
   get "exchange_like", to: "exchange_like#index"
-  get "inflow_outflow", to: "inflow_outflow#index"
+  #get "inflow_outflow", to: "inflow_outflow#index"
 
   resources :clusters, only: [:index, :show]
   get "/cluster_signals", to: "cluster_signals#index"
@@ -110,4 +111,24 @@ Rails.application.routes.draw do
   get "search/live", to: "search#live", as: :live_search
 
   resources :actor_labels, only: [:index]
+
+  namespace :actors do
+    get "exchange_core_flows", to: "exchange_core_flows#index"
+  end
+
+  get "dashboard/exchange_core_netflow",
+    to: "dashboard#exchange_core_netflow",
+    as: :dashboard_exchange_core_netflow
+
+  namespace :actors do
+    get "exchange_core_flows/live",
+      to: "exchange_core_flows#live",
+      as: :exchange_core_flows_live
+  end
+
+  get "/questions/:key", to: "questions#show", as: :question
+
+  get "system/sidekiq", to: "system#sidekiq", as: :system_sidekiq
+
+  resources :market_signals, only: [:index]
 end

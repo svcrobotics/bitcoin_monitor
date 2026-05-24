@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <meta name="mobile-web-app-capable" content="yes">
+
     <%= csrf_meta_tags %>
     <%= csp_meta_tag %>
     <%= action_cable_meta_tag %>
@@ -20,28 +21,49 @@
       src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"
       defer>
     </script>
-    <%= javascript_importmap_tags %>
-    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 
+    <%= javascript_importmap_tags %>
+
+    <script
+      src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"
+      defer>
+    </script>
   </head>
 
-  <body class="min-h-screen bg-gray-900 text-gray-100">
-    <% if notice.present? %>
-      <div class="mx-auto max-w-4xl mt-4 rounded-xl border border-emerald-500/60 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
-        <%= notice %>
-      </div>
-    <% end %>
+  <body class="h-screen overflow-hidden bg-[#0b0f17] text-slate-100 antialiased">
+    <div class="flex h-screen overflow-hidden">
+      <!-- Sidebar -->
+      <aside class="hidden h-screen w-80 shrink-0 border-r border-white/5 bg-[#0f141d] lg:block">
+        <%= render "shared/sidebar" %>
+      </aside>
 
-    <% if alert.present? %>
-      <div class="mx-auto max-w-4xl mt-2 rounded-xl border border-red-500/60 bg-red-500/10 px-4 py-2 text-sm text-red-100">
-        <%= alert %>
-      </div>
-    <% end %>
+      <!-- Main shell -->
+      <div class="flex min-w-0 flex-1 flex-col">
+        <!-- Topbar -->
+        <%= render "shared/topbar" %>
 
-    <div class="min-h-screen flex flex-col">
-      <main class="flex-1">
-        <%= yield %>
-      </main>
+        <!-- Flash messages -->
+        <% if notice.present? || alert.present? %>
+          <div class="shrink-0 space-y-2 px-4 pt-3 lg:px-6">
+            <% if notice.present? %>
+              <div class="rounded-xl border border-emerald-500/40 bg-emerald-500/10 px-4 py-2 text-sm text-emerald-100">
+                <%= notice %>
+              </div>
+            <% end %>
+
+            <% if alert.present? %>
+              <div class="rounded-xl border border-red-500/40 bg-red-500/10 px-4 py-2 text-sm text-red-100">
+                <%= alert %>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+
+        <!-- Page content -->
+        <main class="min-h-0 flex-1 overflow-y-auto px-4 py-4 lg:px-6">
+          <%= yield %>
+        </main>
+      </div>
     </div>
   </body>
 </html>

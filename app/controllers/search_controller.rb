@@ -3,9 +3,22 @@
 class SearchController < ApplicationController
   def index
     @q = params[:q].to_s.strip
+
+    if pressure_question?(@q) && turbo_frame_request?
+      @netflow = Dashboard::ExchangeCoreNetflowToday.call
+
+      render partial: "search/answers/exchange_core_flow",
+             locals: {
+               netflow: @netflow,
+               q: @q
+             }
+
+      return
+    end
+
     @results =
       if @q.present?
-        Search::GlobalSearch.call(query: @q, limit: 20)
+        build_results(@q)
       else
         []
       end
@@ -19,7 +32,7 @@ class SearchController < ApplicationController
 
     @results =
       if @q.present?
-        Search::GlobalSearch.call(query: @q, limit: 6)
+        build_results(@q, limit: 6)
       else
         []
       end
@@ -29,5 +42,49 @@ class SearchController < ApplicationController
              results: @results,
              q: @q
            }
+  end
+
+  private
+
+  def build_results(query, limit: 20)
+    question_matches = question_results(query)
+
+    search_results =
+      Search::GlobalSearch.call(
+        query: query,
+        limit: limit
+      )
+
+    question_matches + Array(search_results)
+  end
+
+  def question_results(query)
+    return [] if query.blank?
+
+    QuestionDefinition
+      .active
+      .where("question ILIKE :q OR intent ILIKE :q OR module_name ILIKE :q", q: "%#{query}%")
+      .ordered
+      .limit(5)
+      .map do |question|
+        {
+          kind: "question",
+          title: question.question,
+          description: "Réponse analytique basée sur les données Bitcoin Monitor.",
+          key: question.key,
+          turbo_path: question_path(question.key),
+          module_path: question.historical_path,
+          module_name: question.module_name.humanize,
+          tier: question.tier
+        }
+      end
+  end
+
+  def pressure_question?(_query)
+    false
+  end
+
+  def normalize_query(value)
+    value.to_s.downcase.strip
   end
 end
