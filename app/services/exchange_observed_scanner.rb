@@ -72,8 +72,6 @@ class ExchangeObservedScanner
     flush_seen!
     flush_spent!
 
-    update_cursor!(range[:end_height]) if range[:mode] == :incremental
-
     {
       ok: true,
       source: "layer1",
@@ -195,6 +193,8 @@ class ExchangeObservedScanner
       )
 
       scan_height(height, exchange_addresses)
+
+      update_cursor!(height) if range[:mode] == :incremental
 
       update_job_progress!(
         current: index + 1,

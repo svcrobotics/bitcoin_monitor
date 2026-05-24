@@ -4,16 +4,28 @@ class Cluster < ApplicationRecord
   has_many :cluster_metrics, dependent: :delete_all
   has_many :cluster_signals, dependent: :delete_all
   has_many :actor_labels, dependent: :delete_all
+  has_one :actor_metric, dependent: :delete
   
   def recalculate_stats!
-    scoped = addresses
+    stats =
+      addresses
+        .pick(
+          Arel.sql("COUNT(*)"),
+          Arel.sql("COALESCE(SUM(total_received_sats), 0)"),
+          Arel.sql("COALESCE(SUM(total_sent_sats), 0)"),
+          Arel.sql("MIN(first_seen_height)"),
+          Arel.sql("MAX(last_seen_height)")
+        )
 
-    update!(
-      address_count: scoped.count,
-      total_received_sats: scoped.sum(:total_received_sats),
-      total_sent_sats: scoped.sum(:total_sent_sats),
-      first_seen_height: scoped.minimum(:first_seen_height),
-      last_seen_height: scoped.maximum(:last_seen_height)
+    count, received, sent, first_seen, last_seen = stats
+
+    update_columns(
+      address_count: count.to_i,
+      total_received_sats: received.to_i,
+      total_sent_sats: sent.to_i,
+      first_seen_height: first_seen,
+      last_seen_height: last_seen,
+      updated_at: Time.current
     )
   end
 end

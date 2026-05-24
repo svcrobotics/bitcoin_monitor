@@ -1,0 +1,95 @@
+<%= turbo_frame_tag "dashboard_answer" do %>
+  <% netflow_value = netflow[:netflow_btc].to_d %>
+  <% positive = netflow_value.positive? %>
+  <% negative = netflow_value.negative? %>
+
+  <div class="mt-6 grid grid-cols-1 gap-3 lg:grid-cols-4">
+    <div class="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+      <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        Inflow aujourd’hui
+      </div>
+
+      <div class="mt-1 text-2xl font-black text-white">
+        <%= number_with_precision(netflow[:inflow_btc], precision: 2, delimiter: " ") %> BTC
+      </div>
+
+      <div class="mt-1 text-xs text-slate-500">
+        Entrées vers exchanges
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-white/10 bg-white/[0.04] px-4 py-3">
+      <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+        Outflow aujourd’hui
+      </div>
+
+      <div class="mt-1 text-2xl font-black text-white">
+        <%= number_with_precision(netflow[:outflow_btc], precision: 2, delimiter: " ") %> BTC
+      </div>
+
+      <div class="mt-1 text-xs text-slate-500">
+        Sorties des exchanges
+      </div>
+    </div>
+
+    <div class="rounded-2xl px-4 py-3
+      <%= positive ? 'border border-red-500/20 bg-red-500/10' : negative ? 'border border-emerald-500/20 bg-emerald-500/10' : 'border border-white/10 bg-white/[0.04]' %>">
+
+      <div class="text-[11px] font-semibold uppercase tracking-wide
+        <%= positive ? 'text-red-300' : negative ? 'text-emerald-300' : 'text-slate-500' %>">
+        Netflow aujourd’hui
+      </div>
+
+      <div class="mt-1 text-2xl font-black
+        <%= positive ? 'text-red-300' : negative ? 'text-emerald-300' : 'text-white' %>">
+        <%= netflow_value.positive? ? "+" : "" %><%= number_with_precision(netflow_value, precision: 2, delimiter: " ") %> BTC
+      </div>
+
+      <div class="mt-1 text-xs <%= positive ? 'text-red-200/70' : negative ? 'text-emerald-200/70' : 'text-slate-500' %>">
+        <%= positive ? "Plus d’entrées que de sorties" : negative ? "Plus de sorties que d’entrées" : "Flux équilibrés" %>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-cyan-400/20 bg-cyan-500/10 px-4 py-3">
+      <div class="text-[11px] font-semibold uppercase tracking-wide text-cyan-300">
+        Signal
+      </div>
+
+      <div class="mt-1 text-base font-bold text-cyan-100">
+        <%= netflow[:signal] %>
+      </div>
+
+      <div class="mt-1 text-xs text-cyan-100/60">
+        Mis à jour à <%= l(netflow[:updated_at], format: "%H:%M:%S") %>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-4 rounded-2xl border border-white/10 bg-white/[0.03] px-4 py-4">
+    <div class="text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+      Interprétation
+    </div>
+
+    <p class="mt-2 text-sm leading-relaxed text-slate-300">
+      <%= netflow[:interpretation] %>
+    </p>
+  </div>
+
+  <div class="mt-5 flex items-center justify-between border-t border-white/[0.06] pt-4">
+    <div class="text-xs text-slate-500">
+      <%= number_with_delimiter(netflow[:events_count]) %> événements analysés aujourd’hui
+    </div>
+
+    <%= link_to actors_exchange_core_flows_path,
+      data: { turbo_frame: "_top" },
+      class: "inline-flex items-center gap-2 text-sm font-semibold text-cyan-300 hover:text-cyan-200" do %>
+
+      Voir Exchange Core Flow
+
+      <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+        <path d="M7 5a1 1 0 0 0 0 2h3.59L5.3 12.29a1 1 0 1 0 1.4 1.42L12 8.41V12a1 1 0 1 0 2 0V5H7Z"/>
+      </svg>
+
+    <% end %>
+  </div>
+<% end %>

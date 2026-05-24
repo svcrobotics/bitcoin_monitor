@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ActorLabelsRefreshJob < ApplicationJob
-  queue_as :p3_clusters_refresh
+  queue_as :actor_labels
 
   DEFAULT_LIMIT = 10_000
   LOCK_KEY = "actor_labels_refresh_lock"

@@ -1,0 +1,238 @@
+<%# app/views/actors/exchange_core_flows/_core_flow_presentation.html.erb %>
+
+<%
+  tf_days = @range == "30d" ? "30" : "7"
+  tf_days_i = tf_days.to_i
+
+  fmt_btc = lambda do |v|
+    return "—" if v.nil?
+    number_with_precision(v.to_d, precision: 2, delimiter: " ")
+  end
+
+  net_icon = lambda do |net|
+    net = net.to_d
+    return "▲" if net.positive?
+    return "▼" if net.negative?
+    "≈"
+  end
+
+  net_cls = lambda do |net|
+    net = net.to_d
+    return "text-amber-300" if net.positive?
+    return "text-emerald-300" if net.negative?
+    "text-gray-300"
+  end
+
+  badge_for_net = lambda do |net|
+    net = net.to_d
+
+    if net >= 2_000
+      { label: "Forte pression vendeuse", cls: "text-amber-200 bg-amber-500/10 border-amber-700/40" }
+    elsif net >= 500
+      { label: "Pression vendeuse", cls: "text-amber-200 bg-amber-500/10 border-amber-700/40" }
+    elsif net <= -2_000
+      { label: "Forte accumulation", cls: "text-emerald-200 bg-emerald-500/10 border-emerald-700/40" }
+    elsif net <= -500
+      { label: "Accumulation", cls: "text-emerald-200 bg-emerald-500/10 border-emerald-700/40" }
+    else
+      { label: "Neutre", cls: "text-gray-200 bg-white/5 border-gray-700" }
+    end
+  end
+
+  rows = Array(@flows)
+
+  chart_points =
+    Array(@netflow_daily).map do |day, value|
+      [day.strftime("%Y-%m-%d"), value.to_d.to_f]
+    end
+
+  measured = rows.count { |row| row[:events_count].to_i.positive? }
+%>
+
+<section class="mt-6 rounded-2xl border border-gray-800 bg-gray-950/40 p-6 sm:p-8">
+  <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+    <div class="min-w-0">
+      <h2 class="text-xl font-semibold text-gray-100 sm:text-2xl">
+        Historique Exchange Core Flow
+      </h2>
+
+      <p class="mt-2 text-sm leading-relaxed text-gray-400">
+        Historique des flux exchange-like calculés depuis les événements <code>ExchangeCoreFlowEvent</code>.
+        Cette section n’est pas rafraîchie en temps réel : elle se met à jour au rechargement de la page ou au changement de fenêtre 7j / 30j.
+        Positif = dépôts nets vers exchanges. Négatif = retraits nets.
+      </p>
+    </div>
+
+    <div class="flex items-center gap-2 text-xs">
+      <% [["7d", "7j"], ["30d", "30j"]].each do |val, label| %>
+        <% active = (@range == val) %>
+
+        <%= link_to label,
+          actors_exchange_core_flows_path(range: val),
+          class: "rounded-full border px-3 py-1 transition " +
+            (active ? "border-gray-600 bg-white/5 text-gray-100" : "border-gray-800 bg-black/20 text-gray-400 hover:text-gray-200") %>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-2xl border border-gray-800 bg-black/20 p-4">
+    <div class="mb-3 flex items-start justify-between gap-3">
+      <div>
+        <h3 class="text-sm font-semibold text-gray-100">
+          Netflow historique
+        </h3>
+
+        <p class="mt-1 text-xs text-gray-500">
+          <%= measured %>/<%= tf_days_i %> jours mesurés · + dépôts nets · − retraits nets
+        </p>
+      </div>
+    </div>
+
+    <div class="relative" style="height: 180px;">
+      <canvas id="exchangeCoreFlowNetflowChart"></canvas>
+    </div>
+  </div>
+
+  <script>
+    function renderExchangeCoreFlowNetflowChart() {
+      const raw = <%= raw(chart_points.to_json) %>
+      if (!raw || raw.length === 0) return
+
+      if (!window.Chart) {
+        setTimeout(renderExchangeCoreFlowNetflowChart, 100)
+        return
+      }
+
+      const el = document.getElementById("exchangeCoreFlowNetflowChart")
+      if (!el) {
+        setTimeout(renderExchangeCoreFlowNetflowChart, 100)
+        return
+      }
+
+      if (el._chart) {
+        el._chart.destroy()
+        el._chart = null
+      }
+
+      const labels = raw.map(r => r[0].slice(5))
+      const fullLabels = raw.map(r => r[0])
+      const data = raw.map(r => Number(r[1] || 0))
+
+      el._chart = new Chart(el.getContext("2d"), {
+        type: "bar",
+        data: {
+          labels,
+          datasets: [{
+            data,
+            backgroundColor: "rgba(148, 163, 184, 0.18)",
+            borderColor: "rgba(148, 163, 184, 0.35)",
+            borderWidth: 1,
+            borderRadius: 8,
+            barPercentage: 0.9,
+            categoryPercentage: 0.9
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                title: (items) => {
+                  const idx = items?.[0]?.dataIndex ?? 0
+                  return fullLabels[idx] || ""
+                },
+                label: (ctx) => {
+                  const v = Number(ctx.raw || 0)
+                  const sign = v > 0 ? "+" : (v < 0 ? "−" : "")
+                  return ` Netflow: ${sign}${Math.abs(v).toFixed(2)} BTC`
+                }
+              }
+            }
+          },
+          scales: {
+            x: {
+              ticks: {
+                maxRotation: 0,
+                autoSkip: true,
+                maxTicksLimit: <%= tf_days_i == 30 ? 10 : 8 %>,
+                color: "rgba(148, 163, 184, 0.70)"
+              },
+              grid: { display: false }
+            },
+            y: {
+              ticks: {
+                color: "rgba(148, 163, 184, 0.70)"
+              },
+              grid: {
+                color: (ctx) => (
+                  ctx.tick.value === 0
+                    ? "rgba(148, 163, 184, 0.22)"
+                    : "rgba(148, 163, 184, 0.06)"
+                ),
+                lineWidth: (ctx) => (ctx.tick.value === 0 ? 2 : 1)
+              }
+            }
+          }
+        }
+      })
+    }
+
+    document.addEventListener("turbo:load", renderExchangeCoreFlowNetflowChart)
+    document.addEventListener("turbo:frame-load", renderExchangeCoreFlowNetflowChart)
+    renderExchangeCoreFlowNetflowChart()
+  </script>
+
+  <div class="mt-6 overflow-hidden rounded-xl border border-gray-800 bg-black/20">
+    <table class="w-full text-sm">
+      <thead class="bg-black/30">
+        <tr class="text-xs text-gray-500">
+          <th class="px-4 py-3 text-left">Jour</th>
+          <th class="px-4 py-3 text-right">Inflow</th>
+          <th class="px-4 py-3 text-right">Outflow</th>
+          <th class="px-4 py-3 text-right">Net</th>
+          <th class="px-4 py-3 text-right">Événements</th>
+          <th class="px-4 py-3 text-right">Lecture</th>
+        </tr>
+      </thead>
+
+      <tbody class="divide-y divide-gray-900">
+        <% rows.each do |row| %>
+          <% net = row[:netflow_btc].to_d %>
+          <% badge = badge_for_net.call(net) %>
+
+          <tr class="hover:bg-white/5">
+            <td class="px-4 py-3 text-xs text-gray-200">
+              <%= row[:day] %>
+            </td>
+
+            <td class="px-4 py-3 text-right font-mono text-gray-200">
+              <%= fmt_btc.call(row[:inflow_btc]) %>
+            </td>
+
+            <td class="px-4 py-3 text-right font-mono text-gray-200">
+              <%= fmt_btc.call(row[:outflow_btc]) %>
+            </td>
+
+            <td class="px-4 py-3 text-right font-mono <%= net_cls.call(net) %>">
+              <%= net_icon.call(net) %>
+              <%= fmt_btc.call(net.abs) %>
+            </td>
+
+            <td class="px-4 py-3 text-right font-mono text-gray-400">
+              <%= number_with_delimiter(row[:events_count].to_i) %>
+            </td>
+
+            <td class="px-4 py-3 text-right text-xs">
+              <span class="inline-flex items-center gap-2 rounded-full border px-2 py-1 <%= badge[:cls] %>">
+                <%= badge[:label] %>
+              </span>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</section>

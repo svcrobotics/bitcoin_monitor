@@ -1,0 +1,120 @@
+<% days = @range == "30d" ? 30 : 7 %>
+
+<%
+  points =
+    @netflow_daily.map do |day, value|
+      [day.strftime("%Y-%m-%d"), value.to_d.to_f]
+    end
+
+  measured = points.count { |_day, value| value.present? }
+%>
+
+<div class="rounded-2xl border border-slate-800 bg-slate-950/30 p-5">
+  <div class="mb-4 flex items-center justify-between gap-3">
+    <div>
+      <h3 class="text-sm font-semibold text-slate-100">
+        Netflow historique
+      </h3>
+
+      <p class="mt-1 text-xs text-slate-500">
+        <%= measured %>/<%= days %> jours mesurés · positif = pression vendeuse · négatif = accumulation
+      </p>
+    </div>
+  </div>
+
+  <div class="relative" style="height: 220px;">
+    <canvas id="exchangeCoreNetflowChart"></canvas>
+  </div>
+</div>
+
+<script>
+  (() => {
+    const raw = <%= raw(points.to_json) %>
+    if (!raw || raw.length === 0) return
+    if (!window.Chart) {
+      console.error("Chart.js not loaded")
+      return
+    }
+
+    const el = document.getElementById("exchangeCoreNetflowChart")
+    if (!el) return
+
+    if (el._chart) {
+      el._chart.destroy()
+      el._chart = null
+    }
+
+    const labels = raw.map(r => r[0].slice(5))
+    const fullLabels = raw.map(r => r[0])
+    const data = raw.map(r => Number(r[1] || 0))
+
+    el._chart = new Chart(el.getContext("2d"), {
+      type: "bar",
+      data: {
+        labels: labels,
+        datasets: [{
+          data: data,
+          backgroundColor: "rgba(148, 163, 184, 0.18)",
+          borderColor: "rgba(148, 163, 184, 0.35)",
+          borderWidth: 1,
+          borderRadius: 8,
+          barPercentage: 0.8,
+          categoryPercentage: 0.8
+        }]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: {
+              title: (items) => {
+                const idx = items?.[0]?.dataIndex || 0
+                return fullLabels[idx] || ""
+              },
+              label: (ctx) => {
+                const n = Number(ctx.raw || 0)
+                const sign = n > 0 ? "+" : ""
+                return ` Netflow: ${sign}${n.toFixed(2)} BTC`
+              },
+              afterLabel: (ctx) => {
+                const n = Number(ctx.raw || 0)
+                if (n > 0) return " Pression vendeuse potentielle"
+                if (n < 0) return " Accumulation potentielle"
+                return " Équilibre"
+              }
+            }
+          }
+        },
+        scales: {
+          x: {
+            ticks: {
+              maxRotation: 0,
+              color: "rgba(148, 163, 184, 0.65)"
+            },
+            grid: { display: false }
+          },
+          y: {
+            ticks: {
+              color: "rgba(148, 163, 184, 0.65)",
+              callback: (value) => {
+                const n = Number(value)
+                if (Math.abs(n) >= 1000) return `${(n / 1000).toFixed(1)}k`
+                return n.toString()
+              }
+            },
+            grid: {
+              color: (ctx) => (
+                ctx.tick.value === 0
+                  ? "rgba(148, 163, 184, 0.22)"
+                  : "rgba(148, 163, 184, 0.06)"
+              ),
+              lineWidth: (ctx) => ctx.tick.value === 0 ? 2 : 1
+            }
+          }
+        }
+      }
+    })
+  })()
+</script>

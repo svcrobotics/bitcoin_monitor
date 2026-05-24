@@ -1,0 +1,10 @@
+<div class="min-h-screen bg-slate-950 px-4 py-8 text-slate-100 sm:px-6 lg:px-8">
+  <div class="mx-auto w-full max-w-7xl">
+    <%= turbo_stream_from "exchange_core_flows_live" %>
+
+    <%= render "actors/exchange_core_flows/live",
+      today: Dashboard::ExchangeCoreNetflowToday.call %>
+
+    <%= render "actors/exchange_core_flows/core_flow_presentation" %>
+  </div>
+</div>

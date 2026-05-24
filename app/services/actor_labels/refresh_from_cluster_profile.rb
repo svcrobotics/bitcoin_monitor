@@ -61,21 +61,36 @@ module ActorLabels
     private
 
     def refresh_profile(profile)
-      labels_for(profile).each do |attrs|
-        label = ActorLabel.find_or_initialize_by(
-          cluster_id: profile.cluster_id,
-          label: attrs[:label],
-          source: "cluster_profile"
-        )
+      rows =
+        labels_for(profile).map do |attrs|
+          now = Time.current
 
-        label.confidence = attrs[:confidence]
-        label.metadata = attrs[:metadata]
-        label.first_seen_at ||= Time.current
-        label.last_seen_at = Time.current
+          {
+            cluster_id: profile.cluster_id,
+            label: attrs[:label],
+            source: "cluster_profile",
+            confidence: attrs[:confidence],
+            metadata: attrs[:metadata],
+            first_seen_at: now,
+            last_seen_at: now,
+            created_at: now,
+            updated_at: now
+          }
+        end
 
-        label.new_record? ? @created += 1 : @updated += 1
-        label.save!
-      end
+      return if rows.empty?
+
+      ActorLabel.upsert_all(
+        rows,
+        unique_by: :index_actor_labels_on_cluster_id_and_label_and_source,
+        update_only: %i[
+          confidence
+          metadata
+          last_seen_at
+        ]
+      )
+
+      @updated += rows.size
     rescue StandardError => e
       @skipped += 1
 
@@ -83,6 +98,8 @@ module ActorLabels
         "[actor_labels] skipped cluster_id=#{profile.cluster_id} " \
         "#{e.class}: #{e.message}"
       )
+
+      puts "[actor_labels] skipped cluster_id=#{profile.cluster_id} #{e.class}: #{e.message}"
     end
 
     def labels_for(profile)
