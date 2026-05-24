@@ -1,0 +1,2 @@
+class MarketSignal < ApplicationRecord
+end

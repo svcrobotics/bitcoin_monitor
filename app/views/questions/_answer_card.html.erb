@@ -1,0 +1,73 @@
+<% answer = local_assigns.fetch(:answer) %>
+
+<div class="rounded-2xl border border-slate-800 bg-slate-950/70 p-5 shadow-sm">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+        <%= answer[:module_name].to_s.humanize %> · <%= answer[:tier].to_s.upcase %>
+      </p>
+
+      <h3 class="mt-1 text-base font-semibold text-slate-100">
+        <%= answer[:question] %>
+      </h3>
+    </div>
+
+    <div class="rounded-full border border-slate-700 px-3 py-1 text-xs font-semibold text-slate-300">
+      Confiance <%= answer[:confidence] || "—" %>
+    </div>
+  </div>
+
+  <div class="mt-4 rounded-xl border border-slate-800 bg-slate-900/70 p-4">
+    <p class="text-sm font-semibold text-slate-100">
+      <%= answer[:verdict] %>
+    </p>
+
+    <p class="mt-2 text-sm leading-6 text-slate-300">
+      <%= answer[:answer] %>
+    </p>
+  </div>
+
+  <% if answer[:evidence].present? %>
+    <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+      <% answer[:evidence].each do |item| %>
+        <div class="rounded-xl border border-slate-800 bg-slate-900/50 p-3">
+          <p class="text-xs text-slate-500"><%= item[:label] %></p>
+          <p class="mt-1 font-mono text-sm font-semibold text-slate-100">
+            <%= item[:value] %><%= " #{item[:unit]}" if item[:unit].present? %>
+          </p>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
+
+  <% if answer[:interpretation].present? %>
+    <div class="mt-4">
+      <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">Interprétation</p>
+      <p class="mt-1 text-sm leading-6 text-slate-300"><%= answer[:interpretation] %></p>
+    </div>
+  <% end %>
+
+  <% if answer[:methodology].present? %>
+    <details class="mt-4 rounded-xl border border-slate-800 bg-slate-900/40 p-3">
+      <summary class="cursor-pointer text-sm font-semibold text-slate-300">
+        Comment cette réponse est calculée
+      </summary>
+      <p class="mt-2 text-sm leading-6 text-slate-400"><%= answer[:methodology] %></p>
+    </details>
+  <% end %>
+
+  <div class="mt-4 flex items-center justify-between gap-3 text-xs text-slate-500">
+    <span>
+      <% if answer[:updated_at].present? %>
+        Mis à jour : <%= l(answer[:updated_at], format: "%d/%m/%Y %H:%M") %>
+      <% end %>
+    </span>
+
+    <% if answer[:historical_path].present? %>
+      <%= link_to "Voir les données historiques →",
+            answer[:historical_path],
+            data: { turbo_frame: "_top" },
+            class: "font-semibold text-sky-400 hover:text-sky-300" %>
+    <% end %>
+  </div>
+</div>

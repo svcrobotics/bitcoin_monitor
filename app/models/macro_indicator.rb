@@ -1,0 +1,2 @@
+class MacroIndicator < ApplicationRecord
+end

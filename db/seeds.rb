@@ -8,4 +8,5 @@
 #     MovieGenre.find_or_create_by!(name: genre_name)
 #   end
 
-load Rails.root.join("db/seeds/guides.rb")
+#load Rails.root.join("db/seeds/guides.rb")
+load Rails.root.join("db/seeds/questions.rb")

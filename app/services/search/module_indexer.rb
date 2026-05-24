@@ -27,7 +27,7 @@ module Search
         title: "Exchange Flows",
         subtitle: "Inflow Outflow",
         body: "exchange inflow outflow netflow plateformes liquidité flux entrants sortants",
-        route: "/inflow_outflow"
+        route: "/actors/exchange_core_flows"
       },
       {
         id: "module_whale_alerts",
