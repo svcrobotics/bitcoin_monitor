@@ -54,9 +54,28 @@ class MarketSignalsController < ApplicationController
         MarketPrediction.where(source: "fred", indicator: "DTWEXBGS")
       when "exchange"
         MarketPrediction.where(source: "tansa", indicator: "EXCHANGE_CORE_FLOW")
+      when "whale"
+        MarketPrediction.where(source: "tansa", indicator: "WHALE_CORE_FLOW")
       else
-        MarketPrediction.where(indicator: ["FEDFUNDS", "DTWEXBGS", "EXCHANGE_CORE_FLOW"])
+        MarketPrediction.where(indicator: [
+          "FEDFUNDS",
+          "DTWEXBGS",
+          "EXCHANGE_CORE_FLOW",
+          "WHALE_CORE_FLOW"
+        ])
       end.order(predicted_on: :desc).limit(50)
+
+    @whale_signal = MarketSignal
+      .where(source: "tansa", indicator: "WHALE_CORE_FLOW")
+      .order(observed_on: :desc)
+      .first
+
+    @whale_predictions = MarketPrediction
+      .where(source: "tansa", indicator: "WHALE_CORE_FLOW")
+      .order(predicted_on: :desc)
+      .limit(12)
+
+    @whale_success_rate = success_rate_for_tansa("WHALE_CORE_FLOW")
   end
 
   private
@@ -70,6 +89,13 @@ class MarketSignalsController < ApplicationController
 
   def success_rate_for_exchange
     predictions = MarketPrediction.where(source: "tansa", indicator: "EXCHANGE_CORE_FLOW")
+    return 0 if predictions.empty?
+
+    ((predictions.where(result: "success").count.to_f / predictions.count) * 100).round(1)
+  end
+
+  def success_rate_for_tansa(indicator)
+    predictions = MarketPrediction.where(source: "tansa", indicator: indicator)
     return 0 if predictions.empty?
 
     ((predictions.where(result: "success").count.to_f / predictions.count) * 100).round(1)
