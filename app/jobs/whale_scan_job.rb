@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class WhaleScanJob < ApplicationJob
-  queue_as :p4_analytics
+  queue_as :p4_whales
 
   DEFAULT_BLOCKS = Integer(ENV.fetch("WHALE_SCAN_BLOCKS", "144")) rescue 144
 

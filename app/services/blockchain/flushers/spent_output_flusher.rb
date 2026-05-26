@@ -19,6 +19,7 @@ module Blockchain
 
         rows.each_slice(1_000) do |slice|
           update_slice(slice, now)
+          apply_address_flow_stats(slice)
         end
 
         @logger.info("[spent_output_flusher] flushed=#{rows.size}")
@@ -61,6 +62,23 @@ module Blockchain
         SQL
 
         ActiveRecord::Base.connection.execute(sql)
+      end
+
+      def apply_address_flow_stats(rows)
+        txid_vouts = rows.map { |row| [row["txid"], row["vout"].to_i] }
+        return if txid_vouts.empty?
+
+        conditions = txid_vouts.map do |txid, vout|
+          ActiveRecord::Base.sanitize_sql_array(["(txid = ? AND vout = ?)", txid, vout])
+        end.join(" OR ")
+
+        outputs = TxOutput.where(conditions)
+
+        result = AddressFlowStats::ApplySpentOutputs.call(outputs: outputs)
+
+        @logger.info("[spent_output_flusher] address_flow_stats=#{result[:addresses]}")
+      rescue => e
+        @logger.error("[spent_output_flusher] address_flow_stats_error=#{e.class}: #{e.message}")
       end
     end
   end

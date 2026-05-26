@@ -21,6 +21,8 @@ module Blockchain
           update_only: [:address, :amount_btc, :block_height, :block_hash, :block_time]
         )
 
+        apply_address_flow_stats(rows)
+
         @logger.info("[output_flusher] flushed=#{rows.size}")
 
         {
@@ -36,6 +38,19 @@ module Blockchain
         payloads = Array(payloads)
 
         payloads.map { |payload| JSON.parse(payload) }
+      end
+
+      def apply_address_flow_stats(rows)
+        txids = rows.map { |row| row["txid"] }.compact.uniq
+        return if txids.empty?
+
+        outputs = TxOutput.where(txid: txids)
+
+        result = AddressFlowStats::ApplyOutputs.call(outputs: outputs)
+
+        @logger.info("[output_flusher] address_flow_stats=#{result[:addresses]}")
+      rescue => e
+        @logger.error("[output_flusher] address_flow_stats_error=#{e.class}: #{e.message}")
       end
     end
   end

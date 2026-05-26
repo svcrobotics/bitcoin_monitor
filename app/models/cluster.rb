@@ -5,7 +5,9 @@ class Cluster < ApplicationRecord
   has_many :cluster_signals, dependent: :delete_all
   has_many :actor_labels, dependent: :delete_all
   has_one :actor_metric, dependent: :delete
-  
+  has_one :actor_profile, dependent: :destroy
+  has_many :actor_labels, dependent: :destroy
+
   def recalculate_stats!
     stats =
       addresses

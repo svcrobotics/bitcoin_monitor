@@ -2,13 +2,14 @@
 
 class ActorLabel < ApplicationRecord
   belongs_to :cluster
+  belongs_to :actor_profile, optional: true
 
   LABELS = %w[
     exchange_like
     whale_like
     service_like
     retail_like
-    unknown
+    etf_like
   ].freeze
 
   validates :label, presence: true, inclusion: { in: LABELS }

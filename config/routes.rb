@@ -131,4 +131,8 @@ Rails.application.routes.draw do
   get "system/sidekiq", to: "system#sidekiq", as: :system_sidekiq
 
   resources :market_signals, only: [:index]
+
+  namespace :actors do
+    resources :whale_core_flows, only: [:index]
+  end
 end

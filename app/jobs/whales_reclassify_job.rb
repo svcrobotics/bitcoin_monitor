@@ -3,7 +3,7 @@
 require "rake"
 
 class WhalesReclassifyJob < ApplicationJob
-  queue_as :default
+  queue_as :p4_whales
 
   def perform
     Rails.application.load_tasks

@@ -1,0 +1,10 @@
+# config/etf_addresses.yml
+# On remplira les vraies adresses ensuite.
+# Ne jamais mettre ici une adresse non vérifiée.
+
+- name: "BlackRock IBIT"
+  issuer: "BlackRock"
+  product: "IBIT"
+  source: "manual_verified"
+  custody: "Coinbase Custody"
+  addresses: []
