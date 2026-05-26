@@ -14,6 +14,7 @@ class SystemController < ApplicationController
         events: estimated_count(Event),
         edges: estimated_count(Edge)
       }
+    @actor_profiles_runtime = System::ActorProfilesRuntimeSnapshotBuilder.call
     end
 
     @realtime = measure("realtime_snapshot") { System::RealtimeSnapshotBuilder.call }
