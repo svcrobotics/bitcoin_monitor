@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_05_24_114308) do
+ActiveRecord::Schema[8.0].define(version: 2026_05_26_204704) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -24,6 +24,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_24_114308) do
     t.datetime "last_seen_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "actor_profile_id"
+    t.index ["actor_profile_id"], name: "index_actor_labels_on_actor_profile_id"
     t.index ["cluster_id", "label", "source"], name: "index_actor_labels_on_cluster_id_and_label_and_source", unique: true
     t.index ["cluster_id"], name: "index_actor_labels_on_cluster_id"
     t.index ["confidence"], name: "index_actor_labels_on_confidence"
@@ -49,6 +51,77 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_24_114308) do
     t.index ["exchange_score"], name: "index_actor_metrics_on_exchange_score"
     t.index ["service_score"], name: "index_actor_metrics_on_service_score"
     t.index ["whale_score"], name: "index_actor_metrics_on_whale_score"
+  end
+
+  create_table "actor_profile_deltas", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.integer "block_height", null: false
+    t.decimal "received_btc_delta", precision: 24, scale: 8, default: "0.0", null: false
+    t.decimal "sent_btc_delta", precision: 24, scale: 8, default: "0.0", null: false
+    t.decimal "net_btc_delta", precision: 24, scale: 8, default: "0.0", null: false
+    t.integer "tx_count_delta", default: 0, null: false
+    t.datetime "first_seen_at"
+    t.datetime "last_seen_at"
+    t.datetime "processed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_id", "block_height"], name: "index_actor_profile_deltas_on_cluster_id_and_block_height"
+    t.index ["cluster_id"], name: "index_actor_profile_deltas_on_cluster_id"
+    t.index ["processed_at"], name: "index_actor_profile_deltas_on_processed_at"
+  end
+
+  create_table "actor_profiles", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.decimal "balance_btc"
+    t.decimal "total_received_btc"
+    t.decimal "total_sent_btc"
+    t.decimal "net_btc"
+    t.integer "tx_count"
+    t.integer "inflow_count"
+    t.integer "outflow_count"
+    t.datetime "first_seen_at"
+    t.datetime "last_seen_at"
+    t.integer "accumulation_score"
+    t.integer "distribution_score"
+    t.integer "exchange_score"
+    t.integer "whale_score"
+    t.integer "etf_score"
+    t.integer "service_score"
+    t.string "classification"
+    t.jsonb "traits"
+    t.jsonb "metadata"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.integer "last_computed_height"
+    t.boolean "dirty", default: false, null: false
+    t.string "priority"
+    t.index ["classification"], name: "index_actor_profiles_on_classification"
+    t.index ["cluster_id"], name: "index_actor_profiles_on_cluster_id"
+    t.index ["dirty"], name: "index_actor_profiles_on_dirty"
+    t.index ["last_computed_height"], name: "index_actor_profiles_on_last_computed_height"
+    t.index ["priority"], name: "index_actor_profiles_on_priority"
+    t.index ["updated_at"], name: "index_actor_profiles_on_updated_at"
+  end
+
+  create_table "address_flow_stats", force: :cascade do |t|
+    t.string "address", null: false
+    t.decimal "received_btc", precision: 24, scale: 8, default: "0.0", null: false
+    t.decimal "sent_btc", precision: 24, scale: 8, default: "0.0", null: false
+    t.decimal "net_btc", precision: 24, scale: 8, default: "0.0", null: false
+    t.integer "tx_count", default: 0, null: false
+    t.datetime "first_seen_at"
+    t.datetime "last_seen_at"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.integer "cluster_id"
+    t.index ["address"], name: "index_address_flow_stats_on_address", unique: true
+    t.index ["cluster_id", "last_seen_at"], name: "index_address_flow_stats_on_cluster_id_and_last_seen_at"
+    t.index ["cluster_id", "updated_at"], name: "index_address_flow_stats_on_cluster_id_and_updated_at"
+    t.index ["cluster_id"], name: "index_address_flow_stats_on_cluster_id"
+    t.index ["net_btc"], name: "index_address_flow_stats_on_net_btc"
+    t.index ["received_btc"], name: "index_address_flow_stats_on_received_btc"
+    t.index ["sent_btc"], name: "index_address_flow_stats_on_sent_btc"
   end
 
   create_table "address_links", force: :cascade do |t|
@@ -77,10 +150,14 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_24_114308) do
     t.bigint "cluster_id"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["address", "cluster_id"], name: "index_addresses_on_address_and_cluster_id"
     t.index ["address"], name: "index_addresses_on_address", unique: true
+    t.index ["cluster_id", "address"], name: "index_addresses_on_cluster_id_and_address"
     t.index ["cluster_id"], name: "index_addresses_on_cluster_id"
     t.index ["first_seen_height"], name: "index_addresses_on_first_seen_height"
     t.index ["last_seen_height"], name: "index_addresses_on_last_seen_height"
+    t.index ["total_received_sats"], name: "index_addresses_on_total_received_sats"
+    t.index ["total_sent_sats"], name: "index_addresses_on_total_sent_sats"
   end
 
   create_table "ai_insights", force: :cascade do |t|
@@ -997,6 +1074,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_24_114308) do
     t.integer "spent_block_height"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["address", "block_time"], name: "index_tx_outputs_on_address_and_block_time"
+    t.index ["address", "spent_block_height"], name: "index_tx_outputs_on_address_and_spent_block_height"
     t.index ["address"], name: "index_tx_outputs_on_address"
     t.index ["block_height"], name: "index_tx_outputs_on_block_height"
     t.index ["spent"], name: "index_tx_outputs_on_spent"
@@ -1105,8 +1184,41 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_24_114308) do
     t.index ["txid"], name: "index_whale_alerts_on_txid", unique: true
   end
 
+  create_table "whale_core_flow_days", force: :cascade do |t|
+    t.date "day"
+    t.decimal "inflow_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "outflow_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.decimal "netflow_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.integer "events_count", default: 0, null: false
+    t.string "source"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["day"], name: "index_whale_core_flow_days_on_day", unique: true
+  end
+
+  create_table "whale_core_flow_events", force: :cascade do |t|
+    t.integer "block_height"
+    t.string "block_hash"
+    t.string "txid"
+    t.string "address"
+    t.integer "cluster_id"
+    t.string "direction"
+    t.decimal "amount_btc", precision: 20, scale: 8, default: "0.0", null: false
+    t.datetime "event_time"
+    t.string "source"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["block_height"], name: "index_whale_core_flow_events_on_block_height"
+    t.index ["cluster_id"], name: "index_whale_core_flow_events_on_cluster_id"
+    t.index ["event_time"], name: "index_whale_core_flow_events_on_event_time"
+    t.index ["txid", "address", "direction"], name: "index_whale_core_flow_events_on_txid_and_address_and_direction", unique: true
+  end
+
   add_foreign_key "actor_labels", "clusters", on_delete: :cascade
   add_foreign_key "actor_metrics", "clusters", on_delete: :cascade
+  add_foreign_key "actor_profile_deltas", "clusters"
+  add_foreign_key "actor_profiles", "clusters"
   add_foreign_key "address_links", "addresses", column: "address_a_id"
   add_foreign_key "address_links", "addresses", column: "address_b_id"
   add_foreign_key "addresses", "clusters"

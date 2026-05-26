@@ -1,3 +1,4 @@
+# app/jobs/actor_labels_refresh_job.rb
 # frozen_string_literal: true
 
 class ActorLabelsRefreshJob < ApplicationJob
@@ -28,15 +29,17 @@ class ActorLabelsRefreshJob < ApplicationJob
           jr,
           pct: 5,
           label: "starting",
-          meta: {
-            limit: limit
-          }
+          meta: { limit: limit }
         )
 
-        result = ActorLabels::RefreshFromClusterProfile.call(
+        cluster_profile_result = ActorLabels::RefreshFromClusterProfile.call(
           limit: limit,
           job_run: jr
         )
+
+        result = {
+          cluster_profiles: cluster_profile_result
+        }
 
         JobRunner.progress!(
           jr,

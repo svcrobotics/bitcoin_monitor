@@ -7,8 +7,12 @@ sidekiq_realtime: nice -n 5 bundle exec sidekiq -c 1 -q realtime
 sidekiq_btc: nice -n 0 bundle exec sidekiq -c 1 -q btc_realtime
 sidekiq_cluster: nice -n 10 bundle exec sidekiq -c 1 -q p3_clusters -q p3_clusters_scan -q p3_clusters_refresh
 sidekiq_actor_labels: nice -n 10 bundle exec sidekiq -c 1 -q actor_labels
+sidekiq_actor_profiles: nice -n 12 bundle exec sidekiq -c 2 -q p3_actor_profile_light
+sidekiq_actor_profiles_heavy: nice -n 15 bundle exec sidekiq -c 1 -q p3_actor_profile_heavy
 
 # optionnel, seulement si tu veux vider l'ancienne queue default
 sidekiq_default: nice -n 19 bundle exec sidekiq -c 1 -q default
 
 sidekiq_p1_exchange: nice -n 15 bundle exec sidekiq -c 1 -q p1_exchange
+
+sidekiq_p4_whales: nice -n 15 bundle exec sidekiq -c 1 -q p4_whales
