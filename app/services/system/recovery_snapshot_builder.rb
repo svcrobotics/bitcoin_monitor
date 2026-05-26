@@ -115,6 +115,7 @@ module System
         last_processed_height: last_processed_height,
         spent_max_height: TxOutput.where.not(spent_block_height: nil).maximum(:spent_block_height),
         exchange_flow_max_height: ExchangeCoreFlowEvent.maximum(:block_height),
+        whale_flow_max_day: WhaleCoreFlowDay.maximum(:day),
         fast_path: ENV.fetch("LAYER1_FAST_PATH", "true") == "true",
         lag: lag,
         status_counts: BlockBufferModel.group(:status).count,

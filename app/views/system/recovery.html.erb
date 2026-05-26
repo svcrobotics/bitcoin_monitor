@@ -902,6 +902,176 @@
       </div>
     </section>
 
+    <!-- Whale Intelligence recovery -->
+    <section class="<%= section_class %> mt-8">
+      <%
+        whale_today = WhaleCoreFlowDay.order(day: :desc).first rescue nil
+
+        whale_inflow_btc = whale_today&.inflow_btc.to_d
+        whale_outflow_btc = whale_today&.outflow_btc.to_d
+        whale_netflow_btc = whale_today&.netflow_btc.to_d
+        whale_events_count = whale_today&.events_count.to_i
+
+        whale_like_count = (@actor_labels_status || {})[:whale_like].to_i
+
+        whale_predictions = MarketPrediction.where(source: "tansa", indicator: "WHALE_CORE_FLOW") rescue MarketPrediction.none
+        whale_predictions_count = whale_predictions.count
+        whale_success_count = whale_predictions.where(result: "success").count
+        whale_success_rate =
+          whale_predictions_count.positive? ? ((whale_success_count.to_f / whale_predictions_count) * 100).round(1) : 0
+
+        whale_last_prediction = whale_predictions.order(predicted_on: :desc).first
+
+        whale_signal =
+          if whale_netflow_btc.positive?
+            "Accumulation"
+          elsif whale_netflow_btc.negative?
+            "Distribution"
+          else
+            "Neutral"
+          end
+
+        whale_state =
+          if whale_like_count.zero?
+            "warning"
+          elsif whale_today.blank?
+            "warning"
+          else
+            "ok"
+          end
+      %>
+
+      <div class="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <div class="<%= label_class %>">Layer 2 consumer</div>
+
+          <h2 class="mt-1 text-xl font-semibold">
+            Whale Intelligence recovery
+          </h2>
+
+          <p class="mt-2 <%= muted_class %>">
+            Consomme les labels whale_like produits par Actor Labels pour mesurer accumulation,
+            distribution, netflow whale et performance prédictive.
+          </p>
+        </div>
+
+        <span class="inline-flex items-center rounded-full border px-3 py-1 text-sm font-semibold <%= status_classes.call(whale_state) %>">
+          <%= whale_state.upcase %>
+        </span>
+      </div>
+
+      <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Whale actors</div>
+          <div class="mt-3 text-3xl font-bold text-purple-300">
+            <%= number_with_delimiter(whale_like_count) %>
+          </div>
+          <p class="mt-2 <%= muted_class %>">labels whale_like</p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Inflow</div>
+          <div class="mt-3 text-3xl font-bold text-emerald-300">
+            <%= number_with_precision(whale_inflow_btc, precision: 2, delimiter: " ") %> BTC
+          </div>
+          <p class="mt-2 <%= muted_class %>">BTC reçus par les whales</p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Outflow</div>
+          <div class="mt-3 text-3xl font-bold text-rose-300">
+            <%= number_with_precision(whale_outflow_btc, precision: 2, delimiter: " ") %> BTC
+          </div>
+          <p class="mt-2 <%= muted_class %>">BTC envoyés par les whales</p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Netflow</div>
+          <div class="mt-3 text-3xl font-bold <%= whale_netflow_btc.positive? ? "text-emerald-300" : "text-rose-300" %>">
+            <%= number_with_precision(whale_netflow_btc, precision: 2, delimiter: " ") %> BTC
+          </div>
+          <p class="mt-2 <%= muted_class %>"><%= whale_signal %></p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Events</div>
+          <div class="mt-3 text-3xl font-bold text-gray-100">
+            <%= number_with_delimiter(whale_events_count || 0) %>
+          </div>
+          <p class="mt-2 <%= muted_class %>">
+            <%= whale_today&.day || "no data" %>
+          </p>
+        </div>
+
+        <div class="<%= panel_class %>">
+          <div class="<%= label_class %>">Prediction success</div>
+          <div class="mt-3 text-3xl font-bold text-cyan-300">
+            <%= whale_success_rate %>%
+          </div>
+          <p class="mt-2 <%= muted_class %>">
+            <%= whale_predictions_count %> prédiction(s)
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
+        <div class="<%= label_class %>">Diagnostic Whale Intelligence</div>
+
+        <p class="mt-2 text-sm leading-relaxed text-slate-300">
+          <% if whale_like_count.zero? %>
+            Aucun acteur whale_like disponible. Whale Intelligence ne peut pas encore produire de flux fiables.
+          <% elsif whale_today.blank? %>
+            Aucun WhaleCoreFlowDay n’est encore disponible. Il faut lancer le backfill whale flow.
+          <% elsif whale_netflow_btc.positive? %>
+            Les whales reçoivent actuellement plus de BTC qu’elles n’en envoient. Le module détecte une accumulation nette.
+          <% elsif whale_netflow_btc.negative? %>
+            Les whales envoient actuellement plus de BTC qu’elles n’en reçoivent. Le module détecte une distribution nette.
+          <% else %>
+            Les flux whales sont équilibrés. Le signal actuel est neutre.
+          <% end %>
+
+          <% if whale_predictions_count < 10 %>
+            <span class="text-amber-300">
+              Le backtest whale reste jeune : seulement <%= whale_predictions_count %> prédiction(s), donc le taux de réussite n’est pas encore significatif.
+            </span>
+          <% end %>
+        </p>
+      </div>
+
+      <% if whale_last_prediction.present? %>
+        <div class="mt-5 grid grid-cols-1 gap-4 md:grid-cols-4">
+          <div class="<%= panel_class %>">
+            <div class="<%= label_class %>">Last prediction</div>
+            <div class="mt-2 text-sm text-gray-300">
+              <%= whale_last_prediction.predicted_on %>
+            </div>
+          </div>
+
+          <div class="<%= panel_class %>">
+            <div class="<%= label_class %>">Target</div>
+            <div class="mt-2 text-sm text-gray-300">
+              <%= whale_last_prediction.target_on %>
+            </div>
+          </div>
+
+          <div class="<%= panel_class %>">
+            <div class="<%= label_class %>">Direction</div>
+            <div class="mt-2 text-sm font-semibold uppercase <%= whale_last_prediction.direction == "bullish" ? "text-emerald-300" : "text-rose-300" %>">
+              <%= whale_last_prediction.direction %>
+            </div>
+          </div>
+
+          <div class="<%= panel_class %>">
+            <div class="<%= label_class %>">Result</div>
+            <div class="mt-2 text-sm font-semibold uppercase <%= whale_last_prediction.result == "success" ? "text-emerald-300" : "text-rose-300" %>">
+              <%= whale_last_prediction.result %>
+              · <%= whale_last_prediction.performance_pct.to_f.round(2) %>%
+            </div>
+          </div>
+        </div>
+      <% end %>
+    </section>
+
     <div class="mt-10 flex items-center justify-between">
       <div>
         <h2 class="text-xl font-semibold">Pipelines secondaires</h2>

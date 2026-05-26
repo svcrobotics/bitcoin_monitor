@@ -448,6 +448,121 @@
     </div>
   </div>
 
+  <!-- Whale Intelligence runtime -->
+  <%
+    whale_queue = queues.find { |q| q[:name].to_s == "p4_whales" } || {}
+
+    whale_busy =
+      workers.count do |worker|
+        queue =
+          worker[:queue].to_s.presence ||
+          worker["queue"].to_s
+
+        queue == "p4_whales"
+      end
+
+    whale_latest_day = WhaleCoreFlowDay.order(day: :desc).first rescue nil
+    whale_signal = MarketSignal.where(source: "tansa", indicator: "WHALE_CORE_FLOW").order(observed_on: :desc).first rescue nil
+    whale_predictions = MarketPrediction.where(source: "tansa", indicator: "WHALE_CORE_FLOW") rescue MarketPrediction.none
+
+    whale_success_rate =
+      if whale_predictions.count.positive?
+        ((whale_predictions.where(result: "success").count.to_f / whale_predictions.count) * 100).round(1)
+      else
+        0
+      end
+  %>
+
+  <div class="mt-4 grid grid-cols-1 gap-4 md:grid-cols-3">
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Whale Intelligence runtime</div>
+
+      <div class="mt-3 text-3xl font-bold <%= whale_queue[:size].to_i > 0 ? "text-amber-300" : "text-emerald-300" %>">
+        <%= whale_queue[:size].to_i %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Queue</span>
+          <span class="font-mono text-gray-200">p4_whales</span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Busy</span>
+          <span class="font-mono <%= whale_busy > 0 ? "text-sky-300" : "text-gray-300" %>">
+            <%= whale_busy %>
+          </span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Latency</span>
+          <span class="font-mono text-gray-200">
+            <%= whale_queue[:latency].to_f.round(1) %>s
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Whale flows · signaux · backtests.
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Whale flow state</div>
+
+      <div class="mt-3 text-3xl font-bold <%= whale_latest_day&.netflow_btc.to_f >= 0 ? "text-emerald-300" : "text-rose-300" %>">
+        <%= whale_latest_day ? "#{whale_latest_day.netflow_btc.to_f.round(0)} BTC" : "—" %>
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Last day</span>
+          <span class="font-mono text-gray-200"><%= whale_latest_day&.day || "—" %></span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Events</span>
+          <span class="font-mono text-gray-200"><%= whale_latest_day&.events_count || 0 %></span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Signal</span>
+          <span class="font-mono <%= whale_signal&.direction == "bullish" ? "text-emerald-300" : whale_signal&.direction == "bearish" ? "text-rose-300" : "text-gray-300" %>">
+            <%= whale_signal&.direction || "—" %>
+          </span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Dernier état WhaleCoreFlowDay.
+      </p>
+    </div>
+
+    <div class="<%= section_class %>">
+      <div class="<%= label_class %>">Prediction engine</div>
+
+      <div class="mt-3 text-3xl font-bold text-cyan-300">
+        <%= whale_success_rate %>%
+      </div>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span class="text-gray-500">Predictions</span>
+          <span class="font-mono text-gray-200"><%= whale_predictions.count %></span>
+        </div>
+
+        <div class="flex justify-between">
+          <span class="text-gray-500">Indicator</span>
+          <span class="font-mono text-gray-200">WHALE_CORE_FLOW</span>
+        </div>
+      </div>
+
+      <p class="mt-3 <%= muted_class %>">
+        Backtest whale accumulation / distribution.
+      </p>
+    </div>
+  </div>
+
   <!-- Existing table -->
   <%
     pipeline_labels = {
@@ -456,12 +571,12 @@
       "low" => "Spent / flows",
       "realtime" => "Realtime",
       "p1_exchange" => "Exchange",
-      "p2_flows" => "Flows",
+      "p2_flows" => "Legacy flows",
       "p3_clusters" => "Actor Graph",
       "p3_clusters_scan" => "Actor Graph",
       "p3_clusters_refresh" => "Cluster Refresh",
       "actor_labels" => "Actor Labels",
-      "p4_analytics" => "Analytics",
+      "p4_whales" => "Whales Intelligence",
       "default" => "System"
     }
 
@@ -474,6 +589,7 @@
       p3_clusters_scan
       p3_clusters_refresh
       actor_labels
+      p4_whales
     ]
   %>
   <%
@@ -488,7 +604,7 @@
       p3_clusters_scan
       p3_clusters_refresh
       actor_labels
-      p4_analytics
+      p4_whales
       default
     ]
 

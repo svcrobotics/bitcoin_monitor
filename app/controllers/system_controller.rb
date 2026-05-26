@@ -60,6 +60,9 @@ class SystemController < ApplicationController
         .to_a
     end
 
+    @actor_intelligence = measure("actor_intelligence") do
+      System::ActorIntelligenceSnapshotBuilder.call
+    end
     @actor_labels_status = System::ActorLabelsStatus.call
 
   end
