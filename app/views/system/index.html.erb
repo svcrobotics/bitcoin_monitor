@@ -660,15 +660,39 @@
   <!-- Actor Labels -->
   <section class="<%= section_class %>">
     <%
-      displayed_labels = actor_labels[:displayed].presence || actor_labels[:displayed_count].presence || 100
+      actor_labels = @actor_labels_status || {}
+
+      total_labels       = actor_labels[:total].to_i
+      exchange_like_count = actor_labels[:exchange_like].to_i
+      whale_like_count    = actor_labels[:whale_like].to_i
+      etf_like_count      = actor_labels[:etf_like].to_i
+      service_like_count  = actor_labels[:service_like].to_i
+      retail_like_count   = actor_labels[:retail_like].to_i
+      unknown_count       = actor_labels[:unknown].to_i
+
+      displayed_labels = total_labels
       last_updated_at = actor_labels[:last_updated_at]
-      coverage_count = exchange_like_count + whale_like_count + etf_like_count + service_like_count + retail_like_count + unknown_count
-      coverage_pct = total_labels.positive? ? ((coverage_count.to_f / total_labels) * 100).round(1) : 0
+
+      coverage_count =
+        exchange_like_count +
+        whale_like_count +
+        etf_like_count +
+        service_like_count +
+        retail_like_count +
+        unknown_count
+
+      coverage_pct =
+        total_labels.positive? ?
+          ((coverage_count.to_f / total_labels) * 100).round(1) :
+          0
 
       actor_label_state =
         if total_labels.zero?
           "warning"
-        elsif exchange_like_count.zero? && whale_like_count.zero? && etf_like_count.zero? && service_like_count.zero?
+        elsif exchange_like_count.zero? &&
+              whale_like_count.zero? &&
+              etf_like_count.zero? &&
+              service_like_count.zero?
           "warning"
         else
           "ok"
@@ -678,82 +702,139 @@
     <div class="mb-5 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
       <div>
         <div class="<%= label_class %>">Actor Labels</div>
-        <h2 class="mt-1 text-xl font-semibold text-gray-100">Validated economic classifications</h2>
+
+        <h2 class="mt-1 text-xl font-semibold text-gray-100">
+          Validated economic classifications
+        </h2>
+
         <p class="mt-2 <%= muted_class %>">
-          Transforme les profils comportementaux en acteurs exploitables. C’est le contrat propre entre l’intelligence blockchain et les modules Layer 2.
+          Labels validés issus uniquement des Actor Profiles.
+          Cette vue ne mélange plus les anciennes sources
+          cluster_profile, actor_metric ou actor_score.
         </p>
       </div>
-      <span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold <%= status_badge_class(actor_label_state) %>"><%= actor_label_state.upcase %></span>
+
+      <span class="inline-flex items-center rounded-full px-3 py-1 text-sm font-semibold <%= status_badge_class(actor_label_state) %>">
+        <%= actor_label_state.upcase %>
+      </span>
     </div>
 
     <div class="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-6">
       <div class="<%= panel_class %>">
         <div class="<%= label_class %>">Total labels</div>
-        <div class="mt-3 text-3xl font-bold text-gray-100"><%= number_with_delimiter(total_labels) %></div>
-        <p class="mt-2 <%= muted_class %>">labels en base</p>
+        <div class="mt-3 text-3xl font-bold text-gray-100">
+          <%= number_with_delimiter(total_labels) %>
+        </div>
+        <p class="mt-2 <%= muted_class %>">
+          source actor_profile uniquement
+        </p>
       </div>
 
       <div class="<%= panel_class %>">
         <div class="<%= label_class %>">Exchange-like</div>
-        <div class="mt-3 text-3xl font-bold text-blue-300"><%= number_with_delimiter(exchange_like_count) %></div>
-        <p class="mt-2 <%= muted_class %>">source Exchange Flow</p>
+        <div class="mt-3 text-3xl font-bold text-blue-300">
+          <%= number_with_delimiter(exchange_like_count) %>
+        </div>
+        <p class="mt-2 <%= muted_class %>">
+          validés par ActorProfile
+        </p>
       </div>
 
       <div class="<%= panel_class %>">
         <div class="<%= label_class %>">Whale-like</div>
-        <div class="mt-3 text-3xl font-bold text-purple-300"><%= number_with_delimiter(whale_like_count) %></div>
-        <p class="mt-2 <%= muted_class %>">source Whale Flow</p>
+        <div class="mt-3 text-3xl font-bold text-purple-300">
+          <%= number_with_delimiter(whale_like_count) %>
+        </div>
+        <p class="mt-2 <%= muted_class %>">
+          comportement accumulation
+        </p>
       </div>
 
       <div class="<%= panel_class %>">
         <div class="<%= label_class %>">ETF-like</div>
-        <div class="mt-3 text-3xl font-bold text-emerald-300"><%= number_with_delimiter(etf_like_count) %></div>
-        <p class="mt-2 <%= muted_class %>">source ETF Flow</p>
+        <div class="mt-3 text-3xl font-bold text-emerald-300">
+          <%= number_with_delimiter(etf_like_count) %>
+        </div>
+        <p class="mt-2 <%= muted_class %>">
+          institutionnels détectés
+        </p>
       </div>
 
       <div class="<%= panel_class %>">
         <div class="<%= label_class %>">Service-like</div>
-        <div class="mt-3 text-3xl font-bold text-cyan-300"><%= number_with_delimiter(service_like_count) %></div>
-        <p class="mt-2 <%= muted_class %>">acteurs techniques</p>
+        <div class="mt-3 text-3xl font-bold text-cyan-300">
+          <%= number_with_delimiter(service_like_count) %>
+        </div>
+        <p class="mt-2 <%= muted_class %>">
+          acteurs techniques
+        </p>
       </div>
 
       <div class="<%= panel_class %>">
         <div class="<%= label_class %>">Retail / Unknown</div>
-        <div class="mt-3 text-3xl font-bold text-gray-100"><%= number_with_delimiter(retail_like_count + unknown_count) %></div>
-        <p class="mt-2 <%= muted_class %>">retail: <%= number_with_delimiter(retail_like_count) %> · unknown: <%= number_with_delimiter(unknown_count) %></p>
+        <div class="mt-3 text-3xl font-bold text-gray-100">
+          <%= number_with_delimiter(retail_like_count + unknown_count) %>
+        </div>
+        <p class="mt-2 <%= muted_class %>">
+          retail: <%= number_with_delimiter(retail_like_count) %>
+          · unknown: <%= number_with_delimiter(unknown_count) %>
+        </p>
       </div>
     </div>
 
     <div class="mt-5 rounded-2xl border border-slate-800 bg-slate-950/40 p-4">
       <div class="<%= label_class %>">Diagnostic Actor Labels</div>
+
       <p class="mt-2 text-sm leading-relaxed text-slate-300">
         <% if total_labels.zero? %>
-          Aucun label économique n’est disponible. Les modules Layer 2 ne peuvent pas encore consommer d’acteurs.
-        <% elsif exchange_like_count.zero? && whale_like_count.zero? && etf_like_count.zero? %>
-          Les labels existent, mais aucun acteur exploitable pour les flows principaux n’est encore disponible.
+          Aucun label issu d’Actor Profiles n’est disponible.
+          Les modules Layer 2 ne doivent pas encore consommer cette source.
+        <% elsif exchange_like_count.zero? &&
+                whale_like_count.zero? &&
+                etf_like_count.zero? %>
+          Les Actor Profiles génèrent des labels,
+          mais aucun acteur exchange/whale/ETF n’est encore disponible.
         <% else %>
-          Actor Labels est opérationnel. Les modules Layer 2 consomment les classifications validées issues de Actor Profiles.
+          Actor Labels est opérationnel depuis la source
+          <span class="font-mono text-cyan-300">actor_profile</span>.
         <% end %>
       </p>
 
       <div class="mt-4 h-1.5 overflow-hidden rounded-full bg-white/10">
-        <div class="h-full rounded-full <%= coverage_pct >= 95 ? "bg-emerald-400" : coverage_pct >= 50 ? "bg-amber-400" : "bg-rose-400" %>" style="width: <%= [[coverage_pct, 0].max, 100].min %>%"></div>
+        <div
+          class="h-full rounded-full <%= coverage_pct >= 95 ? "bg-emerald-400" : coverage_pct >= 50 ? "bg-amber-400" : "bg-rose-400" %>"
+          style="width: <%= [[coverage_pct, 0].max, 100].min %>%">
+        </div>
       </div>
 
       <div class="mt-2 flex items-center justify-between text-xs text-gray-500">
         <span>Distribution coverage</span>
-        <span class="font-mono text-gray-300"><%= coverage_pct %>%</span>
+        <span class="font-mono text-gray-300">
+          <%= coverage_pct %>%
+        </span>
       </div>
     </div>
 
     <div class="mt-5 flex flex-col gap-3 border-t border-white/10 pt-4 sm:flex-row sm:items-center sm:justify-between">
       <p class="text-xs text-gray-500">
-        Last update:
-        <span class="font-mono text-gray-300"><%= last_updated_at || "—" %></span>
-        · Displayed: <span class="font-mono text-gray-300"><%= number_with_delimiter(displayed_labels) %></span>
+        Source:
+        <span class="font-mono text-cyan-300">
+          <%= actor_labels[:source] || "actor_profile" %>
+        </span>
+
+        · Last update:
+        <span class="font-mono text-gray-300">
+          <%= safe_time(last_updated_at) %>
+        </span>
+
+        · Displayed:
+        <span class="font-mono text-gray-300">
+          <%= number_with_delimiter(displayed_labels) %>
+        </span>
       </p>
 
-      <%= link_to "Open Actor Labels", actor_labels_path,
+      <%= link_to "Open Actor Labels",
+        actor_labels_path,
         class: "inline-flex items-center rounded-xl border border-blue-500/20 bg-blue-500/10 px-3 py-2 text-xs font-semibold text-blue-300 hover:bg-blue-500/15 transition" %>
     </div>
   </section>

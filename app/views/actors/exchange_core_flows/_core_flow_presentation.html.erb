@@ -57,8 +57,18 @@
       </h2>
 
       <p class="mt-2 text-sm leading-relaxed text-gray-400">
-        Historique des flux exchange-like calculés depuis les événements <code>ExchangeCoreFlowEvent</code>.
-        Cette section n’est pas rafraîchie en temps réel : elle se met à jour au rechargement de la page ou au changement de fenêtre 7j / 30j.
+        Historique des flux calculés uniquement depuis les acteurs
+        <code>exchange_like</code> validés par Actor Profiles.
+
+        Les événements proviennent de
+        <code>ExchangeCoreFlowEvent</code>
+        avec la source
+        <code>actor_profile_exchange_like</code>.
+
+        Cette section reflète la nouvelle architecture incrémentale :
+        Layer 1 → Actor Profiles → Actor Labels → Exchange Core Flow.
+
+        La couverture reste partielle pendant la phase de développement et de backfill historique.
         Positif = dépôts nets vers exchanges. Négatif = retraits nets.
       </p>
     </div>
@@ -84,6 +94,9 @@
 
         <p class="mt-1 text-xs text-gray-500">
           <%= measured %>/<%= tf_days_i %> jours mesurés · + dépôts nets · − retraits nets
+        </p>
+        <p class="mt-1 text-[11px] text-gray-600">
+          source=actor_profile_exchange_like
         </p>
       </div>
     </div>

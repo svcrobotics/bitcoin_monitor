@@ -3,7 +3,7 @@
     <%= turbo_stream_from "exchange_core_flows_live" %>
 
     <%= render "actors/exchange_core_flows/live",
-      today: Dashboard::ExchangeCoreNetflowToday.call %>
+      today: @today_flow %>
 
     <%= render "actors/exchange_core_flows/core_flow_presentation" %>
   </div>

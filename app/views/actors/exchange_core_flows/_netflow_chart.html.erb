@@ -6,7 +6,7 @@
       [day.strftime("%Y-%m-%d"), value.to_d.to_f]
     end
 
-  measured = points.count { |_day, value| value.present? }
+   measured = Array(@flows).count { |row| row[:events_count].to_i.positive? }
 %>
 
 <div class="rounded-2xl border border-slate-800 bg-slate-950/30 p-5">
@@ -18,6 +18,10 @@
 
       <p class="mt-1 text-xs text-slate-500">
         <%= measured %>/<%= days %> jours mesurés · positif = pression vendeuse · négatif = accumulation
+      </p>
+
+      <p class="mt-1 text-[11px] text-slate-600">
+        source=<code>actor_profile_exchange_like</code> · acteurs <code>exchange_like</code> validés par Actor Profiles
       </p>
     </div>
   </div>

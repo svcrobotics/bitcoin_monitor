@@ -2,29 +2,36 @@
 
 module Actors
   class DetectExchangeCoreFlowsForBlock
+    SOURCE = "actor_profile_exchange_like"
+
     def self.call(block_height:)
       new(block_height: block_height).call
     end
 
     def initialize(block_height:)
-      @block_height = block_height
+      @block_height = block_height.to_i
       @created = 0
       @skipped = 0
     end
 
     def call
-      core_addresses = Actors::ExchangeFlowCoreAddressesQuery.call.pluck(:address)
+      cluster_ids = exchange_cluster_ids
+      return empty_result("no_exchange_like_clusters") if cluster_ids.empty?
 
-      return empty_result if core_addresses.empty?
+      address_map = exchange_address_map(cluster_ids)
+      return empty_result("no_exchange_like_addresses") if address_map.empty?
 
-      detect_inflows(core_addresses)
-      detect_outflows(core_addresses)
+      detect_inflows(address_map)
+      detect_outflows(address_map)
 
       broadcast_live! if @created.positive?
 
       {
         ok: true,
         block_height: @block_height,
+        source: SOURCE,
+        exchange_like_clusters: cluster_ids.size,
+        exchange_like_addresses: address_map.size,
         created: @created,
         skipped: @skipped
       }
@@ -32,9 +39,22 @@ module Actors
 
     private
 
-    def detect_inflows(core_addresses)
+    def exchange_cluster_ids
+      ActorLabel
+        .where(source: "actor_profile", label: "exchange_like")
+        .pluck(:cluster_id)
+    end
+
+    def exchange_address_map(cluster_ids)
+      Address
+        .where(cluster_id: cluster_ids)
+        .pluck(:address, :cluster_id)
+        .to_h
+    end
+
+    def detect_inflows(address_map)
       TxOutput
-        .where(block_height: @block_height, address: core_addresses)
+        .where(block_height: @block_height, address: address_map.keys)
         .where.not(amount_btc: nil)
         .find_each do |output|
 
@@ -43,14 +63,14 @@ module Actors
           txid: output.txid,
           address: output.address,
           amount_btc: output.amount_btc,
-          cluster_id: output.try(:cluster_id)
+          cluster_id: address_map[output.address]
         )
       end
     end
 
-    def detect_outflows(core_addresses)
+    def detect_outflows(address_map)
       TxOutput
-        .where(spent_block_height: @block_height, address: core_addresses)
+        .where(spent_block_height: @block_height, address: address_map.keys)
         .where.not(amount_btc: nil)
         .find_each do |output|
 
@@ -59,12 +79,15 @@ module Actors
           txid: output.spent_txid,
           address: output.address,
           amount_btc: output.amount_btc,
-          cluster_id: output.try(:cluster_id)
+          cluster_id: address_map[output.address]
         )
       end
     end
 
     def create_event!(direction:, txid:, address:, amount_btc:, cluster_id:)
+      return if txid.blank?
+      return if cluster_id.blank?
+
       event = ExchangeCoreFlowEvent.find_or_initialize_by(
         txid: txid,
         address: address,
@@ -77,7 +100,7 @@ module Actors
       event.cluster_id = cluster_id
       event.amount_btc = amount_btc
       event.event_time = Time.current
-      event.source = "actor_graph_realtime"
+      event.source = SOURCE
 
       event.save!
 
@@ -102,13 +125,14 @@ module Actors
       )
     end
 
-    def empty_result
+    def empty_result(reason)
       {
         ok: true,
         block_height: @block_height,
+        source: SOURCE,
         created: 0,
         skipped: 0,
-        reason: "no_core_addresses"
+        reason: reason
       }
     end
   end

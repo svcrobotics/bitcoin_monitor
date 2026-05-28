@@ -14,7 +14,9 @@ class SystemController < ApplicationController
         events: estimated_count(Event),
         edges: estimated_count(Edge)
       }
-    @actor_profiles_runtime = System::ActorProfilesRuntimeSnapshotBuilder.call
+    end
+    @actor_profiles_runtime = measure("actor_profiles_runtime") do
+      System::ActorProfilesRuntimeSnapshotBuilder.call
     end
 
     @realtime = measure("realtime_snapshot") { System::RealtimeSnapshotBuilder.call }
@@ -52,6 +54,7 @@ class SystemController < ApplicationController
       payload = SystemSnapshot.latest("tables_health")&.payload || {}
       payload.deep_symbolize_keys
     end
+
     @cluster_realtime = measure("cluster_realtime_pipeline") { System::ClusterRealtimePipelineStatus.call }
 
     @recent_blocks = measure("recent_blocks") do
@@ -64,8 +67,22 @@ class SystemController < ApplicationController
     @actor_intelligence = measure("actor_intelligence") do
       System::ActorIntelligenceSnapshotBuilder.call
     end
-    @actor_labels_status = System::ActorLabelsStatus.call
+    
+    @actor_labels_status = measure("actor_labels_status") do
+      actor_profile_labels = ActorLabel.where(source: "actor_profile")
 
+      {
+        total: actor_profile_labels.count,
+        exchange_like: actor_profile_labels.where(label: "exchange_like").count,
+        whale_like: actor_profile_labels.where(label: "whale_like").count,
+        etf_like: actor_profile_labels.where(label: "etf_like").count,
+        service_like: actor_profile_labels.where(label: "service_like").count,
+        retail_like: actor_profile_labels.where(label: "retail_like").count,
+        unknown: actor_profile_labels.where(label: "unknown").count,
+        last_updated_at: actor_profile_labels.maximum(:updated_at),
+        source: "actor_profile"
+      }
+    end
   end
 
   def normalize_system_status(value)
@@ -679,9 +696,3 @@ class SystemController < ApplicationController
   end
 
 end
-
-
-
-
-
-
