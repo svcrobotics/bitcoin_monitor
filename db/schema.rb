@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_05_29_210916) do
+ActiveRecord::Schema[8.0].define(version: 2026_05_29_215642) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -324,6 +324,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_29_210916) do
     t.string "source", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["market", "timeframe", "open_time"], name: "index_btc_candles_dashboard_lookup", order: { open_time: :desc }
     t.index ["market", "timeframe", "open_time"], name: "index_btc_candles_on_market_and_timeframe_and_open_time", unique: true
     t.index ["market", "timeframe"], name: "index_btc_candles_on_market_and_timeframe"
     t.index ["open_time"], name: "index_btc_candles_on_open_time"
