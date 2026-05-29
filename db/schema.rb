@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_05_26_204704) do
+ActiveRecord::Schema[8.0].define(version: 2026_05_29_210916) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
 
@@ -398,6 +398,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_26_204704) do
     t.datetime "updated_at", null: false
     t.text "traits"
     t.index ["cluster_id"], name: "index_cluster_profiles_on_cluster_id", unique: true
+    t.index ["updated_at"], name: "index_cluster_profiles_on_updated_at"
   end
 
   create_table "cluster_signals", force: :cascade do |t|
@@ -651,6 +652,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_26_204704) do
     t.index ["spent_by_txid"], name: "index_exchange_observed_utxos_on_spent_by_txid"
     t.index ["spent_day"], name: "index_exchange_observed_utxos_on_spent_day"
     t.index ["txid", "vout"], name: "index_exchange_observed_utxos_on_txid_and_vout", unique: true
+    t.index ["updated_at"], name: "index_exchange_observed_utxos_on_updated_at"
   end
 
   create_table "exchange_outflow_breakdowns", force: :cascade do |t|
@@ -1179,6 +1181,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_26_204704) do
     t.index ["alert_type"], name: "index_whale_alerts_on_alert_type"
     t.index ["block_height"], name: "index_whale_alerts_on_block_height"
     t.index ["block_time"], name: "index_whale_alerts_on_block_time"
+    t.index ["created_at"], name: "index_whale_alerts_on_created_at"
     t.index ["score"], name: "index_whale_alerts_on_score"
     t.index ["tier"], name: "index_whale_alerts_on_tier"
     t.index ["txid"], name: "index_whale_alerts_on_txid", unique: true
