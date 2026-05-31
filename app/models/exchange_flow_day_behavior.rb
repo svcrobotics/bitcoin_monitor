@@ -1,2 +1,0 @@
-class ExchangeFlowDayBehavior < ApplicationRecord
-end

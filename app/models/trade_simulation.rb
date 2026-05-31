@@ -48,7 +48,16 @@ class TradeSimulation < ApplicationRecord
     # ✅ ne rien faire si EUR non fourni
     return if buy_amount_eur.blank? || buy_day.blank?
 
-    row = BtcPriceDay.find_by(day: buy_day)
+    close_eur =
+      Rails.cache.fetch("btc_price_days:close_eur:#{buy_day}", expires_in: 10.minutes) do
+        BtcPriceDay.where(day: buy_day).pick(:close_eur)
+      end
+
+    return if close_eur.blank?
+
+    eur   = BigDecimal(buy_amount_eur.to_s)
+    price = BigDecimal(close_eur.to_s)
+    
     return if row.nil? || row.close_eur.blank?
 
     eur   = BigDecimal(buy_amount_eur.to_s)

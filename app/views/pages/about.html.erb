@@ -1,73 +1,178 @@
-<% content_for :title, t("about.title") %>
+<% content_for :title, "À propos de Tansa" %>
 
-<div class="max-w-4xl mx-auto px-6 py-16">
+<div class="relative overflow-hidden">
 
-  <!-- HERO -->
-  <section class="text-center space-y-6">
-    <h1 class="text-4xl sm:text-5xl font-semibold text-gray-100">
-      <%= t("about.hero.headline") %>
-    </h1>
+  <!-- Background -->
 
-    <p class="text-lg text-gray-300 max-w-2xl mx-auto leading-relaxed">
-      <%= t("about.hero.subtitle") %>
+  <div class="pointer-events-none absolute inset-0" aria-hidden="true">
+    <div class="absolute left-1/2 top-20 h-96 w-96 -translate-x-1/2 rounded-full bg-cyan-500/10 blur-3xl"></div>
+    <div class="absolute right-10 top-80 h-72 w-72 rounded-full bg-blue-500/10 blur-3xl"></div>
+    <div class="absolute left-10 bottom-20 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl"></div>
+  </div>
+
+  <div class="relative z-10 mx-auto max-w-5xl px-6 py-20">
+
+
+<!-- HERO -->
+<section class="text-center">
+  <div class="inline-flex items-center rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-2 text-xs font-medium text-cyan-200">
+    探査 — Tansa
+  </div>
+
+  <h1 class="mt-8 text-5xl font-semibold tracking-tight text-white sm:text-6xl">
+    Intelligence Bitcoin
+  </h1>
+
+  <p class="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-400">
+    Une intelligence conçue pour comprendre, expliquer et rendre accessibles
+    les données de la blockchain Bitcoin.
+  </p>
+</section>
+
+<!-- WHAT IS TANSA -->
+<section class="mt-28">
+  <div class="rounded-3xl border border-white/10 bg-white/[0.02] p-8 backdrop-blur-xl">
+    <h2 class="text-2xl font-semibold text-white">
+      Qu'est-ce que Tansa ?
+    </h2>
+
+    <div class="mt-6 space-y-5 text-slate-300 leading-8">
+      <p>
+        Tansa signifie exploration. Notre objectif est de transformer la
+        complexité de Bitcoin en réponses claires, argumentées et compréhensibles.
+      </p>
+
+      <p>
+        Nous pensons que les utilisateurs ne devraient pas avoir à parcourir
+        des dizaines de graphiques, de tableaux et de métriques pour comprendre
+        ce qui se passe sur le marché.
+      </p>
+
+      <p>
+        Tansa permet de poser directement une question et d'obtenir une réponse
+        construite à partir des données on-chain, accompagnée des preuves qui
+        justifient cette conclusion.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- KNOWLEDGE ENGINE -->
+<section class="mt-20">
+  <div class="rounded-3xl border border-white/10 bg-white/[0.02] p-8 backdrop-blur-xl">
+    <h2 class="text-2xl font-semibold text-white">
+      Une base de connaissance construite sur Bitcoin
+    </h2>
+
+    <p class="mt-6 text-slate-300 leading-8">
+      Chaque réponse produite par Tansa repose sur une chaîne de traitement
+      conçue pour transformer les données brutes de la blockchain en
+      connaissances exploitables.
     </p>
-  </section>
 
-  <!-- MISSION -->
-  <section class="mt-20 space-y-6 text-gray-300 leading-relaxed">
-    <h2 class="text-xl font-semibold text-gray-100">
-      <%= t("about.mission.title") %>
-    </h2>
+    <div class="mt-8 grid gap-4 md:grid-cols-2">
 
-    <p><%= t("about.mission.p1") %></p>
-    <p><%= t("about.mission.p2") %></p>
-    <p class="text-gray-400"><%= t("about.mission.p3") %></p>
-  </section>
+      <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div class="text-sm font-medium text-cyan-300">Layer 1</div>
+        <div class="mt-2 text-slate-300">
+          Collecte canonique des blocs, transactions et UTXO Bitcoin.
+        </div>
+      </div>
 
-  <!-- DATA -->
-  <section class="mt-20 space-y-6 text-gray-300 leading-relaxed">
-    <h2 class="text-xl font-semibold text-gray-100">
-      <%= t("about.data.title") %>
-    </h2>
+      <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div class="text-sm font-medium text-cyan-300">Clusters</div>
+        <div class="mt-2 text-slate-300">
+          Construction du graphe d'adresses et regroupement des acteurs.
+        </div>
+      </div>
 
-    <p><%= t("about.data.p1") %></p>
+      <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div class="text-sm font-medium text-cyan-300">Actor Profiles</div>
+        <div class="mt-2 text-slate-300">
+          Identification probabiliste des comportements observés.
+        </div>
+      </div>
 
-    <ul class="list-disc pl-6 space-y-2">
-      <li><%= t("about.data.bullets.b1") %></li>
-      <li><%= t("about.data.bullets.b2") %></li>
-      <li><%= t("about.data.bullets.b3") %></li>
-      <li><%= t("about.data.bullets.b4") %></li>
-    </ul>
+      <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+        <div class="text-sm font-medium text-cyan-300">Actor Labels</div>
+        <div class="mt-2 text-slate-300">
+          Classification exchange-like, whale-like et autres catégories d'acteurs.
+        </div>
+      </div>
 
-    <p class="text-gray-400"><%= t("about.data.p2") %></p>
-  </section>
+    </div>
 
-  <!-- AI -->
-  <section class="mt-20 space-y-6 text-gray-300 leading-relaxed">
-    <h2 class="text-xl font-semibold text-gray-100">
-      <%= t("about.technology.title") %>
-    </h2>
-
-    <p><%= t("about.technology.p1") %></p>
-    <p><%= t("about.technology.p2") %></p>
-    <p class="text-gray-400"><%= t("about.technology.p3") %></p>
-  </section>
-
-  <!-- VISION -->
-  <section class="mt-20 space-y-6 text-gray-300 leading-relaxed">
-    <h2 class="text-xl font-semibold text-gray-100">
-      <%= t("about.vision.title") %>
-    </h2>
-
-    <p><%= t("about.vision.p1") %></p>
-    <p><%= t("about.vision.p2") %></p>
-  </section>
-
-  <!-- DISCLAIMER -->
-  <section class="mt-28 text-center space-y-4">
-    <p class="text-sm text-gray-400 max-w-2xl mx-auto">
-      <%= t("about.disclaimer") %>
+    <p class="mt-8 text-slate-400 leading-8">
+      Cette architecture permet de transformer des millions de transactions
+      en signaux compréhensibles et exploitables.
     </p>
-  </section>
+  </div>
+</section>
 
+<!-- INTELLIGENCE -->
+<section class="mt-20">
+  <div class="rounded-3xl border border-cyan-500/20 bg-cyan-500/[0.03] p-8">
+    <h2 class="text-2xl font-semibold text-white">
+      L'intelligence comme interface
+    </h2>
+
+    <div class="mt-6 space-y-5 text-slate-300 leading-8">
+      <p>
+        Nous pensons que l'avenir des logiciels analytiques ne consiste plus
+        à naviguer entre des dizaines de tableaux de bord.
+      </p>
+
+      <p>
+        L'utilisateur doit pouvoir dialoguer directement avec une intelligence
+        capable de comprendre les données, d'expliquer ses conclusions et de
+        présenter les preuves pertinentes au bon moment.
+      </p>
+
+      <p>
+        Dans Tansa, les graphiques, les métriques et les analyses existent
+        toujours, mais ils apparaissent lorsqu'ils sont utiles à la compréhension,
+        et non comme point d'entrée de l'expérience.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- VISION -->
+<section class="mt-20">
+  <div class="rounded-3xl border border-emerald-500/20 bg-emerald-500/[0.03] p-8">
+    <h2 class="text-2xl font-semibold text-white">
+      Notre vision
+    </h2>
+
+    <div class="mt-6 space-y-5 text-slate-300 leading-8">
+      <p>
+        Construire une intelligence Bitcoin capable d'expliquer ce qui se passe
+        réellement sur le réseau : accumulation, distribution, pression vendeuse,
+        activité des whales, flux vers les exchanges et comportements des acteurs.
+      </p>
+
+      <p>
+        Notre ambition est de permettre à chacun de comprendre Bitcoin sans avoir
+        besoin d'être analyste blockchain.
+      </p>
+
+      <p class="text-white font-medium">
+        Les données sont le moteur.
+        Les réponses, les explications et les rapports constituent l'expérience.
+      </p>
+    </div>
+  </div>
+</section>
+
+<!-- DISCLAIMER -->
+<section class="mt-24 text-center">
+  <p class="mx-auto max-w-3xl text-sm leading-7 text-slate-500">
+    Les informations fournies par Tansa sont destinées à l'information et à
+    l'éducation. Elles ne constituent pas un conseil en investissement.
+    Les actifs numériques sont volatils et comportent des risques.
+  </p>
+</section>
+
+
+  </div>
 </div>

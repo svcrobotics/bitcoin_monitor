@@ -135,4 +135,6 @@ Rails.application.routes.draw do
   namespace :actors do
     resources :whale_core_flows, only: [:index]
   end
+
+  post "ai/dashboard_answer", to: "ai/dashboard_answers#create", as: :ai_dashboard_answer
 end

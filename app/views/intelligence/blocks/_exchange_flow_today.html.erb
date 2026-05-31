@@ -1,0 +1,51 @@
+<% today = local_assigns.fetch(:today) %>
+
+<section class="rounded-2xl border border-white/10 bg-white/[0.03] p-5">
+  <div class="mb-4 flex items-center justify-between">
+    <div>
+      <div class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+        Preuve · Exchange Flow
+      </div>
+
+      <h3 class="mt-1 text-lg font-semibold text-white">
+        Flux exchange-like aujourd’hui
+      </h3>
+    </div>
+
+    <div class="rounded-full border border-cyan-400/20 bg-cyan-400/10 px-3 py-1 text-xs text-cyan-200">
+      <%= today[:signal] || today.dig(:dominant_signal, :signal) || "Signal" %>
+    </div>
+  </div>
+
+  <div class="grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+      <div class="text-xs text-slate-500">Inflow</div>
+      <div class="mt-1 font-mono text-lg text-slate-100">
+        <%= number_with_precision(today[:inflow_btc], precision: 2, delimiter: " ") %> BTC
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+      <div class="text-xs text-slate-500">Outflow</div>
+      <div class="mt-1 font-mono text-lg text-slate-100">
+        <%= number_with_precision(today[:outflow_btc], precision: 2, delimiter: " ") %> BTC
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+      <div class="text-xs text-slate-500">Netflow</div>
+      <div class="mt-1 font-mono text-lg text-amber-300">
+        <%= number_with_precision(today[:netflow_btc], precision: 2, delimiter: " ") %> BTC
+      </div>
+    </div>
+  </div>
+
+  <% if today[:events_count] %>
+    <div class="mt-4 text-xs text-slate-500">
+      Événements analysés :
+      <span class="font-mono text-slate-300">
+        <%= number_with_delimiter(today[:events_count]) %>
+      </span>
+    </div>
+  <% end %>
+</section>

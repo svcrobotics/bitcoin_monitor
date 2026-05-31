@@ -27,35 +27,79 @@ class TradeSimulationCurveBuilder
     to = [logical_to, last_price_day].min
     return if from > to
 
-    # ✅ EUR (au lieu de close_usd)
-    days = BtcPriceDay.where(day: from..to).order(:day).pluck(:day, :close_eur)
+    price_rows =
+      BtcPriceDay
+        .where(day: from..to)
+        .order(:day)
+        .pluck(:day, :close_eur)
+        .select { |_day, close_eur| close_eur.present? }
 
-    days.each do |day, close_eur|
-      next if close_eur.nil? # si pas encore backfill
+    return if price_rows.empty?
 
-      temp = @sim.dup
-      temp.sell_day = day
+    buy_price = close_eur_for!(from)
+    btc = dec!(@sim.btc_amount, "btc_amount manquant")
+    slippage_pct = dec0(@sim.slippage_pct)
 
-      r = TradeSimulator.call(temp) # ton TradeSimulator doit utiliser close_eur_for!
+    buy_gross = btc * buy_price
+    buy_fees =
+      pct(buy_gross, dec0(@sim.buy_fee_pct)) +
+      dec0(@sim.buy_fee_fixed_eur) +
+      pct(buy_gross, slippage_pct)
 
-      TradeSimulationPoint.upsert(
+    buy_total = buy_gross + buy_fees
+    now = Time.current
+
+    rows =
+      price_rows.map do |day, close_eur|
+        sell_price = BigDecimal(close_eur.to_s)
+        sell_gross = btc * sell_price
+        sell_fees =
+          pct(sell_gross, dec0(@sim.sell_fee_pct)) +
+          dec0(@sim.sell_fee_fixed_eur) +
+          pct(sell_gross, slippage_pct)
+
+        sell_net = sell_gross - sell_fees
+        pnl = sell_net - buy_total
+        pnl_pct = buy_total.zero? ? 0.to_d : (pnl / buy_total) * 100
+
         {
           trade_simulation_id: @sim.id,
           day: day,
-
-          # ⚠️ colonnes nommées *_usd, mais contiennent des EUR
           price_usd: close_eur,
-          net_usd: r.sell_net,
-          pnl_usd: r.pnl,
-          pnl_pct: r.pnl_pct,
+          net_usd: sell_net,
+          pnl_usd: pnl,
+          pnl_pct: pnl_pct,
+          created_at: now,
+          updated_at: now
+        }
+      end
 
-          created_at: Time.current,
-          updated_at: Time.current
-        },
-        unique_by: %i[trade_simulation_id day]
-      )
-    rescue TradeSimulator::PriceMissing
-      next
-    end
+    TradeSimulationPoint.upsert_all(
+      rows,
+      unique_by: %i[trade_simulation_id day]
+    )
+  end
+
+  private
+
+  def close_eur_for!(day)
+    close_eur = BtcPriceDay.where(day: day).pick(:close_eur)
+    raise TradeSimulator::PriceMissing, "Prix BTC manquant pour #{day}" if close_eur.blank?
+
+    BigDecimal(close_eur.to_s)
+  end
+
+  def dec0(x)
+    x.present? ? BigDecimal(x.to_s) : 0.to_d
+  end
+
+  def dec!(x, msg)
+    raise TradeSimulator::PriceMissing, msg if x.blank?
+
+    BigDecimal(x.to_s)
+  end
+
+  def pct(amount, pct_value)
+    amount * (pct_value / 100)
   end
 end

@@ -1,0 +1,62 @@
+<%= turbo_frame_tag "dashboard_answer" do %>
+  <% today = context[:today] || {} %>
+
+  <div class="rounded-3xl border border-cyan-400/20 bg-cyan-950/20 p-6 shadow-xl shadow-black/20">
+    <div class="mb-5 flex items-start justify-between">
+      <div>
+        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+          Tansa Intelligence
+        </div>
+
+        <% if today[:updated_at] %>
+          <div class="mt-2 text-xs text-slate-500">
+            Données observées jusqu'au
+            <span class="font-mono text-slate-400">
+              <%= l(today[:updated_at], format: :long) %>
+            </span>
+          </div>
+        <% end %>
+
+        <div class="mt-4 flex flex-wrap gap-2 text-xs">
+          <div class="rounded-full border border-white/10 px-3 py-1 text-slate-400">
+            Source : <%= context[:source] || "actor_profile_exchange_like" %>
+          </div>
+
+          <% if today[:events_count] %>
+            <div class="rounded-full border border-white/10 px-3 py-1 text-slate-400">
+              <%= number_with_delimiter(today[:events_count]) %> événements
+            </div>
+          <% end %>
+
+          <% if today[:updated_at] %>
+            <div class="rounded-full border border-white/10 px-3 py-1 text-slate-400">
+              Mis à jour : <%= today[:updated_at].strftime("%H:%M:%S") %>
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </div>
+
+    <div class="whitespace-pre-line text-sm leading-7 text-slate-200">
+      <%= answer %>
+    </div>
+  </div>
+
+  <div class="mt-6 space-y-4">
+    <% if context[:today] %>
+      <%= render(
+        "intelligence/blocks/exchange_flow_today",
+        today: context[:today].merge(
+          signal: context.dig(:dominant_signal, :signal)
+        )
+      ) %>
+    <% end %>
+
+    <% if context[:history_7d].present? %>
+      <%= render(
+        "intelligence/blocks/exchange_flow_history",
+        history: context[:history_7d]
+      ) %>
+    <% end %>
+  </div>
+<% end %>

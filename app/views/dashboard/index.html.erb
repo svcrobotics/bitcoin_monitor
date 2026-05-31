@@ -1,125 +1,108 @@
 <div class="relative min-h-[calc(100vh-7rem)] overflow-hidden">
-  <!-- Background glow -->
-  <div class="pointer-events-none absolute inset-0 flex items-center justify-center" aria-hidden="true">
-    <span class="absolute h-72 w-72 -translate-x-56 -translate-y-24 rounded-full bg-cyan-500/10 blur-3xl"></span>
-    <span class="absolute h-96 w-96 translate-x-40 -translate-y-10 rounded-full bg-blue-500/10 blur-3xl"></span>
-    <span class="absolute h-72 w-72 translate-y-28 rounded-full bg-emerald-500/10 blur-3xl"></span>
-    <span class="absolute h-40 w-[42rem] rounded-full bg-white/[0.035] blur-3xl"></span>
+  <!-- Background -->
+  <div class="pointer-events-none absolute inset-0">
+    <div class="absolute left-1/2 top-24 h-96 w-96 -translate-x-1/2 rounded-full bg-cyan-500/10 blur-3xl"></div>
+    <div class="absolute right-20 top-40 h-72 w-72 rounded-full bg-blue-500/10 blur-3xl"></div>
+    <div class="absolute left-20 bottom-20 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl"></div>
   </div>
 
-  <div class="relative z-10 mx-auto flex min-h-[calc(100vh-7rem)] max-w-5xl flex-col items-center justify-center px-4 py-8">
-    <!-- Title -->
-    <div class="mb-8 text-center">
-      <div class="mb-4 inline-flex items-center rounded-full border border-cyan-400/20 bg-cyan-400/10 px-4 py-1.5 text-xs font-medium text-cyan-200">
-        探査 — Tansa · On-chain Intelligence
+  <div class="relative z-10 mx-auto flex min-h-[calc(100vh-7rem)] max-w-6xl flex-col px-4 py-10">
+
+    <!-- Hero -->
+    <div class="mx-auto max-w-4xl text-center">
+      <div class="inline-flex items-center rounded-full border border-cyan-500/20 bg-cyan-500/10 px-4 py-2 text-xs font-semibold tracking-wider text-cyan-200 uppercase">
+        探査 — Tansa
       </div>
 
-      <h1 class="text-3xl font-semibold tracking-tight text-white md:text-5xl">
-        Où va le Bitcoin aujourd’hui ?
+      <h1 class="mt-6 text-4xl font-bold tracking-tight text-white md:text-6xl">
+        Intelligence Bitcoin
       </h1>
 
-      <p class="mx-auto mt-4 max-w-2xl text-sm leading-6 text-slate-500 md:text-base">
-        Recherchez une adresse, explorez les modules on-chain ou posez une question
-        sur les whales, les exchanges, les flux BTC et les signaux du marché.
+      <p class="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-400">
+        Posez une question. Tansa analyse les données on-chain,
+        les acteurs du marché et l'état de la plateforme afin de
+        fournir une réponse claire, argumentée et traçable.
       </p>
     </div>
 
-    <!-- AI/Search box -->
-    <div class="w-full max-w-4xl">
-      <div data-controller="search" class="relative">
-        <form action="<%= search_path %>" method="get" data-action="submit->search#submit">
-          <div class="group relative">
-            <div class="absolute -inset-0.5 rounded-[2rem] bg-gradient-to-r from-cyan-500/25 via-blue-500/20 to-emerald-500/20 opacity-70 blur transition group-focus-within:opacity-100"></div>
+    <!-- Question box -->
+    <div class="mx-auto mt-12 w-full max-w-5xl">
+      <%= form_with url: ai_dashboard_answer_path,
+                    method: :post,
+                    data: { turbo_frame: "dashboard_answer" } do %>
 
-            <div class="relative overflow-hidden rounded-[2rem] border border-white/[0.08] bg-[#101722]/90 shadow-2xl shadow-black/40 backdrop-blur-xl">
-              <div class="flex min-h-20 items-start gap-3 px-5 py-4">
-                <div class="mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-cyan-500/10 text-cyan-300 ring-1 ring-cyan-400/20">
-                  <svg class="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                    <path d="M7.4 12.8a1.04 1.04 0 0 0 1.59-.51l.45-1.37a2.34 2.34 0 0 1 1.47-1.48l1.4-.45A1.04 1.04 0 0 0 12.25 7l-1.37-.45A2.34 2.34 0 0 1 9.4 5.08L8.95 3.7a1.03 1.03 0 0 0-1.97.02l-.46 1.4a2.34 2.34 0 0 1-1.44 1.45L3.7 7a1.04 1.04 0 0 0 .02 1.97l1.37.45a2.33 2.33 0 0 1 1.48 1.48l.46 1.4c.07.2.2.37.38.5Z" />
-                  </svg>
-                </div>
-
-                <textarea
-                  name="q"
-                  rows="1"
-                  autocomplete="off"
-                  placeholder="Demander à Bitcoin Monitor…"
-                  data-search-target="input"
-                  data-action="input->search#search"
-                  class="min-h-10 flex-1 resize-none bg-transparent pt-2 text-[15px] font-medium leading-6 text-white outline-none placeholder:text-slate-500"
-                ></textarea>
-
-                <div class="hidden items-center gap-2 md:flex">
-                  <kbd class="rounded-lg border border-white/10 bg-white/[0.04] px-2 py-1 text-[11px] text-slate-500">⌘ E</kbd>
-
-                  <button
-                    type="submit"
-                    class="flex h-9 w-9 items-center justify-center rounded-xl bg-cyan-400 text-slate-950 transition hover:bg-cyan-300"
-                    aria-label="Rechercher"
-                  >
-                    <svg class="h-4 w-4 rotate-90" viewBox="0 0 20 20" fill="currentColor">
-                      <path d="M3.2 8.73a.75.75 0 1 0 1.1 1.04l4.95-5.24v12.72a.75.75 0 0 0 1.5 0V4.52l4.95 5.25a.75.75 0 1 0 1.1-1.04l-6.08-6.41a1 1 0 0 0-1.45 0L3.2 8.73Z" />
-                    </svg>
-                  </button>
-                </div>
-              </div>
-
-              <div class="flex items-center justify-between border-t border-white/[0.06] px-5 py-3">
-                <div class="flex items-center gap-2">
-                  <button type="button" class="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-slate-300">
-                    Rapide
-                  </button>
-
-                  <button type="button" class="rounded-xl border border-white/10 bg-white/[0.04] px-3 py-1.5 text-xs font-medium text-slate-400">
-                    On-chain
-                  </button>
-                </div>
-
-                <div class="text-xs text-slate-600">
-                  Search · Questions · Actors · Exchange Flows · Whale Activity
-                </div>
-              </div>
-            </div>
+        <div class="overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 backdrop-blur-xl">
+          <div class="px-6 py-5">
+            <textarea
+              name="q"
+              rows="2"
+              autocomplete="off"
+              placeholder="Pourquoi le Bitcoin baisse-t-il aujourd'hui ?"
+              class="w-full resize-none bg-transparent text-lg text-white outline-none placeholder:text-slate-500"
+            ></textarea>
           </div>
-        </form>
 
-        <div data-search-target="results" class="absolute left-0 right-0 z-50 mt-3"></div>
-      </div>
-    </div>
+          <div class="flex items-center justify-between border-t border-white/5 px-6 py-4">
+            <div class="flex flex-wrap gap-2">
 
-    <!-- Questions -->
-    <div
-      data-controller="dashboard-answer"
-      class="mt-6 grid w-full max-w-5xl grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
+              <button type="button"
+                class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">
+                Marché Bitcoin
+              </button>
 
-      <% @question_answers.each do |answer| %>
-        <button
-          type="button"
-          data-action="click->dashboard-answer#load"
-          data-dashboard-answer-url-param="<%= question_path(answer[:key]) %>"
-          class="rounded-2xl border border-white/[0.07] bg-white/[0.03] px-4 py-3 text-left text-sm text-slate-400 transition hover:border-cyan-400/25 hover:bg-cyan-500/10 hover:text-cyan-100">
-          <%= answer[:question] %>
-        </button>
+              <button type="button"
+                class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">
+                Whales
+              </button>
+
+              <button type="button"
+                class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">
+                Exchanges
+              </button>
+
+              <button type="button"
+                class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">
+                État du système
+              </button>
+
+            </div>
+
+            <button
+              type="submit"
+              class="rounded-2xl bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+              Demander à Tansa
+            </button>
+          </div>
+        </div>
+
       <% end %>
     </div>
 
-    <!-- Réponse -->
-    <div class="mt-8 w-full max-w-5xl">
-      <%= turbo_frame_tag "dashboard_answer" do %>
-        
-      <% end %>
+    <!-- Suggested questions -->
+    <div class="mx-auto mt-8 flex max-w-5xl flex-wrap justify-center gap-3">
+
+      <button class="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-400">
+        Pourquoi le Bitcoin baisse-t-il aujourd'hui ?
+      </button>
+
+      <button class="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-400">
+        Les whales accumulent-elles ?
+      </button>
+
+      <button class="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-400">
+        Les ETF soutiennent-ils encore le marché ?
+      </button>
+
+      <button class="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-400">
+        Le système fonctionne-t-il correctement ?
+      </button>
+
     </div>
 
-    <% if @error %>
-      <div class="mt-6 w-full max-w-5xl rounded-2xl border border-red-700 bg-red-900/30 p-4">
-        <p class="mb-1 text-sm font-semibold text-red-200">
-          <%= t("dashboard.errors.rpc") %>
-        </p>
+    <!-- Answer -->
+    <div class="mx-auto mt-12 w-full max-w-6xl">
+      <%= turbo_frame_tag "dashboard_answer" %>
+    </div>
 
-        <p class="break-words text-sm text-red-300">
-          <%= @error %>
-        </p>
-      </div>
-    <% end %>
   </div>
 </div>

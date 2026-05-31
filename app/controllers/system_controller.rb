@@ -1,4 +1,6 @@
 # app/controllers/system_controller.rb
+# frozen_string_literal: true
+
 class SystemController < ApplicationController
   before_action :catch_up_btc_price_days_in_development, only: [:index]
 
@@ -15,15 +17,18 @@ class SystemController < ApplicationController
         edges: estimated_count(Edge)
       }
     end
+
     @actor_profiles_runtime = measure("actor_profiles_runtime") do
       System::ActorProfilesRuntimeSnapshotBuilder.call
     end
 
     @realtime = measure("realtime_snapshot") { System::RealtimeSnapshotBuilder.call }
+
     @cluster_pipeline_status = measure("cluster_pipeline_status_snapshot") do
       payload = SystemSnapshot.latest("cluster_pipeline_status")&.payload || {}
       payload.deep_symbolize_keys
     end
+
     @jobs = measure("jobs_recent") { JobRun.order(created_at: :desc).limit(20).to_a }
     @sidekiq_status = measure("sidekiq_status") { System::SidekiqStatus.call }
     @scanner_status = measure("scanner_status") { build_scanner_status }
@@ -58,16 +63,13 @@ class SystemController < ApplicationController
     @cluster_realtime = measure("cluster_realtime_pipeline") { System::ClusterRealtimePipelineStatus.call }
 
     @recent_blocks = measure("recent_blocks") do
-      BlockBufferModel
-        .order(height: :desc)
-        .limit(12)
-        .to_a
+      BlockBufferModel.order(height: :desc).limit(12).to_a
     end
 
     @actor_intelligence = measure("actor_intelligence") do
       System::ActorIntelligenceSnapshotBuilder.call
     end
-    
+
     @actor_labels_status = measure("actor_labels_status") do
       actor_profile_labels = ActorLabel.where(source: "actor_profile")
 
@@ -102,7 +104,7 @@ class SystemController < ApplicationController
 
   def recovery
     @actor_labels_status = System::ActorLabelsStatus.call
-    
+
     @blockchain_pipeline = measure("recovery.blockchain_pipeline") { System::BlockchainPipelineStatus.call }
     @recovery_state = measure("recovery.state") { System::RecoveryStateBuilder.call }
     @recovery_snapshot = measure("recovery.snapshot") { System::RecoverySnapshotBuilder.call }
@@ -122,6 +124,7 @@ class SystemController < ApplicationController
           edges: estimated_count(Edge)
         }
       end
+
     @queue_contents = System::SidekiqQueueContentsSnapshot.call
 
     @actor_labels_last_run =
@@ -159,7 +162,6 @@ class SystemController < ApplicationController
 
   def measure(label)
     started_at = Process.clock_gettime(Process::CLOCK_MONOTONIC)
-
     result = yield
 
     duration_ms =
@@ -186,11 +188,7 @@ class SystemController < ApplicationController
     minutes = total_seconds / 60
     seconds = total_seconds % 60
 
-    if minutes.positive?
-      "#{minutes}m #{seconds}s"
-    else
-      "#{seconds}s"
-    end
+    minutes.positive? ? "#{minutes}m #{seconds}s" : "#{seconds}s"
   end
 
   def fmt_seconds(value)
@@ -200,11 +198,7 @@ class SystemController < ApplicationController
     minutes = total_seconds / 60
     seconds = total_seconds % 60
 
-    if minutes.positive?
-      "#{minutes}m #{seconds}s"
-    else
-      "#{seconds}s"
-    end
+    minutes.positive? ? "#{minutes}m #{seconds}s" : "#{seconds}s"
   end
 
   def status_badge_class(status)
@@ -227,6 +221,7 @@ class SystemController < ApplicationController
   def build_scanner_status
     best_height = BitcoinRpc.new.getblockcount.to_i
     cluster_status = System::ClusterScanStatus.call
+
     exchange_cursor = ScannerCursor.find_by(name: "exchange_observed_scan")
     exchange_last_height = exchange_cursor&.last_blockheight
     exchange_lag = exchange_last_height ? (best_height - exchange_last_height) : nil
@@ -280,46 +275,75 @@ class SystemController < ApplicationController
   end
 
   def build_exchange_like_status
-    best_height = BitcoinRpc.new.getblockcount.to_i
+    source = "actor_profile_exchange_like"
 
-    builder_cursor = ScannerCursor.find_by(name: "exchange_address_builder")
-    scanner_cursor = ScannerCursor.find_by(name: "exchange_observed_scan")
+    best_height =
+      if defined?(BlockBufferModel)
+        BlockBufferModel.maximum(:height).to_i
+      else
+        BitcoinRpc.new.getblockcount.to_i
+      end
 
-    builder_last_height = builder_cursor&.last_blockheight
-    scanner_last_height = scanner_cursor&.last_blockheight
+    labels = ActorLabel.where(source: "actor_profile", label: "exchange_like")
+    cluster_ids = labels.pluck(:cluster_id)
 
-    builder_lag = builder_last_height ? (best_height - builder_last_height) : nil
-    scanner_lag = scanner_last_height ? (best_height - scanner_last_height) : nil
+    events = ExchangeCoreFlowEvent.where(source: source)
+
+    today_range = Time.current.beginning_of_day..Time.current
+    today_events = events.where(event_time: today_range)
+
+    inflow = today_events.where(direction: "inflow").sum(:amount_btc)
+    outflow = today_events.where(direction: "outflow").sum(:amount_btc)
+    netflow = inflow.to_d - outflow.to_d
+
+    last_height = events.maximum(:block_height)
+    lag = last_height.present? ? best_height - last_height.to_i : nil
+
+    addresses_total =
+      cluster_ids.empty? ? 0 : Address.where(cluster_id: cluster_ids).count
 
     {
+      source: source,
+      label_source: "actor_profile",
       best_height: best_height,
 
+      actors: labels.count,
+      clusters: cluster_ids.size,
+      addresses_total: addresses_total,
+
+      events_today: today_events.count,
+      inflow_btc: inflow,
+      outflow_btc: outflow,
+      netflow_btc: netflow,
+
+      last_height: last_height,
+      lag: lag,
+      status: exchange_profile_flow_status(labels.count, today_events.count, lag),
+
       builder: {
-        label: "Exchange address builder",
-        last_blockheight: builder_last_height,
-        last_blockhash: builder_cursor&.last_blockhash,
-        updated_at: builder_cursor&.updated_at,
-        lag: builder_lag,
-        status: cursor_health(builder_last_height, builder_lag, builder_cursor&.updated_at)
+        label: "ActorProfile exchange_like",
+        status: labels.exists? ? "ok" : "waiting",
+        last_blockheight: last_height,
+        lag: lag,
+        updated_at: labels.maximum(:updated_at)
       },
 
       scanner: {
-        label: "Exchange observed scan",
-        last_blockheight: scanner_last_height,
-        last_blockhash: scanner_cursor&.last_blockhash,
-        updated_at: scanner_cursor&.updated_at,
-        lag: scanner_lag,
-        status: cursor_health(scanner_last_height, scanner_lag, scanner_cursor&.updated_at)
+        label: "ExchangeCoreFlow actor_profile events",
+        status: today_events.exists? ? "running" : "waiting",
+        last_blockheight: last_height,
+        lag: lag,
+        updated_at: events.maximum(:updated_at)
       },
 
       metrics: {
-        addresses_total: estimated_count(ExchangeAddress),
-        addresses_operational: "—",
-        addresses_scannable: "—",
-        observed_total: estimated_count(ExchangeObservedUtxo),
+        addresses_total: addresses_total,
+        addresses_operational: "actor_profile",
+        addresses_scannable: "actor_profile",
+        observed_total: events.count,
         new_addresses_24h: "—",
-        seen_24h: "—",
-        spent_24h: "—"
+        seen_24h: today_events.where(direction: "inflow").count,
+        spent_24h: today_events.where(direction: "outflow").count
       }
     }
   rescue => e
@@ -328,15 +352,23 @@ class SystemController < ApplicationController
     }
   end
 
+  def exchange_profile_flow_status(actor_count, events_today, lag)
+    return "waiting" if actor_count.to_i.zero?
+    return "warning" if lag.present? && lag.to_i > 12
+    return "running" if events_today.to_i.positive?
+
+    "ok"
+  end
+
   def build_btc_status
     daily_last = BtcPriceDay.where.not(close_usd: nil).order(day: :desc).first
-    snapshot   = MarketSnapshot.latest_ok
+    snapshot = MarketSnapshot.latest_ok
 
     five_m_relation = BtcCandle.for_market("btcusd").for_timeframe("5m")
-    one_h_relation  = BtcCandle.for_market("btcusd").for_timeframe("1h")
+    one_h_relation = BtcCandle.for_market("btcusd").for_timeframe("1h")
 
     five_m_last = five_m_relation.recent_first.first
-    one_h_last  = one_h_relation.recent_first.first
+    one_h_last = one_h_relation.recent_first.first
 
     five_m_freshness = Btc::Health::CandlesFreshnessChecker.call(
       last_close_time: five_m_last&.close_time,
@@ -399,10 +431,7 @@ class SystemController < ApplicationController
 
     :fail
   end
-  
-  # =========================
-  # Services checks
-  # =========================
+
   def bitcoind_check
     rpc = BitcoinRpc.new
     info = rpc.get_blockchain_info
@@ -435,8 +464,8 @@ class SystemController < ApplicationController
   def disks_check
     {
       bitcoind: disk_usage(path: "/var/lib/bitcoind", warn_pct: 85, fail_pct: 95, label: "Disque blockchain"),
-      data:     disk_usage(path: "/mnt/data",         warn_pct: 85, fail_pct: 95, label: "Disque data"),
-      system:   disk_usage(path: "/",                 warn_pct: 80, fail_pct: 90, label: "Disque système")
+      data: disk_usage(path: "/mnt/data", warn_pct: 85, fail_pct: 95, label: "Disque data"),
+      system: disk_usage(path: "/", warn_pct: 80, fail_pct: 90, label: "Disque système")
     }
   end
 
@@ -445,8 +474,8 @@ class SystemController < ApplicationController
 
     stat = `df -P #{path} 2>/dev/null | tail -1`.to_s.split
     used_pct = stat[4].to_s.delete("%").to_i rescue nil
-    avail    = stat[3]
-    mount    = stat[5]
+    avail = stat[3]
+    mount = stat[5]
 
     status =
       if used_pct.nil?
@@ -470,27 +499,15 @@ class SystemController < ApplicationController
     }
   end
 
-  # =========================
-  # Tables freshness
-  # =========================
   def build_tables_health
     now = Time.current
 
-    btc_last   = BtcPriceDay.order(day: :desc).limit(1).pick(:day)&.in_time_zone
-    snap_last  = MarketSnapshot.order(computed_at: :desc).limit(1).pick(:computed_at)&.in_time_zone
+    btc_last = BtcPriceDay.order(day: :desc).limit(1).pick(:day)&.in_time_zone
+    snap_last = MarketSnapshot.order(computed_at: :desc).limit(1).pick(:computed_at)&.in_time_zone
 
     cluster_signals_job_last =
       JobRun.where(name: "cluster_v3_detect_signals", status: "ok", exit_code: 0).maximum(:started_at) ||
       JobRun.where(name: "cluster_v3_detect_signals", status: "ok", exit_code: 0).maximum(:created_at)
-
-    inflow_outflow_last =
-      ExchangeFlowDay.order(day: :desc).limit(1).pick(:day)&.in_time_zone
-
-    inflow_outflow_details_last =
-      ExchangeFlowDayDetail.order(day: :desc).limit(1).pick(:day)&.in_time_zone
-
-    inflow_outflow_behavior_last =
-      ExchangeFlowDayBehavior.order(day: :desc).limit(1).pick(:day)&.in_time_zone
 
     whale_job_last =
       JobRun.where(name: "whale_scan", status: "ok", exit_code: 0).maximum(:started_at) ||
@@ -509,8 +526,8 @@ class SystemController < ApplicationController
     exchange_addresses_last = ExchangeAddress.maximum(:updated_at)
     exchange_observed_utxos_last = ExchangeObservedUtxo.maximum(:updated_at)
 
-    inflow_outflow_capital_behavior_last =
-      ExchangeFlowDayCapitalBehavior.order(day: :desc).limit(1).pick(:day)&.in_time_zone
+    exchange_core_flow_last =
+      ExchangeCoreFlowEvent.maximum(:event_time)&.in_time_zone
 
     cluster_last =
       AddressLink.order(block_height: :desc).limit(1).pick(:created_at)&.in_time_zone ||
@@ -523,11 +540,19 @@ class SystemController < ApplicationController
       ClusterSignal.order(snapshot_date: :desc).limit(1).pick(:snapshot_date)&.in_time_zone
 
     {
+      "exchange_core_flow_events" => build_table_row(
+        count: estimated_count(ExchangeCoreFlowEvent),
+        last_at: exchange_core_flow_last,
+        sla_h: 1,
+        hint: "Nouvelle architecture : flux exchange-like calculés depuis Actor Labels / Actor Profiles via ExchangeCoreFlowEvent.",
+        now: now
+      ),
+
       "exchange_addresses" => build_table_row(
         count: estimated_count(ExchangeAddress),
         last_at: exchange_addresses_last,
         sla_h: 26,
-        hint: "Set principal des adresses exchange-like. Dernier JobRun builder: #{fmt_time(exchange_builder_last)}",
+        hint: "Ancien set d'adresses exchange-like. Dernier JobRun builder: #{fmt_time(exchange_builder_last)}",
         now: now
       ),
 
@@ -535,7 +560,7 @@ class SystemController < ApplicationController
         count: estimated_count(ExchangeObservedUtxo),
         last_at: exchange_observed_utxos_last,
         sla_h: 1,
-        hint: "UTXO observés sur le set exchange-like. Dernier JobRun scanner: #{fmt_time(exchange_observed_last)}",
+        hint: "Ancienne source UTXO observés exchange-like. Dernier JobRun scanner: #{fmt_time(exchange_observed_last)}",
         now: now
       ),
 
@@ -561,42 +586,6 @@ class SystemController < ApplicationController
         sla_h: 26,
         hint: "Snapshot attendu 1 fois / jour.",
         now: now
-      ),
-
-      "exchange_flow_days" => build_table_row(
-        count: estimated_count(ExchangeFlowDay),
-        last_at: inflow_outflow_last,
-        sla_h: 36,
-        hint: "V1 : agrégats inflow/outflow journaliers calculés depuis exchange_observed_utxos.",
-        now: now,
-        min_day: Date.yesterday
-      ),
-
-      "exchange_flow_day_details" => build_table_row(
-        count: estimated_count(ExchangeFlowDayDetail),
-        last_at: inflow_outflow_details_last,
-        sla_h: 36,
-        hint: "V2 : structure des dépôts et retraits observés par buckets.",
-        now: now,
-        min_day: Date.yesterday
-      ),
-
-      "exchange_flow_day_behaviors" => build_table_row(
-        count: estimated_count(ExchangeFlowDayBehavior),
-        last_at: inflow_outflow_behavior_last,
-        sla_h: 36,
-        hint: "V3 : ratios comportementaux retail / whale / institution et scores de comportement.",
-        now: now,
-        min_day: Date.yesterday
-      ),
-
-      "exchange_flow_day_capital_behaviors" => build_table_row(
-        count: estimated_count(ExchangeFlowDayCapitalBehavior),
-        last_at: inflow_outflow_capital_behavior_last,
-        sla_h: 36,
-        hint: "V4 : capital behavior, whale dominance et divergence activité / capital.",
-        now: now,
-        min_day: Date.yesterday
       ),
 
       "btc_price_days" => build_table_row(
@@ -694,5 +683,4 @@ class SystemController < ApplicationController
       edges: Edge.count
     }
   end
-
 end

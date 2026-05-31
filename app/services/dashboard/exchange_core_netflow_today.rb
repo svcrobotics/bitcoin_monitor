@@ -38,10 +38,14 @@ module Dashboard
         "Pression vendeuse forte"
       elsif netflow_btc >= 500
         "Pression vendeuse modérée"
+      elsif netflow_btc >= 100
+        "Pression vendeuse faible"
       elsif netflow_btc <= -2_000
         "Accumulation forte"
       elsif netflow_btc <= -500
         "Accumulation modérée"
+      elsif netflow_btc <= -100
+        "Accumulation faible"
       else
         "Flux équilibrés"
       end
@@ -49,15 +53,19 @@ module Dashboard
 
     def interpretation_for(netflow_btc)
       if netflow_btc >= 2_000
-        "Depuis le début de la journée, les entrées vers exchanges dominent fortement. Le marché peut subir une pression vendeuse importante."
+        "Depuis le début de la journée, les entrées vers les exchanges dominent fortement les sorties. Le marché peut subir une pression vendeuse importante."
       elsif netflow_btc >= 500
-        "Depuis le début de la journée, les entrées vers exchanges sont supérieures aux sorties. Le signal indique une pression vendeuse modérée."
+        "Depuis le début de la journée, les entrées vers les exchanges sont nettement supérieures aux sorties. Le signal indique une pression vendeuse modérée."
+      elsif netflow_btc >= 100
+        "Depuis le début de la journée, les entrées vers les exchanges dépassent légèrement les sorties. Le signal indique une pression vendeuse faible."
       elsif netflow_btc <= -2_000
-        "Depuis le début de la journée, les sorties des exchanges dominent fortement. Le signal indique une accumulation importante."
+        "Depuis le début de la journée, les sorties des exchanges dominent fortement les entrées. Le signal indique une accumulation importante."
       elsif netflow_btc <= -500
         "Depuis le début de la journée, les sorties des exchanges sont supérieures aux entrées. Le signal indique une accumulation modérée."
+      elsif netflow_btc <= -100
+        "Depuis le début de la journée, les sorties des exchanges dépassent légèrement les entrées. Le signal indique une accumulation faible."
       else
-        "Depuis le début de la journée, les entrées et sorties d’exchanges restent proches de l’équilibre."
+        "Depuis le début de la journée, les entrées et les sorties des exchanges restent proches de l'équilibre."
       end
     end
   end
