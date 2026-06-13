@@ -1,2 +1,0 @@
-class MarketSignal < ApplicationRecord
-end

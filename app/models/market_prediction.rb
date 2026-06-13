@@ -1,2 +1,0 @@
-class MarketPrediction < ApplicationRecord
-end
