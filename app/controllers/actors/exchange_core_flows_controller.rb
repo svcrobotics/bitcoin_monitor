@@ -8,43 +8,25 @@ module Actors
       @range = params[:range].presence_in(%w[7d 30d]) || "7d"
       history_days = @range == "30d" ? 30 : 7
 
-      load_exchange_like_scope!
-
-      @today_flow = today_flow_from_actor_profile_events
-
-      start_day = history_days.days.ago.to_date
-      end_day = Date.current
-
-      event_flows = event_flows_by_day(start_day)
-      day_flows = day_flows_by_day(start_day, end_day)
-
-      @flows =
-        (start_day..end_day)
-          .map do |day|
-            event_flows[day] || day_flows[day] || empty_day(day)
-          end
-          .sort_by { |row| row[:day] }
-          .reverse
+      @today_flow = Dashboard::ExchangeCoreNetflowToday.call
+      @flows = history_from_events(days: history_days)
 
       indexed_flows = @flows.index_by { |row| row[:day] }
 
-      @inflow_daily =
-        fill_daily_series(
-          indexed_flows.transform_values { |r| r[:inflow_btc].to_d.round(2) },
-          days: history_days
-        )
+      @inflow_daily = fill_daily_series(
+        indexed_flows.transform_values { |r| r[:inflow_btc].to_d.round(2) },
+        days: history_days
+      )
 
-      @outflow_daily =
-        fill_daily_series(
-          indexed_flows.transform_values { |r| r[:outflow_btc].to_d.round(2) },
-          days: history_days
-        )
+      @outflow_daily = fill_daily_series(
+        indexed_flows.transform_values { |r| r[:outflow_btc].to_d.round(2) },
+        days: history_days
+      )
 
-      @netflow_daily =
-        fill_daily_series(
-          indexed_flows.transform_values { |r| r[:netflow_btc].to_d.round(2) },
-          days: history_days
-        )
+      @netflow_daily = fill_daily_series(
+        indexed_flows.transform_values { |r| r[:netflow_btc].to_d.round(2) },
+        days: history_days
+      )
 
       @latest_flow = @flows.first
 
@@ -55,105 +37,80 @@ module Actors
 
       @flow_days_count = @flows.size
 
-      @recent_realtime_events =
-        ExchangeCoreFlowEvent
-          .where(source: EVENT_SOURCE)
-          .where(cluster_id: @exchange_cluster_ids)
-          .order(event_time: :desc)
-          .limit(20)
-
-      @engine_status = {
-        source: EVENT_SOURCE,
-        label_source: "actor_profile",
-        exchange_like_labels: @exchange_actor_count,
-        core_addresses: @core_address_count,
-        generated_at: Time.current
-      }
+      @engine_status = engine_status
+      @recent_realtime_events = []
     end
 
     def live
-      load_exchange_like_scope!
-
-      @today_flow = today_flow_from_actor_profile_events
+      @today_flow = Dashboard::ExchangeCoreNetflowToday.call
 
       render partial: "actors/exchange_core_flows/live",
-             locals: {
-               today: @today_flow
-             }
+             locals: { today: @today_flow }
     end
 
     private
 
-    def load_exchange_like_scope!
-      @exchange_labels =
-        ActorLabel
-          .where(source: "actor_profile", label: "exchange_like")
-          .includes(:actor_profile)
-          .order(confidence: :desc)
+    def history_from_events(days:)
+      start_day = (days - 1).days.ago.to_date
+      end_day = Date.current
 
-      @exchange_cluster_ids = @exchange_labels.pluck(:cluster_id)
+      rows =
+        ExchangeCoreFlowEvent
+          .where(source: EVENT_SOURCE)
+          .where(event_time: start_day.beginning_of_day..Time.current)
+          .group("DATE(event_time)")
+          .pluck(
+            Arel.sql("DATE(event_time)"),
+            Arel.sql("SUM(CASE WHEN direction = 'inflow' THEN amount_btc ELSE 0 END)"),
+            Arel.sql("SUM(CASE WHEN direction = 'outflow' THEN amount_btc ELSE 0 END)"),
+            Arel.sql("COUNT(*)")
+          )
+          .to_h do |day, inflow, outflow, events_count|
+            inflow = inflow.to_d
+            outflow = outflow.to_d
+            netflow = inflow - outflow
 
-      @exchange_actor_count = @exchange_cluster_ids.size
+            [
+              day.to_date,
+              {
+                day: day.to_date,
+                inflow_btc: inflow,
+                outflow_btc: outflow,
+                netflow_btc: netflow,
+                events_count: events_count.to_i,
+                source: EVENT_SOURCE,
+                signal: signal_for(netflow)
+              }
+            ]
+          end
 
-      @core_address_count =
-        if @exchange_cluster_ids.empty?
-          0
-        else
-          Address.where(cluster_id: @exchange_cluster_ids).count
-        end
+      (start_day..end_day)
+        .map { |day| rows[day] || empty_day(day) }
+        .sort_by { |row| row[:day] }
+        .reverse
     end
 
-    def event_flows_by_day(start_day)
-      return {} if @exchange_cluster_ids.empty?
+    def engine_status
+      Rails.cache.fetch("exchange_core_flows:engine_status", expires_in: 5.minutes) do
+        exchange_actor_count =
+          ActorLabel.where(source: "actor_profile", label: "exchange_like").count
 
-      ExchangeCoreFlowEvent
-        .where(source: EVENT_SOURCE)
-        .where(cluster_id: @exchange_cluster_ids)
-        .where(event_time: start_day.beginning_of_day..Time.current)
-        .group("DATE(event_time)")
-        .pluck(
-          Arel.sql("DATE(event_time)"),
-          Arel.sql("SUM(CASE WHEN direction = 'inflow' THEN amount_btc ELSE 0 END)"),
-          Arel.sql("SUM(CASE WHEN direction = 'outflow' THEN amount_btc ELSE 0 END)"),
-          Arel.sql("COUNT(*)")
-        )
-        .map do |day, inflow, outflow, events_count|
-          inflow = inflow.to_d
-          outflow = outflow.to_d
+        last_event_at =
+          ExchangeCoreFlowEvent.where(source: EVENT_SOURCE).maximum(:event_time)
 
-          [
-            day.to_date,
-            {
-              day: day.to_date,
-              inflow_btc: inflow,
-              outflow_btc: outflow,
-              netflow_btc: inflow - outflow,
-              events_count: events_count.to_i,
-              source: EVENT_SOURCE
-            }
-          ]
-        end
-        .to_h
-    end
+        last_block_height =
+          ExchangeCoreFlowEvent.where(source: EVENT_SOURCE).maximum(:block_height)
 
-    def day_flows_by_day(start_day, end_day)
-      ExchangeCoreFlowDay
-        .where(source: EVENT_SOURCE)
-        .where(day: start_day..end_day)
-        .map do |row|
-          [
-            row.day,
-            {
-              day: row.day,
-              inflow_btc: row.inflow_btc.to_d,
-              outflow_btc: row.outflow_btc.to_d,
-              netflow_btc: row.netflow_btc.to_d,
-              events_count: row.events_count.to_i,
-              source: EVENT_SOURCE
-            }
-          ]
-        end
-        .to_h
+        {
+          source: EVENT_SOURCE,
+          label_source: "actor_profile",
+          exchange_like_labels: exchange_actor_count,
+          core_addresses: nil,
+          last_event_at: last_event_at,
+          last_block_height: last_block_height,
+          generated_at: Time.current
+        }
+      end
     end
 
     def empty_day(day)
@@ -163,81 +120,33 @@ module Actors
         outflow_btc: 0.to_d,
         netflow_btc: 0.to_d,
         events_count: 0,
-        source: "missing"
+        source: "missing",
+        signal: "neutral"
       }
     end
 
-    def today_flow_from_actor_profile_events
-      return empty_today_flow if @exchange_cluster_ids.empty?
-
-      range = Time.current.beginning_of_day..Time.current
-
-      inflow =
-        ExchangeCoreFlowEvent
-          .where(source: EVENT_SOURCE)
-          .where(cluster_id: @exchange_cluster_ids)
-          .where(direction: "inflow")
-          .where(event_time: range)
-          .sum(:amount_btc)
-
-      outflow =
-        ExchangeCoreFlowEvent
-          .where(source: EVENT_SOURCE)
-          .where(cluster_id: @exchange_cluster_ids)
-          .where(direction: "outflow")
-          .where(event_time: range)
-          .sum(:amount_btc)
-
-      events_count =
-        ExchangeCoreFlowEvent
-          .where(source: EVENT_SOURCE)
-          .where(cluster_id: @exchange_cluster_ids)
-          .where(event_time: range)
-          .count
-
-      netflow = inflow.to_d - outflow.to_d
-
-      {
-        inflow_btc: inflow,
-        outflow_btc: outflow,
-        netflow_btc: netflow,
-        events_count: events_count,
-        updated_at: Time.current,
-        source: EVENT_SOURCE,
-        interpretation: interpretation_for(netflow)
-      }
-    end
-
-    def empty_today_flow
-      {
-        inflow_btc: 0.to_d,
-        outflow_btc: 0.to_d,
-        netflow_btc: 0.to_d,
-        events_count: 0,
-        updated_at: Time.current,
-        source: EVENT_SOURCE,
-        interpretation: "Aucun acteur exchange_like validé par Actor Profiles n’a encore produit de flux aujourd’hui."
-      }
-    end
-
-    def interpretation_for(netflow)
+    def signal_for(netflow)
       netflow = netflow.to_d
 
       if netflow >= 2_000
-        "Forte pression vendeuse potentielle : les dépôts nets vers exchanges dominent."
+        "selling_pressure_strong"
       elsif netflow >= 500
-        "Pression vendeuse potentielle : les dépôts nets vers exchanges sont supérieurs aux retraits."
+        "selling_pressure_moderate"
+      elsif netflow >= 100
+        "selling_pressure_weak"
       elsif netflow <= -2_000
-        "Forte accumulation potentielle : les retraits nets depuis exchanges dominent."
+        "accumulation_strong"
       elsif netflow <= -500
-        "Accumulation potentielle : les retraits nets depuis exchanges sont supérieurs aux dépôts."
+        "accumulation_moderate"
+      elsif netflow <= -100
+        "accumulation_weak"
       else
-        "Flux neutres : aucun déséquilibre majeur détecté."
+        "neutral"
       end
     end
 
     def fill_daily_series(data, days:)
-      start_day = days.days.ago.to_date
+      start_day = (days - 1).days.ago.to_date
 
       (start_day..Date.current).each_with_object({}) do |day, h|
         h[day] = data[day] || 0
