@@ -19,17 +19,17 @@
       </h1>
 
       <p class="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-400">
-        Posez une question. Tansa analyse les données on-chain,
-        les acteurs du marché et l'état de la plateforme afin de
-        fournir une réponse claire, argumentée et traçable.
+        Posez une question ou choisissez un exemple. Tansa interroge ses sources de vérité :
+        blockchain, code source, état système et données externes.
       </p>
     </div>
 
-    <!-- Question box -->
-    <div class="mx-auto mt-12 w-full max-w-5xl">
+    <div class="mx-auto mt-12 w-full max-w-5xl"
+        data-controller="dashboard-question">
+
       <%= form_with url: ai_dashboard_answer_path,
                     method: :post,
-                    data: { turbo_frame: "dashboard_answer" } do %>
+                    data: { turbo_frame: "dashboard_answer", dashboard_question_target: "form" } do %>
 
         <div class="overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 backdrop-blur-xl">
           <div class="px-6 py-5">
@@ -37,72 +37,50 @@
               name="q"
               rows="2"
               autocomplete="off"
-              placeholder="Pourquoi le Bitcoin baisse-t-il aujourd'hui ?"
+              data-dashboard-question-target="input"
+              data-action="keydown->dashboard-question#submitOnEnter"
+              placeholder="Posez une question à Tansa..."
               class="w-full resize-none bg-transparent text-lg text-white outline-none placeholder:text-slate-500"
             ></textarea>
           </div>
 
           <div class="flex items-center justify-between border-t border-white/5 px-6 py-4">
             <div class="flex flex-wrap gap-2">
-
-              <button type="button"
-                class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">
-                Marché Bitcoin
-              </button>
-
-              <button type="button"
-                class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">
-                Whales
-              </button>
-
-              <button type="button"
-                class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">
-                Exchanges
-              </button>
-
-              <button type="button"
-                class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">
-                État du système
-              </button>
-
+              <span class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">Marché</span>
+              <span class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">Whales</span>
+              <span class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">Système</span>
+              <span class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">Architecture</span>
             </div>
 
-            <button
-              type="submit"
-              class="rounded-2xl bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
-              Demander à Tansa
-            </button>
+            <div class="flex items-center gap-3">
+              <button
+                type="button"
+                data-action="click->dashboard-question#reset"
+                class="rounded-2xl border border-white/10 px-5 py-2 text-sm font-semibold text-slate-300 transition hover:border-cyan-400/40 hover:bg-cyan-400/10 hover:text-cyan-100">
+                Nouvelle question
+              </button>
+
+              <button
+                type="submit"
+                data-action="click->dashboard-question#hideExamples"
+                class="rounded-2xl bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
+                Demander à Tansa
+              </button>
+            </div>
           </div>
         </div>
-
       <% end %>
+
+      <div data-dashboard-question-target="examples">
+        <%= render "dashboard/question_examples" %>
+      </div>
+
+      <!-- Answer -->
+      <div class="mx-auto mt-12 w-full max-w-6xl">
+        <%= turbo_frame_tag "dashboard_answer",
+              data: { dashboard_question_target: "answer" } do %>
+        <% end %>
+      </div>
     </div>
-
-    <!-- Suggested questions -->
-    <div class="mx-auto mt-8 flex max-w-5xl flex-wrap justify-center gap-3">
-
-      <button class="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-400">
-        Pourquoi le Bitcoin baisse-t-il aujourd'hui ?
-      </button>
-
-      <button class="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-400">
-        Les whales accumulent-elles ?
-      </button>
-
-      <button class="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-400">
-        Les ETF soutiennent-ils encore le marché ?
-      </button>
-
-      <button class="rounded-full border border-white/10 bg-white/[0.03] px-4 py-2 text-sm text-slate-400">
-        Le système fonctionne-t-il correctement ?
-      </button>
-
-    </div>
-
-    <!-- Answer -->
-    <div class="mx-auto mt-12 w-full max-w-6xl">
-      <%= turbo_frame_tag "dashboard_answer" %>
-    </div>
-
   </div>
 </div>

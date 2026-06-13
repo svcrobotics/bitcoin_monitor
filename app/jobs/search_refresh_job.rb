@@ -43,4 +43,6 @@ class SearchRefreshJob < ApplicationJob
       end
     end
   end
+
+  
 end

@@ -1,0 +1,55 @@
+<% groups = {
+  "Marché Bitcoin" => [
+    "Pourquoi le Bitcoin baisse-t-il aujourd'hui ?",
+    "Qui vend actuellement ?",
+    "Qui achète actuellement ?",
+    "Les exchanges accumulent-ils ou distribuent-ils ?",
+    "Les whales accumulent-elles ?"
+  ],
+  "Layer 1" => [
+    "Quel est l'état actuel de Layer1 ?",
+    "Quel est le pipeline complet de Layer1 ?",
+    "Comment les blocs sont-ils traités ?",
+    "Comment fonctionne l'audit Layer1 ?"
+  ],
+  "Système" => [
+    "Le système fonctionne-t-il correctement ?",
+    "Y a-t-il un retard dans les traitements ?",
+    "Les queues Sidekiq sont-elles saines ?",
+    "Les buffers Redis sont-ils sous contrôle ?"
+  ],
+  "Architecture Tansa" => [
+    "Quel est le pipeline complet de Tansa ?",
+    "Comment Tansa collecte-t-il ses données ?",
+    "Comment Tansa vérifie-t-il ses données ?",
+    "Quelles sont les sources de vérité de Tansa ?",
+    "Comment fonctionne la documentation vivante ?"
+  ],
+  "Audit & fiabilité" => [
+    "Pourquoi peut-on faire confiance aux données ?",
+    "Comment Tansa détecte-t-il les incohérences ?",
+    "Quels contrôles sont effectués en temps réel ?"
+  ]
+} %>
+
+<div class="mt-6 grid gap-4 lg:grid-cols-2">
+  <% groups.each do |title, questions| %>
+    <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="mb-3 text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+        <%= title %>
+      </div>
+
+      <div class="flex flex-wrap gap-2">
+        <% questions.each do |question| %>
+          <button
+            type="button"
+            data-action="click->dashboard-question#ask"
+            data-question="<%= question %>"
+            class="rounded-full border border-white/10 bg-black/20 px-3 py-2 text-left text-xs leading-5 text-slate-300 transition hover:border-cyan-400/40 hover:bg-cyan-400/10 hover:text-cyan-100">
+            <%= question %>
+          </button>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+</div>
