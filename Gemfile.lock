@@ -205,6 +205,8 @@ GEM
     minitest (5.27.0)
     msgpack (1.8.0)
     multi_json (1.21.1)
+    neighbor (0.6.0)
+      activerecord (>= 7.1)
     net-http (0.9.1)
       uri (>= 0.11.1)
     net-imap (0.6.2)
@@ -267,8 +269,6 @@ GEM
     raabro (1.4.0)
     racc (1.8.1)
     rack (3.2.4)
-    rack-mini-profiler (4.0.1)
-      rack (>= 1.2.0)
     rack-session (2.1.1)
       base64 (>= 0.1.0)
       rack (>= 3.0.0)
@@ -489,10 +489,10 @@ DEPENDENCIES
   jbuilder
   kamal
   minitest (~> 5.25)
+  neighbor
   pg (~> 1.5)
   propshaft
   puma (>= 5.0)
-  rack-mini-profiler
   rails (~> 8.0.2)
   redcarpet
   redis

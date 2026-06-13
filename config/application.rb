@@ -27,7 +27,7 @@ module BitcoinMonitor
     config.time_zone = "Europe/Paris"
 
     # ActiveRecord stocke en UTC, mais convertit en local pour l'app
-    config.active_record.default_timezone = :local
+    config.active_record.default_timezone = :utc
 
     # 🌍 Localisation par défaut
     config.i18n.default_locale = :fr

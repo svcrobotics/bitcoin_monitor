@@ -10,9 +10,10 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_05_29_215642) do
+ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+  enable_extension "vector"
 
   create_table "actor_labels", force: :cascade do |t|
     t.bigint "cluster_id", null: false
@@ -364,6 +365,36 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_29_215642) do
     t.index ["cluster_id"], name: "index_cluster_activity_states_on_cluster_id"
   end
 
+  create_table "cluster_input_cursors", force: :cascade do |t|
+    t.integer "last_height_processed"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "cluster_inputs", force: :cascade do |t|
+    t.integer "block_height", null: false
+    t.string "txid", null: false
+    t.integer "vout", null: false
+    t.string "address"
+    t.decimal "amount_btc", precision: 20, scale: 8
+    t.boolean "spent", default: false, null: false
+    t.string "spent_txid"
+    t.integer "spent_block_height"
+    t.decimal "address_balance_btc", precision: 20, scale: 8
+    t.decimal "address_received_btc", precision: 20, scale: 8
+    t.decimal "address_sent_btc", precision: 20, scale: 8
+    t.datetime "cluster_processed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_cluster_inputs_on_address"
+    t.index ["block_height"], name: "index_cluster_inputs_on_block_height"
+    t.index ["cluster_processed_at"], name: "index_cluster_inputs_on_cluster_processed_at"
+    t.index ["spent_block_height", "spent_txid"], name: "index_cluster_inputs_on_spent_block_height_and_spent_txid"
+    t.index ["spent_block_height"], name: "index_cluster_inputs_on_spent_block_height"
+    t.index ["spent_txid"], name: "index_cluster_inputs_on_spent_txid"
+    t.index ["txid", "vout"], name: "index_cluster_inputs_on_txid_and_vout", unique: true
+  end
+
   create_table "cluster_metrics", force: :cascade do |t|
     t.bigint "cluster_id", null: false
     t.date "snapshot_date"
@@ -426,6 +457,30 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_29_215642) do
     t.index ["last_seen_height"], name: "index_clusters_on_last_seen_height"
   end
 
+  create_table "code_chunks", force: :cascade do |t|
+    t.string "path", null: false
+    t.integer "chunk_index", default: 0, null: false
+    t.text "content", null: false
+    t.string "content_hash", null: false
+    t.vector "embedding", limit: 1536
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["content_hash"], name: "index_code_chunks_on_content_hash"
+    t.index ["path", "chunk_index"], name: "index_code_chunks_on_path_and_chunk_index", unique: true
+  end
+
+  create_table "economic_indicators", force: :cascade do |t|
+    t.string "code", null: false
+    t.string "name", null: false
+    t.string "source", null: false
+    t.date "observed_on", null: false
+    t.decimal "value", precision: 20, scale: 8, null: false
+    t.jsonb "raw_payload", default: {}
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["code", "observed_on"], name: "index_economic_indicators_on_code_and_observed_on", unique: true
+  end
+
   create_table "edges", force: :cascade do |t|
     t.string "txid", null: false
     t.string "address_a", null: false
@@ -467,6 +522,18 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_29_215642) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["address"], name: "index_exchange_addresses_on_address", unique: true
+  end
+
+  create_table "exchange_core_addresses", force: :cascade do |t|
+    t.string "address", null: false
+    t.bigint "cluster_id", null: false
+    t.string "source", default: "actor_profile_exchange_like", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_exchange_core_addresses_on_address", unique: true
+    t.index ["cluster_id"], name: "index_exchange_core_addresses_on_cluster_id"
+    t.index ["source", "address"], name: "index_exchange_core_addresses_on_source_and_address"
+    t.index ["source"], name: "index_exchange_core_addresses_on_source"
   end
 
   create_table "exchange_core_flow_days", force: :cascade do |t|
@@ -767,6 +834,18 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_29_215642) do
     t.string "context"
     t.text "body"
     t.string "tags"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+  end
+
+  create_table "layer1_audit_runs", force: :cascade do |t|
+    t.integer "audited_height"
+    t.string "block_hash"
+    t.string "status"
+    t.jsonb "checks"
+    t.jsonb "issues"
+    t.datetime "started_at"
+    t.datetime "finished_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
   end
@@ -1077,15 +1156,26 @@ ActiveRecord::Schema[8.0].define(version: 2026_05_29_215642) do
     t.integer "spent_block_height"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["address", "block_time"], name: "index_tx_outputs_on_address_and_block_time"
-    t.index ["address", "spent_block_height"], name: "index_tx_outputs_on_address_and_spent_block_height"
-    t.index ["address"], name: "index_tx_outputs_on_address"
+    t.index ["block_height", "address"], name: "index_tx_outputs_on_block_height_and_address"
     t.index ["block_height"], name: "index_tx_outputs_on_block_height"
-    t.index ["spent"], name: "index_tx_outputs_on_spent"
-    t.index ["spent_block_height", "spent_txid"], name: "index_tx_outputs_on_spent_block_height_and_spent_txid"
-    t.index ["spent_txid", "address"], name: "index_tx_outputs_on_spent_txid_and_address"
-    t.index ["spent_txid"], name: "index_tx_outputs_on_spent_txid"
+    t.index ["spent_block_height", "address"], name: "index_tx_outputs_on_spent_block_height_and_address"
+    t.index ["spent_block_height"], name: "index_tx_outputs_on_spent_block_height"
     t.index ["txid", "vout"], name: "index_tx_outputs_on_txid_and_vout", unique: true
+  end
+
+  create_table "utxo_outputs", force: :cascade do |t|
+    t.string "txid", null: false
+    t.integer "vout", null: false
+    t.string "address"
+    t.decimal "amount_btc", precision: 20, scale: 8
+    t.integer "block_height"
+    t.string "block_hash"
+    t.datetime "block_time"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_utxo_outputs_on_address"
+    t.index ["block_height"], name: "index_utxo_outputs_on_block_height"
+    t.index ["txid", "vout"], name: "index_utxo_outputs_on_txid_and_vout", unique: true
   end
 
   create_table "vault_addresses", force: :cascade do |t|

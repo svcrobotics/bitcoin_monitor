@@ -1,19 +1,9 @@
-# app/helpers/markdown_helper.rb
+# frozen_string_literal: true
+
 module MarkdownHelper
-  # Rendu Markdown -> HTML (safe-ish) via Commonmarker
   def render_markdown(text)
     return "" if text.blank?
 
-    Commonmarker.to_html(
-      text.to_s,
-      options: :DEFAULT,
-      extensions: %i[
-        strikethrough
-        table
-        autolink
-        tasklist
-        tagfilter
-      ]
-    ).html_safe
+    Commonmarker.to_html(text.to_s).html_safe
   end
 end

@@ -61,7 +61,7 @@ group :development do
   # Use console on exceptions pages [https://github.com/rails/web-console]
   gem "web-console"
   gem "foreman", "~> 0.90"
-  gem "rack-mini-profiler"
+  # gem "rack-mini-profiler"
 end
 
 group :test do
@@ -100,3 +100,5 @@ gem "ffi-rzmq", "~> 2.0"
 gem "faraday"
 
 gem "elasticsearch", "~> 8.17"
+
+gem "neighbor"
