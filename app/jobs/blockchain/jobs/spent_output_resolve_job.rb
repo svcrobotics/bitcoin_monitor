@@ -5,7 +5,7 @@ module Blockchain
     class SpentOutputResolveJob
       include Sidekiq::Job
 
-      sidekiq_options queue: :low, retry: 3
+      sidekiq_options queue: :spent_resolve, retry: 3
 
       BATCH_SIZE = ENV.fetch("SPENT_RESOLVE_BATCH_SIZE", "25").to_i
 
@@ -36,7 +36,7 @@ module Blockchain
 
           partial_block = block.merge("tx" => tx_batch)
 
-          batch = Blockchain::Processing::BlockUtxoBatchBuilder.new(
+          batch = Blockchain::Processing::SpentRowsBuilder.new(
             prevout_cache: prevout_cache
           ).call(partial_block, block_buffer)
 
@@ -60,15 +60,25 @@ module Blockchain
           )
         end
 
-        flush = Blockchain::Flushers::SpentOutputFlusher.new.call
+        Layer1::OrchestratorJob.perform_later
+
+        flush = { flushed: 0 }
 
         Rails.logger.info(
-          "[spent_output_resolve_job] final_flush height=#{block_height} flushed=#{flush[:flushed].to_i}"
+          "[spent_output_resolve_job] drain_enqueued height=#{block_height}"
         )
 
-        flow_result = Actors::DetectExchangeCoreFlowsForBlock.call(
-          block_height: block_height
-        )
+        if ENV.fetch("ENABLE_EXCHANGE_AFTER_SPENT_RESOLVE", "0") == "1"
+          Actors::ExchangeCoreFlowsForBlockJob.perform_async(block_height)
+
+          Rails.logger.info(
+            "[spent_output_resolve_job] exchange_core_flows_enqueued height=#{block_height}"
+          )
+        else
+          Rails.logger.info(
+            "[spent_output_resolve_job] exchange_core_flows_skipped height=#{block_height}"
+          )
+        end
 
         duration_ms = monotonic_ms - started_at
 
@@ -78,24 +88,35 @@ module Blockchain
           "batches=#{total_batches} " \
           "spent_rows=#{total_spent_rows} " \
           "flushed=#{flush[:flushed].to_i} " \
-          "flow_created=#{flow_result[:created].to_i} " \
-          "flow_skipped=#{flow_result[:skipped].to_i} " \
           "duration_ms=#{duration_ms}"
         )
 
+        refresh_health_snapshots(block_height)
         {
           ok: true,
           block_height: block_height,
           batches: total_batches,
           spent_rows: total_spent_rows,
           flushed: flush[:flushed].to_i,
-          flow_created: flow_result[:created].to_i,
-          flow_skipped: flow_result[:skipped].to_i,
           duration_ms: duration_ms
         }
       end
 
       private
+
+      def refresh_health_snapshots(block_height)
+        Layer1::CachedHealthSnapshot.refresh!
+        Clusters::CachedHealthSnapshot.refresh!
+
+        Rails.logger.info(
+          "[spent_output_resolve_job] health_snapshots_refreshed height=#{block_height}"
+        )
+      rescue StandardError => e
+        Rails.logger.warn(
+          "[spent_output_resolve_job] health_snapshot_refresh_failed " \
+          "height=#{block_height} #{e.class}: #{e.message}"
+        )
+      end
 
       def monotonic_ms
         (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000).round

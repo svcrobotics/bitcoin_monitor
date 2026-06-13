@@ -34,14 +34,10 @@ module Clusters
 
       rows =
         addresses.map do |address|
-          input_data = grouped_inputs.fetch(address)
-          sent_sats = input_data[:total_value_sats].to_i
-
           {
             address: address,
             first_seen_height: height,
             last_seen_height: height,
-            total_sent_sats: sent_sats,
             tx_count: 1,
             created_at: now,
             updated_at: now
@@ -54,11 +50,11 @@ module Clusters
         on_duplicate: Arel.sql(
           "first_seen_height = LEAST(addresses.first_seen_height, EXCLUDED.first_seen_height), " \
           "last_seen_height = GREATEST(addresses.last_seen_height, EXCLUDED.last_seen_height), " \
-          "total_sent_sats = COALESCE(addresses.total_sent_sats, 0) + EXCLUDED.total_sent_sats, " \
-          "tx_count = COALESCE(addresses.tx_count, 0) + 1, " \
           "updated_at = EXCLUDED.updated_at"
         )
       )
+
+      Clusters::EnsureAddressClusters.call(addresses: rows.map { |r| r[:address] })
     end
   end
 end

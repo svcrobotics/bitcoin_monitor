@@ -5,6 +5,7 @@ module Blockchain
     class ProcessingRunner
       DEFAULT_BATCH = 10
       ENV_KEY = "LAYER1_PROCESSING_BATCH_SIZE"
+      STUCK_AFTER_SECONDS = 120
 
       def initialize(logger: Rails.logger)
         @logger = logger
@@ -14,9 +15,7 @@ module Blockchain
         limit = effective_limit(limit)
         blocks = next_blocks(limit)
 
-        @logger.info(
-          "[processing_runner] start count=#{blocks.size} limit=#{limit}"
-        )
+        @logger.info("[processing_runner] start count=#{blocks.size} limit=#{limit}")
 
         enqueued = 0
 
@@ -36,7 +35,6 @@ module Blockchain
 
       def effective_limit(limit)
         explicit = limit.to_i if limit
-
         return explicit if explicit.to_i.positive?
 
         env_limit = ENV.fetch(ENV_KEY, DEFAULT_BATCH).to_i
@@ -44,19 +42,26 @@ module Blockchain
       end
 
       def next_blocks(limit)
-        BlockBufferModel
-          .where(status: [
-            Blockchain::Buffer::BlockBuffer::PENDING,
-            Blockchain::Buffer::BlockBuffer::FAILED
-          ])
-          .order(:height)
-          .limit(limit)
+        statuses = [
+          Blockchain::Buffer::BlockBuffer::PENDING,
+          Blockchain::Buffer::BlockBuffer::FAILED
+        ]
+
+        fresh_blocks = BlockBufferModel
+          .where(status: statuses)
+
+        stuck_blocks = BlockBufferModel
+          .where(status: Blockchain::Buffer::BlockBuffer::ENQUEUED)
+          .where("updated_at < ?", STUCK_AFTER_SECONDS.seconds.ago)
+
+        ids = fresh_blocks.or(stuck_blocks).order(:height).limit(limit).pluck(:id)
+
+        BlockBufferModel.where(id: ids).order(:height)
       end
 
       def enqueue(block)
-        return false unless Blockchain::Buffer::BlockBuffer.mark_enqueued(block.height)
-
         Blockchain::Jobs::BlockProcessJob.perform_async(block.height)
+        block.update!(status: Blockchain::Buffer::BlockBuffer::ENQUEUED)
         true
       end
     end

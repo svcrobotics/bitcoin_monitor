@@ -19,7 +19,8 @@ module Blockchain
 
         rows.each_slice(1_000) do |slice|
           update_slice(slice, now)
-          apply_address_flow_stats(slice)
+          Clusters::SpentUtxoConsumer.call(rows: slice)
+          # apply_address_flow_stats(slice)
         end
 
         @logger.info("[spent_output_flusher] flushed=#{rows.size}")
@@ -47,13 +48,15 @@ module Blockchain
           ])
         end.join(", ")
 
-        sql = <<~SQL.squish
+        connection = ActiveRecord::Base.connection
+
+        connection.execute(<<~SQL.squish)
           UPDATE tx_outputs AS txo
           SET
             spent = TRUE,
             spent_txid = data.spent_txid,
             spent_block_height = data.spent_block_height,
-            updated_at = #{ActiveRecord::Base.connection.quote(now)}
+            updated_at = #{connection.quote(now)}
           FROM (
             VALUES #{values_sql}
           ) AS data(txid, vout, spent_txid, spent_block_height)
@@ -61,7 +64,14 @@ module Blockchain
             AND txo.vout = data.vout
         SQL
 
-        ActiveRecord::Base.connection.execute(sql)
+        connection.execute(<<~SQL.squish)
+          DELETE FROM utxo_outputs AS uo
+          USING (
+            VALUES #{values_sql}
+          ) AS data(txid, vout, spent_txid, spent_block_height)
+          WHERE uo.txid = data.txid
+            AND uo.vout = data.vout
+        SQL
       end
 
       def apply_address_flow_stats(rows)

@@ -3,7 +3,7 @@
 module Blockchain
   module Flushers
     class OutputFlusherJob < ApplicationJob
-      queue_as :default
+      queue_as :layer1_drain
 
       def perform
         Blockchain::Flushers::OutputFlusher.new.call

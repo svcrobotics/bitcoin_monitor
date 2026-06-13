@@ -173,6 +173,15 @@ class ClusterScanner
       Clusters::ClusterMerger.call(address_records: address_records)
     end
 
+    timed("ClusterProcessedMarker") do
+      ClusterInput
+        .where(spent_txid: txid)
+        .update_all(
+          cluster_processed_at: Time.current,
+          updated_at: Time.current
+        )
+    end
+
     @stats[:clusters_created] += merge_result.created
     @stats[:clusters_merged] += merge_result.merged
 
@@ -182,7 +191,7 @@ class ClusterScanner
       height: height
     )
 
-    if @refresh || @mode == :realtime
+    if links_created.positive? || clusters_created.positive? || clusters_merged.positive?
       timed("DirtyMarker") do
         mark_cluster_dirty!(
           merge_result.cluster,
@@ -248,7 +257,7 @@ class ClusterScanner
   end
 
   def layer1_spending_txids_for_height(height)
-    TxOutput
+    ClusterInput
       .where(spent_block_height: height)
       .where.not(spent_txid: nil)
       .group(:spent_txid)
@@ -257,7 +266,7 @@ class ClusterScanner
   end
 
   def layer1_inputs_for_txid(txid)
-    TxOutput
+    ClusterInput
       .where(spent_txid: txid)
       .where.not(address: nil)
       .where.not(amount_btc: nil)
@@ -272,7 +281,7 @@ class ClusterScanner
 
   def layer1_inputs_for_txids(txids)
     rows =
-      TxOutput
+      ClusterInput
         .where(spent_txid: txids)
         .where.not(address: nil)
         .where.not(amount_btc: nil)

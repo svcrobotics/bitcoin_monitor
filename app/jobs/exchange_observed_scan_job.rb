@@ -1,7 +1,7 @@
 # frozen_string_literal: true
 
 class ExchangeObservedScanJob < ApplicationJob
-  queue_as :p1_exchange
+  queue_as :low
 
   LOCK_KEY = "lock:exchange_observed_scan"
   LOCK_TTL = 30.minutes.to_i

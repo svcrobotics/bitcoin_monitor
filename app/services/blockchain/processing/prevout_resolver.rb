@@ -43,7 +43,8 @@ module Blockchain
       end
 
       def find_output(txid, vout_index)
-        TxOutput.find_by(txid: txid, vout: vout_index)
+        UtxoOutput.find_by(txid: txid, vout: vout_index) ||
+          TxOutput.find_by(txid: txid, vout: vout_index)
       end
 
       def normalize_from_db(output)

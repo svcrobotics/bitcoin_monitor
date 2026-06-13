@@ -29,12 +29,18 @@ module Clusters
     attr_reader :address_records
 
     def create_cluster!
-      cluster = Cluster.create!
+      cluster = nil
 
-      Address.where(id: address_records.map(&:id)).update_all(
-        cluster_id: cluster.id,
-        updated_at: Time.current
-      )
+      ApplicationRecord.transaction do
+        cluster = Cluster.create!
+
+        Address.where(id: address_records.map(&:id)).update_all(
+          cluster_id: cluster.id,
+          updated_at: Time.current
+        )
+
+        cluster.recalculate_stats!
+      end
 
       Result.new(
         cluster: cluster,
@@ -67,51 +73,48 @@ module Clusters
       master_id = cluster_ids.min
       other_ids = cluster_ids - [master_id]
 
-      # Rebranche toutes les adresses vers le cluster master.
-      if other_ids.any?
-        Address.where(cluster_id: other_ids).update_all(
-          cluster_id: master_id,
-          updated_at: Time.current
-        )
+      ApplicationRecord.transaction do
+        if other_ids.any?
+          Address.where(cluster_id: other_ids).update_all(
+            cluster_id: master_id,
+            updated_at: Time.current
+          )
+
+          cleanup_merged_clusters!(other_ids)
+        end
+
+        unclustered_ids =
+          address_records
+            .select { |record| record.cluster_id.nil? }
+            .map(&:id)
+
+        if unclustered_ids.any?
+          Address.where(id: unclustered_ids).update_all(
+            cluster_id: master_id,
+            updated_at: Time.current
+          )
+        end
+
+        Cluster.find(master_id).recalculate_stats!
       end
-
-      # Attache aussi les adresses sans cluster.
-      unclustered_ids =
-        address_records
-          .select { |record| record.cluster_id.nil? }
-          .map(&:id)
-
-      if unclustered_ids.any?
-        Address.where(id: unclustered_ids).update_all(
-          cluster_id: master_id,
-          updated_at: Time.current
-        )
-      end
-
-      # IMPORTANT:
-      # Ne pas supprimer les anciens clusters ici.
-      #
-      # Pourquoi ?
-      # - cluster_profiles
-      # - cluster_metrics
-      # - cluster_signals
-      #
-      # peuvent encore référencer ces cluster_ids.
-      #
-      # Le scanner cluster doit rester ultra rapide.
-      # Les nettoyages / consolidations analytics seront faits
-      # plus tard par des jobs async dédiés.
-      #
-      # Donc:
-      # - PAS de delete_all
-      # - PAS de cleanup sync
-      # - PAS de recalcul analytics ici
 
       Result.new(
         cluster: Cluster.find(master_id),
         created: 0,
         merged: other_ids.size
       )
+    end
+
+    def cleanup_merged_clusters!(cluster_ids)
+      ids = Array(cluster_ids).compact
+      return if ids.empty?
+
+      ActorProfileDelta.where(cluster_id: ids).delete_all
+      ActorLabel.where(cluster_id: ids).delete_all
+      ActorProfile.where(cluster_id: ids).delete_all
+      ClusterActivityState.where(cluster_id: ids).delete_all
+
+      Cluster.where(id: ids).delete_all
     end
 
     def empty_result

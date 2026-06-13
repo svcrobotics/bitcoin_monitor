@@ -25,7 +25,8 @@ module Clusters
         cluster_started_at = monotonic_ms
 
         cluster.recalculate_stats!
-        ClusterAggregator.call(cluster)
+
+        ActorProfiles::DirtyMarker.mark(cluster.id)
 
         refreshed += 1
 

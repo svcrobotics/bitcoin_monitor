@@ -26,6 +26,7 @@ module Blockchain
         def mark_processing(height)
           block = BlockBufferModel.find_by(height: height)
           return false unless block
+          return false unless [PENDING, ENQUEUED, FAILED].include?(block.status)
 
           block.update!(
             status: PROCESSING,
