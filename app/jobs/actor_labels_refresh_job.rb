@@ -4,11 +4,10 @@
 class ActorLabelsRefreshJob < ApplicationJob
   queue_as :actor_labels
 
-  DEFAULT_LIMIT = 10_000
   LOCK_KEY = "actor_labels_refresh_lock"
   LOCK_TTL = 30.minutes
 
-  def perform(limit: DEFAULT_LIMIT)
+  def perform
     lock = System::RedisJobLock.new(
       key: LOCK_KEY,
       ttl: LOCK_TTL
@@ -21,32 +20,18 @@ class ActorLabelsRefreshJob < ApplicationJob
         "actor_labels_refresh",
         triggered_by: "sidekiq_cron",
         meta: {
-          limit: limit,
-          source: "cluster_profiles"
+          source: "exchange_metrics+internal_etf_candidates"
         }
       ) do |jr|
-        JobRunner.progress!(
-          jr,
-          pct: 5,
-          label: "starting",
-          meta: { limit: limit }
-        )
+        JobRunner.progress!(jr, pct: 10, label: "starting")
 
-        cluster_profile_result = ActorLabels::RefreshFromClusterProfile.call(
-          limit: limit,
-          job_run: jr
-        )
+        exchange_metric_result = Actors::RefreshExchangeLabelsFromMetrics.call
 
         result = {
-          cluster_profiles: cluster_profile_result
+          exchange_like_from_metrics: exchange_metric_result
         }
 
-        JobRunner.progress!(
-          jr,
-          pct: 100,
-          label: "done",
-          meta: result.merge(limit: limit)
-        )
+        JobRunner.progress!(jr, pct: 100, label: "done", meta: result)
 
         result
       end

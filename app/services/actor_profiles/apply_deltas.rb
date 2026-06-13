@@ -1,4 +1,3 @@
-# app/services/actor_profiles/apply_deltas.rb
 # frozen_string_literal: true
 
 module ActorProfiles
@@ -16,14 +15,14 @@ module ActorProfiles
 
       deltas = ActorProfileDelta
         .where(cluster_id: @cluster_id, processed_at: nil)
-    
+
       return nil if deltas.empty?
 
       stats = aggregate_deltas(deltas)
 
       apply_stats(profile, stats)
 
-      profile.classification = classify(profile)
+      profile.classification = profile.metadata["classification"]
       profile.save!
 
       deltas.update_all(
@@ -84,6 +83,8 @@ module ActorProfiles
         last_seen_at: [profile.last_seen_at, stats[:last_seen_at]].compact.max
       }
 
+      scores = ActorProfiles::ScoreCalculator.call(computed_stats)
+
       profile.assign_attributes(
         balance_btc: computed_stats[:balance_btc],
         total_received_btc: computed_stats[:total_received_btc],
@@ -96,106 +97,27 @@ module ActorProfiles
         last_seen_at: computed_stats[:last_seen_at],
         last_computed_height: stats[:max_block_height],
         dirty: false,
-        priority: priority_for(computed_stats),
-        accumulation_score: accumulation_score(computed_stats),
-        distribution_score: distribution_score(computed_stats),
-        exchange_score: exchange_score(computed_stats),
-        whale_score: whale_score(computed_stats),
-        etf_score: etf_score(computed_stats),
-        service_score: service_score(computed_stats),
-        traits: traits(computed_stats),
+        priority: scores[:priority],
+        accumulation_score: scores[:accumulation_score],
+        distribution_score: scores[:distribution_score],
+        exchange_score: scores[:exchange_score],
+        whale_score: scores[:whale_score],
+        etf_score: scores[:etf_score],
+        service_score: scores[:service_score],
+        traits: scores[:traits],
         metadata: {
           source: "actor_profiles_apply_deltas",
           computed_at: Time.current,
           max_delta_height: stats[:max_block_height],
-          delta_tx_count: stats[:tx_count]
+          delta_tx_count: stats[:tx_count],
+          classification: scores[:classification]
         }
       )
     end
 
-    def accumulation_score(stats)
-      score = 0
-      score += 30 if stats[:balance_btc] >= 1_000
-      score += 30 if stats[:net_btc] > 0
-      score += 20 if stats[:outflow_count].to_i < stats[:inflow_count].to_i
-      score += 20 if stats[:total_received_btc] > stats[:total_sent_btc]
-      [score, 100].min
-    end
-
-    def distribution_score(stats)
-      score = 0
-      score += 40 if stats[:total_sent_btc] > stats[:total_received_btc] * 0.7
-      score += 30 if stats[:outflow_count].to_i > stats[:inflow_count].to_i
-      score += 30 if stats[:net_btc] < 0
-      [score, 100].min
-    end
-
-    def whale_score(stats)
-      score = 0
-      score += 50 if stats[:total_sent_btc] >= 10_000
-      score += 30 if stats[:tx_count].to_i < 500
-      score += 20 if stats[:outflow_count].to_i < 100
-      [score, 100].min
-    end
-
-    def exchange_score(stats)
-      score = 0
-      score += 40 if stats[:tx_count].to_i >= 10_000
-      score += 30 if stats[:inflow_count].to_i >= 5_000
-      score += 30 if stats[:outflow_count].to_i >= 5_000
-      [score, 100].min
-    end
-
-    def etf_score(stats)
-      score = 0
-      score += 50 if stats[:total_sent_btc] >= 50_000
-      score += 30 if stats[:tx_count].to_i < 500
-      score += 20 if stats[:outflow_count].to_i < 50
-      [score, 100].min
-    end
-
-    def service_score(stats)
-      score = 0
-      score += 50 if stats[:tx_count].to_i >= 5_000
-      score += 25 if stats[:inflow_count].to_i >= 2_000
-      score += 25 if stats[:outflow_count].to_i >= 2_000
-      [score, 100].min
-    end
-
-    def traits(stats)
-      {
-        accumulator: stats[:net_btc] > 0,
-        large_holder: stats[:balance_btc] >= 1_000,
-        very_large_holder: stats[:balance_btc] >= 10_000,
-        low_outflow_ratio: stats[:outflow_count].to_i < stats[:inflow_count].to_i * 0.2,
-        high_activity: stats[:tx_count].to_i >= 5_000
-      }
-    end
-
-    def classify(profile)
-      scores = {
-        "etf_like" => profile.etf_score.to_i,
-        "exchange_like" => profile.exchange_score.to_i,
-        "whale_like" => profile.whale_score.to_i,
-        "service_like" => profile.service_score.to_i
-      }
-
-      label, score = scores.max_by { |_label, value| value }
-      score >= 60 ? label : "unknown"
-    end
-
-    def priority_for(stats)
-      return "heavy" if stats[:tx_count].to_i >= 100_000
-      return "heavy" if stats[:total_received_btc].to_d >= 50_000
-      return "medium" if stats[:tx_count].to_i >= 10_000
-      return "medium" if stats[:total_received_btc].to_d >= 1_000
-
-      "light"
-    end
-
     def decimal_value(value)
       BigDecimal(value.to_s)
-    rescue
+    rescue StandardError
       BigDecimal("0")
     end
   end

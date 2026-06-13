@@ -19,6 +19,8 @@ module ActorProfiles
       profile = ActorProfile.find_or_initialize_by(cluster_id: @cluster_id)
       stats = compute_stats
 
+      scores = ActorProfiles::ScoreCalculator.call(stats)
+
       profile.assign_attributes(
         balance_btc: stats[:balance_btc],
         total_received_btc: stats[:total_received_btc],
@@ -31,24 +33,26 @@ module ActorProfiles
         last_seen_at: stats[:last_seen_at],
         last_computed_height: current_layer1_height,
         dirty: false,
-        priority: priority_for(stats),
-        accumulation_score: accumulation_score(stats),
-        distribution_score: distribution_score(stats),
-        exchange_score: exchange_score(stats),
-        whale_score: whale_score(stats),
-        etf_score: etf_score(stats),
-        service_score: service_score(stats),
-        traits: traits(stats),
+
+        priority: scores[:priority],
+        accumulation_score: scores[:accumulation_score],
+        distribution_score: scores[:distribution_score],
+        exchange_score: scores[:exchange_score],
+        whale_score: scores[:whale_score],
+        etf_score: scores[:etf_score],
+        service_score: scores[:service_score],
+        traits: scores[:traits],
+
         metadata: {
           source: SOURCE,
           computed_at: Time.current,
           runtime_ms: elapsed_ms(started_at),
-          stats_source: "address_flow_stats",
+          stats_source: "addresses_and_cluster_inputs",
           computed_height: current_layer1_height
         }
       )
 
-      profile.classification = classify(profile)
+      profile.classification = scores[:classification]
       profile.save!
 
       Rails.logger.info(
@@ -63,22 +67,31 @@ module ActorProfiles
     private
 
     def compute_stats
-      row = AddressFlowStat
+      address_row = Address
         .where(cluster_id: @cluster_id)
         .select(
-          "COALESCE(SUM(received_btc), 0) AS total_received_btc",
-          "COALESCE(SUM(sent_btc), 0) AS total_sent_btc",
-          "COALESCE(SUM(net_btc), 0) AS net_btc",
-          "COALESCE(SUM(tx_count), 0) AS tx_count",
-          "MIN(first_seen_at) AS first_seen_at",
-          "MAX(last_seen_at) AS last_seen_at"
+          "COUNT(*) AS address_count",
+          "COALESCE(SUM(total_received_sats), 0) AS total_received_sats",
+          "COALESCE(SUM(total_sent_sats), 0) AS total_sent_sats",
+          "MIN(created_at) AS first_seen_at",
+          "MAX(updated_at) AS last_seen_at"
         )
         .take
 
-      received_btc = decimal_value(row.total_received_btc)
-      sent_btc = decimal_value(row.total_sent_btc)
-      net_btc = decimal_value(row.net_btc)
-      tx_count = integer_value(row.tx_count)
+      tx_row = ClusterInput
+        .joins("INNER JOIN addresses ON addresses.address = cluster_inputs.address")
+        .where(addresses: { cluster_id: @cluster_id })
+        .select(
+          "COUNT(*) AS tx_count",
+          "COUNT(*) FILTER (WHERE cluster_inputs.amount_btc > 0) AS inflow_count",
+          "COUNT(*) FILTER (WHERE cluster_inputs.spent = TRUE) AS outflow_count"
+        )
+        .take
+
+      received_btc = decimal_value(address_row.total_received_sats) / 100_000_000
+      sent_btc = decimal_value(address_row.total_sent_sats) / 100_000_000
+      net_btc = received_btc - sent_btc
+      tx_count = integer_value(tx_row.tx_count)
 
       {
         balance_btc: net_btc,
@@ -86,86 +99,11 @@ module ActorProfiles
         total_sent_btc: sent_btc,
         net_btc: net_btc,
         tx_count: tx_count,
-
-        # Pour l’instant AddressFlowStat ne donne pas encore un vrai nombre
-        # d’entrées/sorties séparées. On utilise une approximation stable.
-        inflow_count: received_btc.positive? ? tx_count : 0,
-        outflow_count: sent_btc.positive? ? tx_count : 0,
-
-        first_seen_at: row.first_seen_at,
-        last_seen_at: row.last_seen_at
+        inflow_count: integer_value(tx_row.inflow_count),
+        outflow_count: integer_value(tx_row.outflow_count),
+        first_seen_at: address_row.first_seen_at,
+        last_seen_at: address_row.last_seen_at
       }
-    end
-
-    def accumulation_score(stats)
-      score = 0
-      score += 30 if stats[:balance_btc] >= 1_000
-      score += 30 if stats[:net_btc] > 0
-      score += 20 if stats[:outflow_count].to_i < stats[:inflow_count].to_i
-      score += 20 if stats[:total_received_btc] > stats[:total_sent_btc]
-      [score, 100].min
-    end
-
-    def distribution_score(stats)
-      score = 0
-      score += 40 if stats[:total_sent_btc] > stats[:total_received_btc] * 0.7
-      score += 30 if stats[:outflow_count].to_i > stats[:inflow_count].to_i
-      score += 30 if stats[:net_btc] < 0
-      [score, 100].min
-    end
-
-    def whale_score(stats)
-      score = 0
-      score += 50 if stats[:total_sent_btc] >= 10_000
-      score += 30 if stats[:tx_count].to_i < 500
-      score += 20 if stats[:outflow_count].to_i < 100
-      [score, 100].min
-    end
-
-    def exchange_score(stats)
-      score = 0
-      score += 40 if stats[:tx_count].to_i >= 10_000
-      score += 30 if stats[:inflow_count].to_i >= 5_000
-      score += 30 if stats[:outflow_count].to_i >= 5_000
-      [score, 100].min
-    end
-
-    def etf_score(stats)
-      score = 0
-      score += 50 if stats[:total_sent_btc] >= 50_000
-      score += 30 if stats[:tx_count].to_i < 500
-      score += 20 if stats[:outflow_count].to_i < 50
-      [score, 100].min
-    end
-
-    def service_score(stats)
-      score = 0
-      score += 50 if stats[:tx_count].to_i >= 5_000
-      score += 25 if stats[:inflow_count].to_i >= 2_000
-      score += 25 if stats[:outflow_count].to_i >= 2_000
-      [score, 100].min
-    end
-
-    def traits(stats)
-      {
-        accumulator: stats[:net_btc] > 0,
-        large_holder: stats[:balance_btc] >= 1_000,
-        very_large_holder: stats[:balance_btc] >= 10_000,
-        low_outflow_ratio: stats[:outflow_count].to_i < stats[:inflow_count].to_i * 0.2,
-        high_activity: stats[:tx_count].to_i >= 5_000
-      }
-    end
-
-    def classify(profile)
-      scores = {
-        "etf_like" => profile.etf_score.to_i,
-        "exchange_like" => profile.exchange_score.to_i,
-        "whale_like" => profile.whale_score.to_i,
-        "service_like" => profile.service_score.to_i
-      }
-
-      label, score = scores.max_by { |_label, value| value }
-      score >= 60 ? label : "unknown"
     end
 
     def decimal_value(value)
@@ -194,15 +132,6 @@ module ActorProfiles
       rescue
         0
       end
-    end
-
-    def priority_for(stats)
-      return "heavy" if stats[:tx_count].to_i >= 100_000
-      return "heavy" if stats[:total_received_btc].to_d >= 50_000
-      return "medium" if stats[:tx_count].to_i >= 10_000
-      return "medium" if stats[:total_received_btc].to_d >= 1_000
-
-      "light"
     end
   end
 end

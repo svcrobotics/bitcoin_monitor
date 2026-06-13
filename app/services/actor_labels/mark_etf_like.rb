@@ -1,4 +1,3 @@
-# app/services/actor_labels/mark_etf_like.rb
 module ActorLabels
   class MarkEtfLike
     def self.call(cluster_id:, name:, confidence: 90, source: "manual", metadata: {})
@@ -12,6 +11,11 @@ module ActorLabels
           name: name,
           entity_type: "spot_bitcoin_etf"
         }.merge(metadata)
+
+        label.first_seen_at ||= Time.current
+        label.last_seen_at = Time.current
+        label.updated_at = Time.current
+
         label.save!
       end
     end
