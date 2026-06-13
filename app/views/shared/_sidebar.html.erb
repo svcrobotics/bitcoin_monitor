@@ -172,30 +172,6 @@
         </div>
       <% end %>
 
-      <%= link_to market_signals_path, class: nav_item do %>
-        <span class="<%= nav_icon %>">
-          <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M3 15.5A1.5 1.5 0 0 0 4.5 17h11a.75.75 0 0 0 0-1.5h-11V4.5a.75.75 0 0 0-1.5 0v11Z" />
-            <path d="M6 13.25 8.75 10.5l2 1.75 4-5a.75.75 0 1 1 1.17.94l-4.5 5.63a.75.75 0 0 1-1.08.09L8.7 12.47l-1.64 1.64A.75.75 0 0 1 6 13.25Z" />
-          </svg>
-        </span>
-
-        <div class="min-w-0 flex-1">
-          <div class="truncate">Macro Signals</div>
-          <div class="truncate text-[11px] font-normal text-slate-500">
-            FED · DXY · Market bias
-          </div>
-        </div>
-
-        <div class="hidden md:flex items-center gap-1 rounded-md border border-cyan-500/20 bg-cyan-500/10 px-1.5 py-0.5">
-          <span class="h-1.5 w-1.5 rounded-full bg-cyan-400 animate-pulse"></span>
-
-          <span class="text-[10px] font-semibold uppercase tracking-[0.14em] text-cyan-300">
-            Beta
-          </span>
-        </div>
-      <% end %>
-
       <%= link_to actors_whale_core_flows_path, class: nav_item do %>
         <span class="<%= nav_icon %>">
           <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

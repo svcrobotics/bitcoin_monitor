@@ -1,5 +1,5 @@
 Rails.application.routes.draw do
-  get "market_signals/index"
+  
   get "search/index"
 
   namespace :clusters do
@@ -104,8 +104,6 @@ Rails.application.routes.draw do
   #get "inflow_outflow", to: "inflow_outflow#index"
 
   resources :clusters, only: [:index, :show]
-  get "/cluster_signals", to: "cluster_signals#index"
-  get "/cluster_signals/top", to: "cluster_signals#top", as: :top_cluster_signals
 
   get "search", to: "search#index", as: :search
   get "search/live", to: "search#live", as: :live_search
@@ -130,11 +128,20 @@ Rails.application.routes.draw do
 
   get "system/sidekiq", to: "system#sidekiq", as: :system_sidekiq
 
-  resources :market_signals, only: [:index]
-
   namespace :actors do
     resources :whale_core_flows, only: [:index]
   end
 
   post "ai/dashboard_answer", to: "ai/dashboard_answers#create", as: :ai_dashboard_answer
+
+  get "system/summary", to: "system#summary", as: :system_summary
+  get "system/layer1", to: "system#layer1", as: :system_layer1
+  get "system/sidekiq_runtime", to: "system#sidekiq_runtime", as: :system_sidekiq_runtime
+
+  get "layer1/health", to: "layer1_health#show", as: :layer1_health
+
+  get "system/heartbeat", to: "system_heartbeat#show"
+
+  get "system/layer1_audit", to: "layer1_audit#show", as: :system_layer1_audit
+  post "system/layer1_audit/run", to: "layer1_audit#run", as: :system_layer1_audit_run
 end

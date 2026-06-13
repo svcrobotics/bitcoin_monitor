@@ -40,17 +40,9 @@
       "bg-slate-500"
     end
 
-  health_label =
-    case health
-    when :healthy then "Platform healthy"
-    when :warning then "Platform degraded"
-    when :critical then "Platform critical"
-    else "Platform unknown"
-    end
-
   layer1_lag =
     if defined?(@recovery_snapshot)
-      (@recovery_snapshot.dig(:layer1, :lag) || 0)
+      @recovery_snapshot.dig(:layer1, :lag) || 0
     else
       0
     end
@@ -76,26 +68,79 @@
           <path d="M4 17h16" />
         </svg>
       </button>
-
     </div>
 
     <!-- RIGHT -->
     <div class="flex items-center gap-3">
-      <!-- Platform status -->
-      <div class="hidden lg:flex items-center gap-3 rounded-2xl border px-4 py-2 <%= status_classes %>">
-        <div class="flex items-center gap-2">
-          <span class="h-2.5 w-2.5 rounded-full shadow-lg <%= dot_classes %>"></span>
+      <!-- Tansa heartbeat -->
+      <div
+        data-controller="system-heartbeat"
+        data-system-heartbeat-url-value="/system/heartbeat"
+        data-system-heartbeat-interval-value="30000"
+        class="hidden lg:flex items-center gap-3 rounded-2xl border px-4 py-2 <%= status_classes %>"
+      >
+        <div class="flex items-center gap-3">
+          <!-- Heart pulse -->
+          <span class="relative flex h-3 w-3">
+            <span class="absolute inline-flex h-full w-full animate-ping rounded-full <%= dot_classes %> opacity-70"></span>
+            <span
+              data-system-heartbeat-target="pulse"
+              class="relative inline-flex h-3 w-3 rounded-full <%= dot_classes %>"
+            ></span>
+          </span>
 
           <div>
-            <div class="text-[11px] font-semibold uppercase tracking-[0.18em]">
-              <%= health_label %>
+            <div class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em]">
+              <span>Tansa heartbeat</span>
+
+              <span
+                data-system-heartbeat-target="status"
+                class="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[9px] tracking-normal text-slate-300"
+              >
+                live
+              </span>
             </div>
 
-            <div class="mt-0.5 flex items-center gap-2 text-[11px] text-slate-400">
+            <div class="mt-0.5 flex items-center gap-3 text-[11px] text-slate-400">
               <span>
-                Layer1 lag:
-                <span class="font-semibold text-white">
+                L1
+                <span class="font-semibold text-white" data-system-heartbeat-target="lag">
                   <%= layer1_lag %>
+                </span>
+              </span>
+
+              <span>
+                OUT
+                <span class="font-semibold text-white" data-system-heartbeat-target="outputs">
+                  -
+                </span>
+              </span>
+
+              <span>
+                SPENT
+                <span class="font-semibold text-white" data-system-heartbeat-target="spent">
+                  -
+                </span>
+              </span>
+
+              <span>
+                DRAIN
+                <span class="font-semibold text-white" data-system-heartbeat-target="drain">
+                  -
+                </span>
+              </span>
+
+              <span>
+                FLUSH
+                <span class="font-semibold text-white" data-system-heartbeat-target="flushers">
+                  -
+                </span>
+              </span>
+              
+              <span>
+                RESOLVE
+                <span class="font-semibold text-white" data-system-heartbeat-target="resolve">
+                  -
                 </span>
               </span>
 
@@ -103,12 +148,19 @@
                 <span class="text-slate-600">•</span>
 
                 <span>
-                  height:
+                  H
                   <span class="font-semibold text-white">
                     <%= best_height %>
                   </span>
                 </span>
               <% end %>
+
+              <span class="text-slate-600">•</span>
+
+              <span class="text-slate-500">
+                MAJ
+                <span data-system-heartbeat-target="time">--:--:--</span>
+              </span>
             </div>
           </div>
         </div>
