@@ -1,0 +1,74 @@
+<%= turbo_frame_tag "system_sidekiq_runtime_block" do %>
+
+  <%
+    require "sidekiq/api"
+
+    queues = Sidekiq::Queue.all.map do |q|
+      {
+        name: q.name,
+        size: q.size,
+        latency: q.latency.round(1)
+      }
+    end
+
+    active_queues =
+      queues
+        .select { |q| q[:size].positive? || q[:latency] > 30 }
+        .sort_by { |q| -q[:size] }
+  %>
+
+  <section class="rounded-2xl border border-white/10 bg-white/5 p-5 shadow-sm">
+    <div class="mb-5 flex items-center justify-between">
+      <div>
+        <div class="text-[11px] uppercase tracking-[0.14em] text-gray-500">
+          Sidekiq Runtime
+        </div>
+
+        <h2 class="mt-1 text-xl font-semibold text-gray-100">
+          Queues & Backlogs
+        </h2>
+
+        <p class="mt-2 text-sm text-gray-400">
+          État temps réel des files Sidekiq.
+        </p>
+      </div>
+
+      <div class="rounded-full border border-white/10 px-3 py-1 text-sm text-gray-300">
+        <%= active_queues.count %> queue(s)
+      </div>
+    </div>
+
+    <div class="space-y-3">
+      <% active_queues.first(10).each do |queue| %>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+          <div class="flex items-center justify-between">
+
+            <div>
+              <div class="font-mono text-sm text-gray-200">
+                <%= queue[:name] %>
+              </div>
+
+              <div class="mt-1 text-xs text-gray-500">
+                Latence : <%= number_with_delimiter(queue[:latency]) %> s
+              </div>
+            </div>
+
+            <div class="text-right">
+              <div class="text-lg font-bold text-amber-300">
+                <%= number_with_delimiter(queue[:size]) %>
+              </div>
+
+              <div class="text-xs text-gray-500">
+                jobs
+              </div>
+            </div>
+
+          </div>
+        </div>
+
+      <% end %>
+    </div>
+  </section>
+
+<% end %>

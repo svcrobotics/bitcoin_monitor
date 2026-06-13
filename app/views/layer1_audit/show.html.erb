@@ -1,0 +1,220 @@
+<div class="space-y-6 text-slate-100">
+  <% last_checks = @last_audit&.checks || {} %>
+  <% last_total = last_checks.size %>
+  <% last_ok = last_checks.count { |_name, result| result["passed"] } %>
+
+  <section class="rounded-2xl border border-slate-800 bg-slate-950 p-6">
+    <p class="text-sm font-semibold text-blue-400">Réponse IA · Layer1</p>
+
+    <h1 class="mt-2 text-2xl font-bold text-white">
+      Layer1 prouve que les données Tansa correspondent à la blockchain Bitcoin
+    </h1>
+
+    <p class="mt-4 text-slate-300 leading-relaxed">
+      Layer1 est la base de vérité de Tansa. Le système lit les blocs depuis Bitcoin Core,
+      extrait les transactions, les outputs et les montants BTC, puis stocke ces données
+      dans PostgreSQL. L’audit compare ensuite la source Bitcoin avec les données internes
+      de Tansa.
+    </p>
+
+    <p class="mt-3 text-slate-400 leading-relaxed">
+      L’objectif n’est pas seulement d’afficher des chiffres : l’objectif est de prouver
+      que les données utilisées par l’IA, les clusters, les actors et les flows reposent
+      sur une base vérifiée.
+    </p>
+  </section>
+
+  <% if @last_audit %>
+    <section class="rounded-2xl border <%= @last_audit.status == "healthy" ? "border-green-900/50 bg-green-950/20" : "border-red-900/50 bg-red-950/20" %> p-6">
+      <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+        <div>
+          <p class="text-sm font-semibold <%= @last_audit.status == "healthy" ? "text-green-400" : "text-red-400" %>">
+            Preuve Layer1
+          </p>
+
+          <h2 class="mt-2 text-xl font-bold text-white">
+            Dernier bloc audité : <%= @last_audit.audited_height %>
+          </h2>
+
+          <p class="mt-2 text-slate-300">
+            Bitcoin Core est comparé aux données enregistrées par Tansa.
+          </p>
+        </div>
+
+        <div class="flex gap-3">
+          <div class="rounded-xl bg-slate-950/70 px-4 py-3">
+            <p class="text-xs text-slate-400">Statut</p>
+            <p class="mt-1 text-lg font-bold <%= @last_audit.status == "healthy" ? "text-green-400" : "text-red-400" %>">
+              <%= @last_audit.status.upcase %>
+            </p>
+          </div>
+
+          <div class="rounded-xl bg-slate-950/70 px-4 py-3">
+            <p class="text-xs text-slate-400">Validation</p>
+            <p class="mt-1 text-lg font-bold text-white">
+              <%= last_ok %>/<%= last_total %> OK
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-5 rounded-xl bg-slate-950/70 p-4">
+        <p class="text-xs text-slate-400">Hash du bloc</p>
+        <p class="mt-1 break-all font-mono text-sm text-slate-300">
+          <%= @last_audit.block_hash %>
+        </p>
+      </div>
+    </section>
+  <% end %>
+
+  <section class="rounded-2xl border border-slate-800 bg-slate-950 p-6">
+    <h2 class="text-xl font-bold text-white">Comparaison source de vérité ↔ données Tansa</h2>
+
+    <p class="mt-2 text-slate-400">
+      Chaque ligne compare une donnée blockchain lue depuis Bitcoin Core avec la donnée
+      enregistrée par Tansa. Vert = cohérent. Rouge = anomalie.
+    </p>
+
+    <% if @last_audit && last_checks.any? %>
+      <div class="mt-5 overflow-hidden rounded-xl border border-slate-800">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-900 text-slate-400">
+            <tr>
+              <th class="px-4 py-3 text-left">Contrôle</th>
+              <th class="px-4 py-3 text-left">Blockchain / Bitcoin Core</th>
+              <th class="px-4 py-3 text-left">Tansa / PostgreSQL</th>
+              <th class="px-4 py-3 text-left">Validation</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            <% last_checks.each do |name, result| %>
+              <% passed = result["passed"] %>
+
+              <% blockchain_value =
+                result["bitcoin_core"] ||
+                result["source"] ||
+                result["expected"] ||
+                result["core"] ||
+                result["truth"] ||
+                result["bitcoin"] %>
+
+              <% tansa_value =
+                result["tansa"] ||
+                result["postgresql"] ||
+                result["database"] ||
+                result["actual"] ||
+                result["stored"] ||
+                result["local"] %>
+
+              <tr class="border-t border-slate-800">
+                <td class="px-4 py-3 font-medium text-white">
+                  <%= name.to_s.humanize %>
+                </td>
+
+                <td class="px-4 py-3 font-mono text-xs text-slate-300">
+                  <%= blockchain_value.nil? ? "—" : blockchain_value %>
+                </td>
+
+                <td class="px-4 py-3 font-mono text-xs text-slate-300">
+                  <%= tansa_value.nil? ? "—" : tansa_value %>
+                </td>
+
+                <td class="px-4 py-3">
+                  <% if passed %>
+                    <span class="inline-flex items-center rounded-full bg-green-500/10 px-3 py-1 text-xs font-semibold text-green-400 ring-1 ring-green-500/30">
+                      ✓ Match
+                    </span>
+                  <% else %>
+                    <span class="inline-flex items-center rounded-full bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-400 ring-1 ring-red-500/30">
+                      ✕ Mismatch
+                    </span>
+                  <% end %>
+                </td>
+              </tr>
+            <% end %>
+          </tbody>
+        </table>
+      </div>
+    <% else %>
+      <div class="mt-5 rounded-xl border border-yellow-900/40 bg-yellow-950/20 p-4">
+        <p class="text-sm text-yellow-200">
+          Aucun audit disponible pour le moment. Lance un audit pour comparer Bitcoin Core
+          avec les données Tansa.
+        </p>
+      </div>
+    <% end %>
+  </section>
+
+  <section class="rounded-2xl border border-blue-900/40 bg-blue-950/20 p-6">
+    <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+      <div>
+        <h2 class="text-xl font-bold text-white">Audit Layer1</h2>
+        <p class="mt-2 text-slate-300 leading-relaxed">
+          L’audit contrôle que les blocs, hashes, transactions, outputs et montants BTC
+          stockés par Tansa correspondent à la source Bitcoin.
+        </p>
+      </div>
+
+      <%= button_to "Auditer les 10 derniers blocs",
+          system_layer1_audit_run_path,
+          method: :post,
+          class: "rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500" %>
+    </div>
+  </section>
+
+  <section class="rounded-2xl border border-slate-800 bg-slate-950 overflow-hidden">
+    <div class="p-5">
+      <h2 class="text-xl font-bold text-white">Historique des audits récents</h2>
+      <p class="mt-1 text-sm text-slate-400">
+        Chaque ligne résume une comparaison PostgreSQL ↔ Bitcoin Core.
+      </p>
+    </div>
+
+    <table class="w-full text-sm">
+      <thead class="bg-slate-900 text-slate-400">
+        <tr>
+          <th class="px-4 py-3 text-left">Bloc</th>
+          <th class="px-4 py-3 text-left">Statut</th>
+          <th class="px-4 py-3 text-left">Hash</th>
+          <th class="px-4 py-3 text-left">Checks</th>
+          <th class="px-4 py-3 text-left">Date</th>
+        </tr>
+      </thead>
+
+      <tbody>
+        <% @last_audits.each do |audit| %>
+          <% checks = audit.checks || {} %>
+          <% total = checks.size %>
+          <% ok = checks.count { |_name, result| result["passed"] } %>
+
+          <tr class="border-t border-slate-800">
+            <td class="px-4 py-3 font-mono text-white">
+              <%= audit.audited_height %>
+            </td>
+
+            <td class="px-4 py-3">
+              <% if audit.status == "healthy" %>
+                <span class="font-semibold text-green-400">HEALTHY</span>
+              <% else %>
+                <span class="font-semibold text-red-400"><%= audit.status.upcase %></span>
+              <% end %>
+            </td>
+
+            <td class="px-4 py-3 font-mono text-xs text-slate-400">
+              <%= audit.block_hash.to_s.first(20) %>...
+            </td>
+
+            <td class="px-4 py-3 text-slate-300">
+              <%= ok %>/<%= total %> OK
+            </td>
+
+            <td class="px-4 py-3 text-slate-400">
+              <%= audit.created_at.strftime("%d/%m %H:%M:%S") %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </section>
+</div>
