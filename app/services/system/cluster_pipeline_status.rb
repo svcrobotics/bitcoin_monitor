@@ -62,13 +62,15 @@ module System
 
         refresh_queue: refresh_jobs,
 
-        profiles_count: ClusterProfile.count,
-        metrics_count: ClusterMetric.count,
-        signals_count: ClusterSignal.count,
+        profiles_count: 0,
+        metrics_count: 0,
+        signals_count: 0,
+        legacy_disabled: true,
 
-        last_profile_update: ClusterProfile.maximum(:updated_at),
-        last_metric_day: ClusterMetric.maximum(:snapshot_date),
-        last_signal_day: ClusterSignal.maximum(:snapshot_date),
+        last_profile_update: nil,
+        legacy_cluster_profiles_disabled: true,
+        last_metric_day: nil,
+        last_signal_day: nil,
 
         dirty_queue_size: dirty_queue_size,
 

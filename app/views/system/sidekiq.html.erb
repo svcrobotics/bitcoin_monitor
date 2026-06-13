@@ -462,14 +462,16 @@
       end
 
     whale_latest_day = WhaleCoreFlowDay.order(day: :desc).first rescue nil
-    whale_signal = MarketSignal.where(source: "tansa", indicator: "WHALE_CORE_FLOW").order(observed_on: :desc).first rescue nil
-    whale_predictions = MarketPrediction.where(source: "tansa", indicator: "WHALE_CORE_FLOW") rescue MarketPrediction.none
 
-    whale_success_rate =
-      if whale_predictions.count.positive?
-        ((whale_predictions.where(result: "success").count.to_f / whale_predictions.count) * 100).round(1)
+    whale_netflow = whale_latest_day&.netflow_btc.to_f || 0
+
+    whale_state =
+      if whale_netflow > 0
+        "Accumulation"
+      elsif whale_netflow < 0
+        "Distribution"
       else
-        0
+        "Neutral"
       end
   %>
 
@@ -527,8 +529,8 @@
 
         <div class="flex justify-between">
           <span class="text-gray-500">Signal</span>
-          <span class="font-mono <%= whale_signal&.direction == "bullish" ? "text-emerald-300" : whale_signal&.direction == "bearish" ? "text-rose-300" : "text-gray-300" %>">
-            <%= whale_signal&.direction || "—" %>
+          <span class="font-mono <%= whale_netflow > 0 ? "text-emerald-300" : whale_netflow < 0 ? "text-rose-300" : "text-gray-300" %>">
+            <%= whale_state %>
           </span>
         </div>
       </div>
@@ -539,26 +541,30 @@
     </div>
 
     <div class="<%= section_class %>">
-      <div class="<%= label_class %>">Prediction engine</div>
+      <div class="<%= label_class %>">Whale actors</div>
 
-      <div class="mt-3 text-3xl font-bold text-cyan-300">
-        <%= whale_success_rate %>%
+      <div class="mt-3 text-3xl font-bold text-purple-300">
+        <%= number_with_delimiter(ActorLabel.where(label: "whale_like").count) %>
       </div>
 
       <div class="mt-3 space-y-2 text-sm">
         <div class="flex justify-between">
-          <span class="text-gray-500">Predictions</span>
-          <span class="font-mono text-gray-200"><%= whale_predictions.count %></span>
+          <span class="text-gray-500">State</span>
+          <span class="font-mono text-gray-200">
+            <%= whale_state %>
+          </span>
         </div>
 
         <div class="flex justify-between">
-          <span class="text-gray-500">Indicator</span>
-          <span class="font-mono text-gray-200">WHALE_CORE_FLOW</span>
+          <span class="text-gray-500">Netflow</span>
+          <span class="font-mono text-gray-200">
+            <%= whale_netflow.round(2) %> BTC
+          </span>
         </div>
       </div>
 
       <p class="mt-3 <%= muted_class %>">
-        Backtest whale accumulation / distribution.
+        Acteurs classés whale_like par Actor Labels.
       </p>
     </div>
   </div>

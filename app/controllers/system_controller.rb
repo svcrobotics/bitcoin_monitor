@@ -141,6 +141,22 @@ class SystemController < ApplicationController
     @queue_contents = System::SidekiqQueueContentsSnapshot.call
   end
 
+  def summary
+    render partial: "system/blocks/summary"
+  end
+
+  def layer1
+    snapshot = System::RecoverySnapshotBuilder.call rescue {}
+    layer1 = snapshot[:layer1] || {}
+
+    render partial: "system/blocks/layer1",
+           locals: { layer1: layer1 }
+  end
+
+  def sidekiq_runtime
+    render partial: "system/blocks/sidekiq_runtime"
+  end
+
   private
 
   def estimated_count(model)
@@ -533,12 +549,6 @@ class SystemController < ApplicationController
       AddressLink.order(block_height: :desc).limit(1).pick(:created_at)&.in_time_zone ||
       Cluster.maximum(:updated_at)&.in_time_zone
 
-    cluster_metrics_last =
-      ClusterMetric.order(snapshot_date: :desc).limit(1).pick(:snapshot_date)&.in_time_zone
-
-    cluster_signals_last =
-      ClusterSignal.order(snapshot_date: :desc).limit(1).pick(:snapshot_date)&.in_time_zone
-
     {
       "exchange_core_flow_events" => build_table_row(
         count: estimated_count(ExchangeCoreFlowEvent),
@@ -597,23 +607,6 @@ class SystemController < ApplicationController
           "Mise à jour quotidienne attendue (J-1).",
         now: now,
         min_day: Date.current - 1
-      ),
-
-      "cluster_metrics" => build_table_row(
-        count: estimated_count(ClusterMetric),
-        last_at: cluster_metrics_last,
-        sla_h: 36,
-        hint: "V3.1 : métriques agrégées cluster par snapshot_date.",
-        now: now,
-        min_day: Date.yesterday
-      ),
-
-      "cluster_signals" => build_table_row(
-        count: estimated_count(ClusterSignal),
-        last_at: cluster_signals_job_last,
-        sla_h: 36,
-        hint: "V3.1 : signaux cluster détectés à partir des métriques. Dernier snapshot_date présent: #{cluster_signals_last.present? ? cluster_signals_last.to_date.strftime("%Y-%m-%d") : "—"}",
-        now: now
       )
     }
   end

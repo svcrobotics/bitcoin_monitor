@@ -7,21 +7,6 @@ class SystemTestStatus
 
   MODULES = [
     {
-      key: "cluster_aggregator",
-      label: "ClusterAggregator",
-      files: ["./spec/services/cluster_aggregator_spec.rb"]
-    },
-    {
-      key: "cluster_metrics_builder",
-      label: "ClusterMetricsBuilder",
-      files: ["./spec/services/cluster_metrics_builder_spec.rb"]
-    },
-    {
-      key: "cluster_signal_engine",
-      label: "ClusterSignalEngine",
-      files: ["./spec/services/cluster_signal_engine_spec.rb"]
-    },
-    {
       key: "cluster_scanner",
       label: "ClusterScanner",
       files: ["./spec/services/cluster_scanner_spec.rb"]
@@ -35,11 +20,6 @@ class SystemTestStatus
       key: "address_lookup_edge_cases",
       label: "AddressLookup edge cases",
       files: ["./spec/requests/address_lookup_edge_cases_spec.rb"]
-    },
-    {
-      key: "cluster_signals_pages",
-      label: "ClusterSignals pages",
-      files: ["./spec/requests/cluster_signals_spec.rb"]
     },
     {
       key: "system_page",

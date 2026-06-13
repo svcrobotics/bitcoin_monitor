@@ -174,18 +174,12 @@ class GuideHealth
         BtcPriceDay.order(day: :desc).pick(:day)
       when "whale_alerts"
         WhaleAlert.maximum(:created_at)
-      when "cluster_metrics"
-        ClusterMetric.maximum(:snapshot_date)
-      when "cluster_signals"
-        ClusterSignal.maximum(:snapshot_date)
       when "clusters"
         Cluster.maximum(:updated_at)
       when "addresses"
         Address.maximum(:updated_at)
       when "address_links"
         AddressLink.maximum(:updated_at)
-      when "cluster_profiles"
-        ClusterProfile.maximum(:updated_at)
       when "exchange_observed_utxos"
         ExchangeObservedUtxo.maximum(:updated_at)
       else

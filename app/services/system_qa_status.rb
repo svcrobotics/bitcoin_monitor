@@ -16,27 +16,6 @@ class SystemQaStatus
       title: "Cluster — Services",
       items: [
         Item.new(
-          key: "cluster_aggregator",
-          label: "ClusterAggregator",
-          status: :green,
-          coverage: "Agrégation, cohérence, idempotence",
-          command: "bundle exec rspec spec/services/cluster_aggregator_spec.rb"
-        ),
-        Item.new(
-          key: "cluster_metrics_builder",
-          label: "ClusterMetricsBuilder",
-          status: :green,
-          coverage: "Projection 24h/7j, activity_score, idempotence",
-          command: "bundle exec rspec spec/services/cluster_metrics_builder_spec.rb"
-        ),
-        Item.new(
-          key: "cluster_signal_engine",
-          label: "ClusterSignalEngine",
-          status: :green,
-          coverage: "Signaux simples, anti-bruit, idempotence",
-          command: "bundle exec rspec spec/services/cluster_signal_engine_spec.rb"
-        ),
-        Item.new(
           key: "cluster_scanner",
           label: "ClusterScanner",
           status: :orange,
@@ -62,13 +41,6 @@ class SystemQaStatus
           status: :green,
           coverage: "Adresse non observée, sans signaux, cluster incomplet",
           command: "bundle exec rspec spec/requests/address_lookup_edge_cases_spec.rb"
-        ),
-        Item.new(
-          key: "cluster_signals_pages",
-          label: "ClusterSignals pages",
-          status: :green,
-          coverage: "/cluster_signals, /top, filtres, tri, ranking",
-          command: "bundle exec rspec spec/requests/cluster_signals_spec.rb"
         ),
         Item.new(
           key: "system_page",
