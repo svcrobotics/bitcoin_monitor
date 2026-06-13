@@ -1,16 +1,26 @@
-:concurrency: 2
+:concurrency: 4
 
 :queues:
-  - [process, 6]
-  - [realtime, 5]
-  - [ingest, 4]
-  - [p1_exchange, 3]
-  - [p3_clusters_scan, 3]
-  - [p3_clusters_refresh, 2]
-  - [p3_actor_profile_light, 2]
-  - [p3_actor_profile_heavy, 1]
-  - [actor_labels, 2]
-  - [p2_flows, 2]
+  - [process, 10]
+  - [ingest, 9]
+  - [realtime, 8]
+  - [btc_realtime, 8]
+
+  - [layer1_drain, 7]
+  - [spent_resolve, 6]
+
+  - [p3_clusters_scan, 5]
+  - [p3_clusters, 5]
+  - [p3_clusters_refresh, 5]
+
+  - [p3_actor_profile_light, 4]
+  - [p3_actor_profile_heavy, 3]
+
+  - [actor_labels, 3]
+
+  - [p1_exchange, 2]
+
+  - [p2_flows, 1]
   - [p4_analytics, 1]
   - [default, 1]
   - [low, 1]

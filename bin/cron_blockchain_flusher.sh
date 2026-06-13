@@ -1,14 +1,23 @@
 #!/usr/bin/env bash
-cd /home/victor/bitcoin_monitor || exit 1
+set -euo pipefail
 
-export RAILS_ENV=development
-export REDIS_URL=${REDIS_URL:-redis://127.0.0.1:6379/0}
+LOCK=/tmp/bitcoin_monitor_blockchain_flusher.lock
 
-export OUTPUT_FLUSH_BATCH_SIZE=${OUTPUT_FLUSH_BATCH_SIZE:-20000}
-export SPENT_OUTPUT_FLUSH_BATCH_SIZE=${SPENT_OUTPUT_FLUSH_BATCH_SIZE:-10000}
+(
+  flock -n 9 || {
+    echo "[SKIP $(date)] blockchain flusher already running" >> /home/victor/bitcoin_monitor/log/cron_blockchain_flusher.log
+    exit 0
+  }
 
-echo "[START $(date)]" >> log/cron_blockchain_flusher.log
+  cd /home/victor/bitcoin_monitor || exit 1
 
-bin/rails runner 'pp Blockchain::Flushers::AllFlusherJob.perform_now' >> log/cron_blockchain_flusher.log 2>&1
+  export RAILS_ENV=development
+  export REDIS_URL=${REDIS_URL:-redis://127.0.0.1:6379/0}
 
-echo "[END $(date)]" >> log/cron_blockchain_flusher.log
+  export OUTPUT_FLUSH_BATCH_SIZE=${OUTPUT_FLUSH_BATCH_SIZE:-100}
+  export SPENT_OUTPUT_FLUSH_BATCH_SIZE=${SPENT_OUTPUT_FLUSH_BATCH_SIZE:-1000}
+
+  echo "[START $(date)]" >> log/cron_blockchain_flusher.log
+  bin/rails runner 'pp Blockchain::Flushers::OutputFlusher.new.call; pp Blockchain::Flushers::SpentOutputFlusher.new.call'
+  echo "[END $(date)]" >> log/cron_blockchain_flusher.log
+) 9>"$LOCK"

@@ -1,18 +1,18 @@
-web: bin/rails server
+web: bin/rails server -p 3000
 css: bin/rails tailwindcss:watch
 
-sidekiq_layer1: bundle exec sidekiq -c 1 -q process -q ingest
-sidekiq_spent: nice -n 5 bundle exec sidekiq -c 1 -q low
-sidekiq_realtime: nice -n 5 bundle exec sidekiq -c 1 -q realtime
-sidekiq_btc: nice -n 0 bundle exec sidekiq -c 1 -q btc_realtime
-sidekiq_cluster: nice -n 10 bundle exec sidekiq -c 1 -q p3_clusters -q p3_clusters_scan -q p3_clusters_refresh
-sidekiq_actor_labels: nice -n 10 bundle exec sidekiq -c 1 -q actor_labels
-sidekiq_actor_profiles: nice -n 12 bundle exec sidekiq -c 2 -q p3_actor_profile_light
-sidekiq_actor_profiles_heavy: nice -n 15 bundle exec sidekiq -c 1 -q p3_actor_profile_heavy
+sidekiq_layer1: nice -n 0 bundle exec sidekiq -c 1 -q process -q ingest -q realtime -q btc_realtime
 
-# optionnel, seulement si tu veux vider l'ancienne queue default
-sidekiq_default: nice -n 19 bundle exec sidekiq -c 1 -q default
+sidekiq_layer1_drain: OUTPUT_FLUSH_BATCH_SIZE=4000 SPENT_OUTPUT_FLUSH_BATCH_SIZE=250 LAYER1_DRAIN_MAX_SECONDS=30 nice -n 0 bundle exec sidekiq -c 1 -q layer1_drain
 
-sidekiq_p1_exchange: nice -n 15 bundle exec sidekiq -c 1 -q p1_exchange
+sidekiq_spent_resolve: SPENT_RESOLVE_BATCH_SIZE=25 ENABLE_EXCHANGE_AFTER_SPENT_RESOLVE=1 nice -n 5 bundle exec sidekiq -c 2 -q spent_resolve
 
-sidekiq_p4_whales: nice -n 15 bundle exec sidekiq -c 1 -q p4_whales
+sidekiq_clusters: nice -n 15 bundle exec sidekiq -c 1 -q p3_clusters_scan -q p3_clusters -q p3_clusters_refresh
+
+sidekiq_actor_profiles: nice -n 18 bundle exec sidekiq -c 1 -q p3_actor_profile_light -q p3_actor_profile_heavy
+
+sidekiq_actor_labels: nice -n 19 bundle exec sidekiq -c 1 -q actor_labels
+
+sidekiq_default: nice -n 19 bundle exec sidekiq -c 1 -q default -q low
+
+sidekiq_p1_exchange: nice -n 10 bundle exec sidekiq -c 2 -q p1_exchange

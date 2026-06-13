@@ -91,8 +91,68 @@ if Sidekiq.server?
       "class" => "SearchRefreshJob",
       "cron" => "*/10 * * * *",
       "queue" => "low"
-    }
+    },
 
+    "tx_outputs_retention" => {
+      "class" => "TxOutputsRetentionJob",
+      "cron" => "0 3 * * *",
+      "queue" => "low"
+    },
+
+    "actor_labels_refresh" => {
+      "class" => "ActorLabelsRefreshJob",
+      "cron" => "*/10 * * * *",
+      "queue" => "actor_labels"
+    },
+
+    "layer1_balance" => {
+      "class" => "Layer1BalanceJob",
+      "cron" => "*/1 * * * *",
+      "queue" => "low"
+    },
+
+    "layer1_orchestrator" => {
+      "class" => "Layer1::OrchestratorJob",
+      "cron" => "*/30 * * * * *",
+      "queue" => "process"
+    },
+
+    "cluster_input_orchestrator" => {
+      "class" => "Clusters::ClusterInputOrchestratorJob",
+      "cron" => "*/1 * * * *",
+      "queue" => "p3_clusters_scan"
+    },
+
+    "economic_indicators_dollar" => {
+      "cron" => "0 18 * * 1-5",
+      "class" => "EconomicIndicators::FetchDollarIndexJob",
+      "queue" => "low",
+      "description" => "Fetch daily dollar index from FRED"
+    },
+
+    "economic_indicators_us10y" => {
+      "class" => "EconomicIndicators::FetchUs10yJob",
+      "cron" => "5 18 * * 1-5",
+      "queue" => "low"
+    },
+
+    "economic_indicators_fed_funds_rate" => {
+      "class" => "EconomicIndicators::FetchFedFundsRateJob",
+      "cron" => "10 18 * * *",
+      "queue" => "low"
+    },
+
+    "economic_indicators_sp500" => {
+      "class" => "EconomicIndicators::FetchSp500Job",
+      "cron" => "20 18 * * 1-5",
+      "queue" => "low"
+    },
+
+    "economic_indicators_nasdaq" => {
+      "class" => "EconomicIndicators::FetchNasdaqJob",
+      "cron" => "25 18 * * 1-5",
+      "queue" => "low"
+    }  
     # ------------------------------------------------------------
     # DÉSACTIVÉS ICI VOLONTAIREMENT
     # ------------------------------------------------------------

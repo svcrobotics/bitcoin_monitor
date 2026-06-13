@@ -79,17 +79,7 @@ class RecoveryOrchestratorJob < ApplicationJob
   end
 
   def recover_p4_analytics!
-    today = Date.current
-
-    if ClusterMetric.maximum(:snapshot_date).blank? || ClusterMetric.maximum(:snapshot_date) < today
-      Rails.logger.info("[recovery][P4] enqueue cluster_v3_build_metrics")
-      ClusterV3BuildMetricsJob.perform_later
-    end
-
-    if ClusterSignal.maximum(:snapshot_date).blank? || ClusterSignal.maximum(:snapshot_date) < today
-      Rails.logger.info("[recovery][P4] enqueue cluster_v3_detect_signals")
-      ClusterV3DetectSignalsJob.perform_later
-    end
+    Rails.logger.info("[recovery][P4] legacy cluster metrics/signals disabled")
   end
 
   def cursor_lag(cursor_name, best_height)
