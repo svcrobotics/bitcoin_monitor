@@ -1,0 +1,2 @@
+class ClusterInput < ApplicationRecord
+end

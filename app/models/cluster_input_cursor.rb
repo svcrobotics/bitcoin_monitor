@@ -1,0 +1,2 @@
+class ClusterInputCursor < ApplicationRecord
+end

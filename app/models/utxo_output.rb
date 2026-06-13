@@ -1,0 +1,2 @@
+class UtxoOutput < ApplicationRecord
+end
