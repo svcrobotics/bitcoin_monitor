@@ -1,0 +1,165 @@
+<% status = snapshot[:status] %>
+
+<section class="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <p class="text-xs uppercase tracking-wide text-slate-500">Layer 1 Health</p>
+      <h2 class="mt-1 text-xl font-semibold">État vital du pipeline blockchain</h2>
+    </div>
+
+    <div class="rounded-full px-3 py-1 text-xs font-semibold
+      <%= status == "healthy" ? "bg-emerald-500/10 text-emerald-300" : status == "warning" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300" %>">
+      <%= status.upcase %>
+    </div>
+  </div>
+
+  <% sync = snapshot[:sync] || {} %>
+  <% counts = snapshot[:counts] || {} %>
+
+  <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+    <%= render "questions/answers/layer1_metric",
+      label: "Best height",
+      value: sync[:best_height] %>
+
+    <%= render "questions/answers/layer1_metric",
+      label: "Processed",
+      value: sync[:processed_height] %>
+
+    <%= render "questions/answers/layer1_metric",
+      label: "Lag",
+      value: sync[:lag] %>
+
+    <%= render "questions/answers/layer1_metric",
+      label: "UTXO outputs",
+      value: number_with_delimiter(counts[:utxo_outputs].to_i) %>
+  </div>
+
+  <% activity = snapshot[:activity] || {} %>
+  <% processes = Array(snapshot[:processes]) %>
+  <% workers = Array(snapshot[:workers]) %>
+
+  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+    <div class="flex items-start justify-between gap-4">
+      <div>
+        <h3 class="font-semibold">État opérationnel</h3>
+        <p class="mt-1 text-sm text-slate-500">
+          Vérifie si Layer 1 est réellement vivant, même quand les buffers sont bas.
+        </p>
+      </div>
+
+      <span class="rounded-full border px-3 py-1 text-xs font-semibold
+        <%= activity[:pipeline_state] == "active" ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-300" : activity[:pipeline_state] == "blocked" ? "border-rose-400/30 bg-rose-500/10 text-rose-300" : "border-slate-400/30 bg-slate-500/10 text-slate-300" %>">
+        <%= activity[:pipeline_state].to_s.upcase.presence || "UNKNOWN" %>
+      </span>
+    </div>
+
+    <div class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <%= render "questions/answers/layer1_metric",
+        label: "Dernier bloc",
+        value: format_duration(activity[:last_processed_seconds_ago]) %>
+
+      <%= render "questions/answers/layer1_metric",
+        label: "Dernier UTXO",
+        value: format_duration(activity[:last_utxo_seconds_ago]) %>
+
+      <%= render "questions/answers/layer1_metric",
+        label: "Process Sidekiq",
+        value: processes.size %>
+
+      <%= render "questions/answers/layer1_metric",
+        label: "Workers actifs",
+        value: workers.size %>
+    </div>
+  </div>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-2">
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <h3 class="font-semibold">Redis buffers</h3>
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between"><span>Outputs buffer</span><strong><%= number_with_delimiter(snapshot.dig(:buffers, :outputs)) %></strong></div>
+        <div class="flex justify-between"><span>Spent buffer</span><strong><%= number_with_delimiter(snapshot.dig(:buffers, :spent)) %></strong></div>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <h3 class="font-semibold">Tables vitales</h3>
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between"><span>Block buffers</span><strong><%= number_with_delimiter(snapshot.dig(:counts, :block_buffers)) %></strong></div>
+        <div class="flex justify-between"><span>UTXO outputs</span><strong><%= number_with_delimiter(snapshot.dig(:counts, :utxo_outputs)) %></strong></div>
+        <div class="flex justify-between"><span>Cluster inputs</span><strong><%= number_with_delimiter(snapshot.dig(:counts, :cluster_inputs)) %></strong></div>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <h3 class="font-semibold">Curseurs</h3>
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between"><span>UTXO min height</span><strong><%= snapshot.dig(:cursors, :utxo_min_height) || "—" %></strong></div>
+          <div class="flex justify-between"><span>UTXO max height</span><strong><%= snapshot.dig(:cursors, :utxo_max_height) || "—" %></strong></div>
+          <div class="flex justify-between"><span>Cluster scanner</span><strong><%= snapshot.dig(:cursors, :cluster_scanner) || "—" %></strong></div>
+          <div class="flex justify-between"><span>Cluster orchestrator</span><strong><%= snapshot.dig(:cursors, :cluster_input_orchestrator) || "—" %></strong></div>
+          <div class="flex justify-between"><span>Cluster max spent</span><strong><%= snapshot.dig(:cursors, :cluster_max_spent_height) || "—" %></strong></div>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <h3 class="font-semibold">Fraîcheur</h3>
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between"><span>Dernier bloc processed</span><strong><%= snapshot.dig(:timestamps, :last_processed_block_at)&.strftime("%d/%m %H:%M") || "—" %></strong></div>
+        <div class="flex justify-between"><span>Dernier UTXO</span><strong><%= snapshot.dig(:timestamps, :last_utxo_at)&.strftime("%d/%m %H:%M") || "—" %></strong></div>
+        <div class="flex justify-between"><span>Dernier cluster input</span><strong><%= snapshot.dig(:timestamps, :last_cluster_input_at)&.strftime("%d/%m %H:%M") || "—" %></strong></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+    <h3 class="font-semibold">Queues Sidekiq</h3>
+    <div class="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
+      <% snapshot[:queues].each do |name, size| %>
+        <div class="flex justify-between rounded-lg bg-slate-950 px-3 py-2">
+          <span class="text-slate-400"><%= name %></span>
+          <strong><%= size %></strong>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+    <h3 class="font-semibold">Workers Layer 1 actifs</h3>
+
+    <% workers = Array(snapshot[:workers]) %>
+
+    <% if workers.any? %>
+      <div class="mt-3 space-y-2 text-sm">
+        <% workers.each do |worker| %>
+          <div class="rounded-lg bg-slate-950 px-3 py-2">
+            <div class="flex justify-between gap-3">
+              <span class="text-slate-400"><%= worker[:queue] %></span>
+              <strong class="text-slate-200"><%= worker[:klass] %></strong>
+            </div>
+
+            <% if worker[:queue] == "spent_resolve" && worker[:args].present? %>
+              <div class="mt-1 font-mono text-xs text-slate-500">
+                block_height=<%= worker[:args].first %>
+              </div>
+
+            <% elsif worker[:queue] == "flushers" %>
+              <div class="mt-1 font-mono text-xs text-slate-500">
+                flush en cours
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <p class="mt-3 text-sm text-slate-500">
+        Aucun worker Layer 1 actif au moment du snapshot.
+      </p>
+    <% end %>
+  </div>
+
+  <div class="mt-8">
+    <%= render "layer1_audit/audit_panel",
+      last_audit: Layer1AuditRun.order(created_at: :desc).first,
+      last_audits: Layer1AuditRun.order(created_at: :desc).limit(10) %>
+  </div>
+</section>

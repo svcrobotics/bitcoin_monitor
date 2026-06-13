@@ -4,6 +4,18 @@ class SearchController < ApplicationController
   def index
     @q = params[:q].to_s.strip
 
+    if etf_question?(@q) && turbo_frame_request?
+      etf_candidates = ActorLabels::EtfCandidatesAnswer.call
+
+      render partial: "search/answers/etf_candidates",
+             locals: {
+               data: etf_candidates,
+               q: @q
+             }
+
+      return
+    end
+
     if pressure_question?(@q) && turbo_frame_request?
       @netflow = Dashboard::ExchangeCoreNetflowToday.call
 
@@ -42,6 +54,10 @@ class SearchController < ApplicationController
              results: @results,
              q: @q
            }
+  end
+
+  def etf_question?(query)
+    normalize_query(query).match?(/\betf\b|etf_candidate|etf candidates|fonds bitcoin|institutionnel/)
   end
 
   private

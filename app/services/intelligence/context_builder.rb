@@ -5,6 +5,92 @@ module Intelligence
   class ContextBuilder
     HISTORY_DAYS = 7
 
+    def self.etf_candidates
+      data = ActorLabels::EtfCandidatesAnswer.call
+
+      {
+        module: "etf_candidates",
+        source: "actor_profile_etf_candidate",
+        generated_at: Time.current,
+
+        summary: {
+          count: data[:count],
+          total_balance_btc: data[:total_balance_btc]
+        },
+
+        candidates: data[:candidates],
+
+        watch_priority: {
+          watch: "Surveiller si les ETF candidates accumulent ou distribuent via leurs balances et leurs flux on-chain."
+        },
+
+        interpretation: "Tansa détecte ces clusters comme ETF candidates à partir de critères internes on-chain. Ce ne sont pas des ETF confirmés par une source externe."
+      }
+    end
+
+    def self.layer1_health
+      snapshot = Layer1::CachedHealthSnapshot.read
+
+      {
+        module: "layer1_health",
+        source: "layer1_health_snapshot",
+        generated_at: Time.current,
+
+        architecture: {
+          pipeline: [
+            "Bitcoin Core",
+            "BlockBufferModel",
+            "BlockProcessJob",
+            "Redis outputs buffer",
+            "OutputFlusher",
+            "UtxoOutput",
+            "SpentOutputFlusher",
+            "ClusterInput"
+          ],
+          note: "tx_outputs est retirée du chemin critique. Layer 1 utilise maintenant utxo_outputs comme table vivante des UTXO."
+        },
+
+        status: snapshot[:status],
+
+        sync: {
+          best_height: snapshot[:best_height] || snapshot.dig(:sync, :best_height),
+          processed_height: snapshot[:processed_height] || snapshot.dig(:sync, :processed_height),
+          lag: snapshot[:lag] || snapshot.dig(:sync, :lag)
+        },
+
+        buffers: snapshot[:buffers],
+        counts: snapshot[:counts],
+        cursors: snapshot[:cursors],
+        queues: snapshot[:queues],
+        workers: snapshot[:workers],
+        processes: snapshot[:processes],
+        activity: snapshot[:activity],
+        timestamps: snapshot[:timestamps],
+
+        watch_priority: {
+          watch: "Surveiller le lag Layer 1, les buffers Redis outputs/spent, la progression de utxo_outputs et cluster_inputs."
+        },
+
+        interpretation_rules: {
+          healthy: "lag = 0 et buffers faibles",
+          warning: "lag positif, outputs > 200000, ou queues importantes",
+          critical: "lag élevé, outputs > 500000, ou process bloqué"
+        }
+      }
+    end
+
+    def self.cluster_health
+      Clusters::CachedHealthSnapshot.read
+    end
+
+    def self.actor_profiles_health
+      ActorProfiles::CachedHealthSnapshot.read
+    end
+
+    def self.actor_labels_health
+      ActorLabels::CachedHealthSnapshot.read
+    end
+
     def self.exchange_flow
       today = Dashboard::ExchangeCoreNetflowToday.call
       history = exchange_flow_history
@@ -92,5 +178,124 @@ module Intelligence
         "neutral"
       end
     end
+
+    def self.system_health
+      require "sidekiq/api"
+
+      queues = Sidekiq::Queue.all.map do |q|
+        {
+          name: q.name,
+          size: q.size,
+          latency: q.latency.round(1)
+        }
+      end
+
+      workers_count = Sidekiq::Workers.new.size
+
+      snapshot = System::RecoverySnapshotBuilder.call rescue {}
+      layer1_snapshot = snapshot[:layer1] || {}
+
+      best_height = layer1_snapshot[:best_height]
+      last_processed_height = layer1_snapshot[:last_processed_height]
+
+      spent_max_height = layer1_snapshot[:spent_max_height]
+      exchange_flow_max_height = layer1_snapshot[:exchange_flow_max_height]
+
+      lag =
+        if best_height.present? && last_processed_height.present?
+          [best_height.to_i - last_processed_height.to_i, 0].max
+        else
+          layer1_snapshot[:lag].to_i
+        end
+
+      spent_lag =
+        if last_processed_height.present? && spent_max_height.present?
+          [last_processed_height.to_i - spent_max_height.to_i, 0].max
+        else
+          0
+        end
+
+      flow_lag =
+        if last_processed_height.present? && exchange_flow_max_height.present?
+          [last_processed_height.to_i - exchange_flow_max_height.to_i, 0].max
+        else
+          0
+        end
+
+      redis_buffers = layer1_snapshot[:redis_buffers] || {}
+
+      outputs_buffer = redis_buffers[:outputs_buffer].to_i
+      spent_outputs_buffer = redis_buffers[:spent_outputs_buffer].to_i
+
+      busy_queues =
+        queues.select { |q| q[:size].to_i > 0 || q[:latency].to_f > 30 }
+
+      critical_queues =
+        queues.select { |q| q[:size].to_i > 1000 }
+
+      warning_queues =
+        queues.select { |q| q[:size].to_i > 100 }
+
+      async_warning =
+        spent_lag > 100 ||
+        flow_lag > 100 ||
+        outputs_buffer > 10_000 ||
+        spent_outputs_buffer > 10_000
+
+      status =
+        if critical_queues.any? || async_warning
+          "critical"
+        elsif warning_queues.any? || busy_queues.any? || lag.positive?
+          "warning"
+        else
+          "ok"
+        end
+
+      {
+        module: "system_health",
+        source: "lightweight_system_context",
+        generated_at: Time.current,
+
+        summary: {
+          status: status,
+          busy_queues_count: busy_queues.size,
+          critical_queues_count: critical_queues.size,
+          warning_queues_count: warning_queues.size,
+          running_workers: workers_count
+        },
+
+        layer1: {
+          best_height: best_height,
+          last_processed_height: last_processed_height,
+          lag: lag,
+
+          spent_max_height: spent_max_height,
+          exchange_flow_max_height: exchange_flow_max_height,
+
+          spent_lag: spent_lag,
+          flow_lag: flow_lag,
+
+          redis_buffers: {
+            outputs: outputs_buffer,
+            spent: spent_outputs_buffer,
+            total: outputs_buffer + spent_outputs_buffer
+          }
+        },
+
+        queues: queues,
+
+        watch_priority: {
+          watch: "Surveiller le retard async Layer 1, les buffers Redis, les queues Sidekiq avec backlog et les latences élevées."
+        }
+      }
+    end
+
+    def self.system_status(layer1, busy_queues)
+      return "warning" if layer1[:lag].to_i.positive?
+      return "warning" if busy_queues.any?
+
+      "ok"
+    end
+
   end
 end

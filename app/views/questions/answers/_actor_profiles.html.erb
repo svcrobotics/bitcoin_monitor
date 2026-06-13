@@ -1,0 +1,138 @@
+<% status = snapshot[:status].to_s %>
+<% counts = snapshot[:counts] || {} %>
+<% activity = snapshot[:activity] || {} %>
+<% queues = snapshot[:queues] || {} %>
+<% workers = Array(snapshot[:workers]) %>
+
+<section class="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <p class="text-xs uppercase tracking-wide text-slate-500">Actor Profiles Health</p>
+      <h2 class="mt-1 text-xl font-semibold">État du moteur Actor Profiles</h2>
+      <p class="mt-2 text-sm text-slate-500">
+        Vérifie la transformation des clusters en profils comportementaux exploitables.
+      </p>
+    </div>
+
+    <div class="rounded-full px-3 py-1 text-xs font-semibold
+      <%= status == "healthy" ? "bg-emerald-500/10 text-emerald-300" : status == "warning" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300" %>">
+      <%= status.upcase.presence || "UNKNOWN" %>
+    </div>
+  </div>
+
+  <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+    <%= render "questions/answers/layer1_metric",
+      label: "Actor profiles",
+      value: number_with_delimiter(counts[:actor_profiles].to_i) %>
+
+    <%= render "questions/answers/layer1_metric",
+      label: "Cluster profiles",
+      value: number_with_delimiter(counts[:cluster_profiles].to_i) %>
+
+    <%= render "questions/answers/layer1_metric",
+      label: "Actor labels",
+      value: number_with_delimiter(counts[:actor_labels].to_i) %>
+
+    <%= render "questions/answers/layer1_metric",
+      label: "Dirty profiles",
+      value: number_with_delimiter(counts[:dirty_actor_profiles].to_i) %>
+  </div>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-2">
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <h3 class="font-semibold">Fraîcheur</h3>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span>Dernier actor profile</span>
+          <strong><%= activity[:last_actor_profile_at]&.strftime("%H:%M:%S") || "—" %></strong>
+        </div>
+
+        <div class="flex justify-between">
+          <span>Dernier cluster profile</span>
+          <strong><%= activity[:last_cluster_profile_at]&.strftime("%H:%M:%S") || "—" %></strong>
+        </div>
+
+        <div class="flex justify-between">
+          <span>Dernier cluster</span>
+          <strong><%= activity[:last_cluster_at]&.strftime("%H:%M:%S") || "—" %></strong>
+        </div>
+
+        <div class="flex justify-between">
+          <span>Dernier actor label</span>
+          <strong class="<%= activity[:last_actor_label_at].present? && activity[:last_actor_label_at] < 6.hours.ago ? "text-amber-300" : "text-slate-100" %>">
+            <%= activity[:last_actor_label_at]&.strftime("%H:%M:%S") || "—" %>
+          </strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <h3 class="font-semibold">État de traitement</h3>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span>Profils à recalculer</span>
+          <strong class="<%= counts[:dirty_actor_profiles].to_i.positive? ? "text-amber-300" : "text-emerald-300" %>">
+            <%= number_with_delimiter(counts[:dirty_actor_profiles].to_i) %>
+          </strong>
+        </div>
+
+        <div class="flex justify-between">
+          <span>Clusters disponibles</span>
+          <strong><%= number_with_delimiter(counts[:clusters].to_i) %></strong>
+        </div>
+
+        <div class="flex justify-between">
+          <span>Queues en attente</span>
+          <strong><%= number_with_delimiter(queues.values.sum(&:to_i)) %></strong>
+        </div>
+
+        <div class="flex justify-between">
+          <span>Workers actifs</span>
+          <strong><%= workers.size %></strong>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+    <h3 class="font-semibold">Queues Actor Profiles</h3>
+
+    <div class="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
+      <% queues.each do |name, size| %>
+        <div class="flex justify-between rounded-lg bg-slate-950 px-3 py-2">
+          <span class="text-slate-400"><%= name %></span>
+          <strong><%= size %></strong>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+    <h3 class="font-semibold">Workers Actor Profiles actifs</h3>
+
+    <% if workers.any? %>
+      <div class="mt-3 space-y-2 text-sm">
+        <% workers.each do |worker| %>
+          <div class="rounded-lg bg-slate-950 px-3 py-2">
+            <div class="flex justify-between gap-3">
+              <span class="text-slate-400"><%= worker[:queue] %></span>
+              <strong class="text-slate-200"><%= worker[:klass] %></strong>
+            </div>
+
+            <% if worker[:args].present? %>
+              <div class="mt-1 font-mono text-xs text-slate-500">
+                <%= worker[:args].inspect.truncate(120) %>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <p class="mt-3 text-sm text-slate-500">
+        Aucun worker Actor Profiles actif au moment du snapshot.
+      </p>
+    <% end %>
+  </div>
+</section>

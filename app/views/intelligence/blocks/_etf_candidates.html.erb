@@ -1,0 +1,91 @@
+<div class="rounded-2xl border border-emerald-400/20 bg-emerald-950/20 p-5">
+  <div class="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+    Preuve · ETF candidates
+  </div>
+
+  <div class="mt-2 text-lg font-semibold text-slate-100">
+    Clusters détectés par Tansa
+  </div>
+
+  <p class="mt-2 text-sm text-slate-400">
+    Détection interne basée sur les données on-chain. Ces clusters ne sont pas des ETF confirmés.
+  </p>
+
+  <% summary = context[:summary] || {} %>
+  <%
+    candidates = Array(context[:candidates])
+      .sort_by { |c| -c[:balance_btc].to_f }
+
+    top_candidate = candidates.first
+  %>
+
+  <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
+    <% if top_candidate %>
+      <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+        <div class="text-xs text-slate-500">
+          Plus gros candidat
+        </div>
+
+        <div class="mt-1 text-lg font-bold text-emerald-300">
+          Cluster <%= top_candidate[:cluster_id] %>
+        </div>
+
+        <div class="mt-1 text-sm text-slate-300">
+          <%= number_with_delimiter(top_candidate[:balance_btc].to_i) %> BTC
+        </div>
+      </div>
+    <% end %>
+    <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+      <div class="text-xs text-slate-500">Candidats</div>
+      <div class="mt-1 text-2xl font-bold text-emerald-300">
+        <%= number_with_delimiter(summary[:count].to_i) %>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-white/10 bg-black/20 p-3 sm:col-span-2">
+      <div class="text-xs text-slate-500">Balance cumulée</div>
+      <div class="mt-1 text-2xl font-bold text-slate-100">
+        <%= number_with_delimiter(summary[:total_balance_btc].to_d.round(2)) %> BTC
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-5 overflow-hidden rounded-xl border border-white/10">
+    <table class="w-full text-left text-sm">
+      <thead class="bg-black/30 text-xs uppercase tracking-wide text-slate-500">
+        <tr>
+          <th>Cluster</th>
+          <th>Balance BTC</th>
+          <th>ETF</th>
+          <th>Whale</th>
+          <th>Tx</th>
+        </tr>
+      </thead>
+
+      <tbody class="divide-y divide-white/10">
+        <% candidates.first(10).each do |candidate| %>
+          <tr class="bg-black/10">
+            <td class="px-3 py-2 font-mono text-slate-300">
+              <%= candidate[:cluster_id] %>
+            </td>
+            <td>
+              <%= number_with_delimiter(candidate[:balance_btc].to_i) %>
+            </td>
+
+            <td class="text-emerald-300">
+              <%= candidate[:etf_score].to_i %>
+            </td>
+
+            <td class="text-cyan-300">
+              <%= candidate[:whale_score].to_i %>
+            </td>
+
+            <td>
+              <%= number_with_delimiter(candidate[:tx_count].to_i) %>
+            </td>
+          </tr>
+        <% end %>
+      </tbody>
+    </table>
+  </div>
+</div>

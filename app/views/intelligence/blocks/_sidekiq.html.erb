@@ -1,0 +1,38 @@
+<% queues ||= [] %>
+<% visible_queues = queues.select { |q| q[:size].to_i > 0 || q[:latency].to_f > 30 }.first(8) %>
+
+<div class="rounded-2xl border border-white/10 bg-gray-950/70 p-5">
+  <div class="text-xs font-semibold uppercase tracking-wide text-gray-500">
+    Sidekiq runtime
+  </div>
+
+  <h3 class="mt-1 text-lg font-semibold text-gray-100">
+    Queues actives
+  </h3>
+
+  <% if visible_queues.any? %>
+    <div class="mt-4 space-y-3">
+      <% visible_queues.each do |queue| %>
+        <div class="flex items-center justify-between rounded-xl border border-white/10 bg-black/20 p-3">
+          <div>
+            <div class="font-mono text-sm text-gray-200">
+              <%= queue[:name] %>
+            </div>
+
+            <div class="mt-1 text-xs text-gray-500">
+              latence : <%= queue[:latency].to_f.round(1) %>s
+            </div>
+          </div>
+
+          <div class="font-mono text-sm <%= queue[:size].to_i.positive? ? "text-amber-300" : "text-gray-300" %>">
+            <%= queue[:size].to_i %> job(s)
+          </div>
+        </div>
+      <% end %>
+    </div>
+  <% else %>
+    <p class="mt-4 text-sm text-gray-400">
+      Aucune queue critique détectée.
+    </p>
+  <% end %>
+</div>

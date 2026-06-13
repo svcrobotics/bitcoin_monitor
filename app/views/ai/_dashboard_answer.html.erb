@@ -1,62 +1,227 @@
 <%= turbo_frame_tag "dashboard_answer" do %>
+  <% context ||= {} %>
+  <% sources ||= [] %>
   <% today = context[:today] || {} %>
+  <% formatted_answer = render_markdown(answer.to_s) %>
 
-  <div class="rounded-3xl border border-cyan-400/20 bg-cyan-950/20 p-6 shadow-xl shadow-black/20">
-    <div class="mb-5 flex items-start justify-between">
-      <div>
-        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
-          Tansa Intelligence
+  <% answer_classes = "mt-4 prose prose-invert max-w-none prose-p:text-slate-200 prose-li:text-slate-200 prose-strong:text-white prose-strong:font-semibold prose-ol:space-y-3 prose-ul:space-y-2 prose-li:leading-7 prose-headings:text-white text-sm leading-7" %>
+
+  <% if context[:module] == "actor_labels_health" %>
+    <div class="mt-6 space-y-4">
+      <%= render "questions/answers/actor_labels", snapshot: context %>
+
+      <div class="rounded-2xl border border-pink-400/20 bg-black/20 p-5">
+        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-pink-300">
+          Analyse IA Actor Labels
         </div>
 
-        <% if today[:updated_at] %>
-          <div class="mt-2 text-xs text-slate-500">
-            Données observées jusqu'au
-            <span class="font-mono text-slate-400">
-              <%= l(today[:updated_at], format: :long) %>
-            </span>
-          </div>
-        <% end %>
-
-        <div class="mt-4 flex flex-wrap gap-2 text-xs">
-          <div class="rounded-full border border-white/10 px-3 py-1 text-slate-400">
-            Source : <%= context[:source] || "actor_profile_exchange_like" %>
-          </div>
-
-          <% if today[:events_count] %>
-            <div class="rounded-full border border-white/10 px-3 py-1 text-slate-400">
-              <%= number_with_delimiter(today[:events_count]) %> événements
-            </div>
-          <% end %>
-
-          <% if today[:updated_at] %>
-            <div class="rounded-full border border-white/10 px-3 py-1 text-slate-400">
-              Mis à jour : <%= today[:updated_at].strftime("%H:%M:%S") %>
-            </div>
-          <% end %>
+        <div class="<%= answer_classes %>">
+          <%= formatted_answer %>
         </div>
       </div>
     </div>
 
-    <div class="whitespace-pre-line text-sm leading-7 text-slate-200">
-      <%= answer %>
+  <% elsif context[:module] == "actor_profiles_health" %>
+    <div class="mt-6 space-y-4">
+      <%= render "questions/answers/actor_profiles", snapshot: context %>
+
+      <div class="rounded-2xl border border-purple-400/20 bg-black/20 p-5">
+        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-purple-300">
+          Analyse IA Actor Profiles
+        </div>
+
+        <div class="<%= answer_classes %>">
+          <%= formatted_answer %>
+        </div>
+      </div>
     </div>
-  </div>
 
-  <div class="mt-6 space-y-4">
-    <% if context[:today] %>
-      <%= render(
-        "intelligence/blocks/exchange_flow_today",
-        today: context[:today].merge(
-          signal: context.dig(:dominant_signal, :signal)
-        )
-      ) %>
-    <% end %>
+  <% elsif context[:module] == "cluster_health" %>
+    <div class="mt-6 space-y-4">
+      <%= render "questions/answers/cluster", snapshot: context %>
 
-    <% if context[:history_7d].present? %>
-      <%= render(
-        "intelligence/blocks/exchange_flow_history",
-        history: context[:history_7d]
-      ) %>
-    <% end %>
-  </div>
+      <div class="rounded-2xl border border-violet-400/20 bg-black/20 p-5">
+        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
+          Analyse IA Cluster
+        </div>
+
+        <div class="<%= answer_classes %>">
+          <%= formatted_answer %>
+        </div>
+      </div>
+    </div>
+
+  <% elsif context[:module] == "layer1_health" %>
+    <div class="mt-6 space-y-4">
+      <%= render "questions/answers/layer1", snapshot: context[:raw_snapshot] || context %>
+
+      <div class="rounded-2xl border border-cyan-400/20 bg-black/20 p-5">
+        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+          Analyse IA Layer 1
+        </div>
+
+        <div class="<%= answer_classes %>">
+          <%= formatted_answer %>
+        </div>
+      </div>
+    </div>
+
+  <% else %>
+    <div class="rounded-3xl border border-cyan-400/20 bg-cyan-950/20 p-6 shadow-xl shadow-black/20">
+      <div class="mb-5 flex items-start justify-between">
+        <div>
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+            Tansa Intelligence
+          </div>
+
+          <% if today[:updated_at] %>
+            <div class="mt-2 text-xs text-slate-500">
+              Données observées jusqu'au
+              <span class="font-mono text-slate-400">
+                <%= l(today[:updated_at], format: :long) %>
+              </span>
+            </div>
+          <% end %>
+
+          <div class="mt-4 flex flex-wrap gap-2 text-xs">
+            <div class="rounded-full border border-white/10 px-3 py-1 text-slate-400">
+              Source :
+              <%= if intent == :codebase
+                    "Code source Tansa"
+                  else
+                    case context[:module]
+                    when "etf_candidates"
+                      "Analyse on-chain propriétaire"
+                    when "exchange_flow"
+                      "Acteurs exchange-like"
+                    else
+                      context[:source] || "Tansa"
+                    end
+                  end %>
+            </div>
+
+            <% if today[:events_count] %>
+              <div class="rounded-full border border-white/10 px-3 py-1 text-slate-400">
+                <%= number_with_delimiter(today[:events_count]) %> événements
+              </div>
+            <% end %>
+
+            <% if today[:updated_at] %>
+              <div class="rounded-full border border-white/10 px-3 py-1 text-slate-400">
+                Mis à jour : <%= today[:updated_at].strftime("%H:%M:%S") %>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      </div>
+
+      <div class="<%= answer_classes %>">
+        <%= formatted_answer %>
+      </div>
+
+      <% if intent == :codebase && sources.present? %>
+        <div class="mt-6 rounded-2xl border border-white/10 bg-black/25 p-4">
+          <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+            Sources code utilisées
+          </div>
+
+          <ul class="mt-3 space-y-1 text-xs text-slate-400">
+            <% sources.each do |source| %>
+              <li class="font-mono">
+                <%= source[:path] %>
+                <% if source[:chunk_index].present? %>
+                  #<%= source[:chunk_index] %>
+                <% end %>
+              </li>
+            <% end %>
+          </ul>
+        </div>
+      <% end %>
+    </div>
+
+    <div class="mt-6 space-y-4">
+      <% if context[:module] == "exchange_flow" %>
+        <% if context[:today] %>
+          <%= render(
+            "intelligence/blocks/exchange_flow_today",
+            today: context[:today].merge(
+              signal: context.dig(:dominant_signal, :signal)
+            )
+          ) %>
+        <% end %>
+
+        <% if context[:history_7d].present? %>
+          <%= render(
+            "intelligence/blocks/exchange_flow_history",
+            history: context[:history_7d]
+          ) %>
+        <% end %>
+      <% end %>
+
+      <% if context[:module] == "etf_candidates" %>
+        <%= render(
+          "intelligence/blocks/etf_candidates",
+          context: context
+        ) %>
+      <% end %>
+
+      <% if context[:module] == "system_health" %>
+        <% status = context.dig(:summary, :status).to_s %>
+        <% layer1 = context[:layer1] || {} %>
+        <% queues = Array(context[:queues]) %>
+        <% critical_queues = queues.select { |q| q[:size].to_i > 1000 }.first(3) %>
+
+        <div class="rounded-2xl border border-rose-400/20 bg-rose-950/20 p-5">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <div class="text-xs font-semibold uppercase tracking-[0.18em] text-rose-300">
+                Diagnostic système
+              </div>
+
+              <h3 class="mt-2 text-xl font-semibold text-slate-100">
+                <%= status == "critical" ? "Attention requise" : status == "warning" ? "Surveillance recommandée" : "Système nominal" %>
+              </h3>
+            </div>
+
+            <span class="rounded-full border px-3 py-1 text-xs font-semibold <%= status == "critical" ? "border-rose-400/30 bg-rose-500/10 text-rose-300" : status == "warning" ? "border-amber-400/30 bg-amber-500/10 text-amber-300" : "border-emerald-400/30 bg-emerald-500/10 text-emerald-300" %>">
+              <%= status.upcase %>
+            </span>
+          </div>
+
+          <div class="mt-4 grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+              <div class="text-xs text-slate-500">Layer 1</div>
+              <div class="mt-1 font-mono text-sm text-emerald-300">
+                Lag <%= layer1[:lag].to_i %> bloc(s)
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+              <div class="text-xs text-slate-500">Async spent</div>
+              <div class="mt-1 font-mono text-sm <%= layer1[:spent_lag].to_i > 100 ? "text-rose-300" : "text-emerald-300" %>">
+                <%= layer1[:spent_lag].to_i %> blocs
+              </div>
+            </div>
+
+            <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+              <div class="text-xs text-slate-500">Redis buffer</div>
+              <div class="mt-1 font-mono text-sm <%= layer1.dig(:redis_buffers, :total).to_i > 100_000 ? "text-rose-300" : "text-amber-300" %>">
+                <%= number_with_delimiter(layer1.dig(:redis_buffers, :total).to_i) %>
+              </div>
+            </div>
+          </div>
+
+          <% if critical_queues.any? %>
+            <div class="mt-4 flex flex-wrap gap-2">
+              <% critical_queues.each do |queue| %>
+                <span class="rounded-full border border-rose-400/20 bg-rose-500/10 px-3 py-1 text-xs text-rose-200">
+                  <%= queue[:name] %> · <%= number_with_delimiter(queue[:size].to_i) %> jobs
+                </span>
+              <% end %>
+            </div>
+          <% end %>
+        </div>
+      <% end %>
+    </div>
+  <% end %>
 <% end %>

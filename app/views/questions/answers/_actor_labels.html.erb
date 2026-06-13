@@ -1,0 +1,152 @@
+<% status = snapshot[:status].to_s %>
+<% counts = snapshot[:counts] || {} %>
+<% activity = snapshot[:activity] || {} %>
+<% queues = snapshot[:queues] || {} %>
+<% workers = Array(snapshot[:workers]) %>
+<% last_actor_label_at = activity[:last_actor_label_at]&.in_time_zone %>
+<% last_actor_profile_at = activity[:last_actor_profile_at]&.in_time_zone %>
+
+<section class="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100">
+  <div class="flex items-start justify-between gap-4">
+    <div>
+      <p class="text-xs uppercase tracking-wide text-slate-500">Actor Labels Health</p>
+      <h2 class="mt-1 text-xl font-semibold">État des classifications économiques</h2>
+      <p class="mt-2 text-sm text-slate-500">
+        Vérifie les labels exchange-like, whale-like, ETF-candidate, service-like et retail-like.
+      </p>
+    </div>
+
+    <div class="rounded-full px-3 py-1 text-xs font-semibold
+      <%= status == "healthy" ? "bg-emerald-500/10 text-emerald-300" : status == "warning" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300" %>">
+      <%= status.upcase.presence || "UNKNOWN" %>
+    </div>
+  </div>
+
+  <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+    <%= render "questions/answers/layer1_metric",
+      label: "Actor labels",
+      value: number_with_delimiter(counts[:actor_labels].to_i) %>
+
+    <%= render "questions/answers/layer1_metric",
+      label: "Exchange-like",
+      value: number_with_delimiter(counts[:exchange_like].to_i) %>
+
+    <%= render "questions/answers/layer1_metric",
+      label: "Whale-like",
+      value: number_with_delimiter(counts[:whale_like].to_i) %>
+
+    <%= render "questions/answers/layer1_metric",
+      label: "ETF-candidate",
+      value: number_with_delimiter(counts[:etf_candidate].to_i) %>
+  </div>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-2">
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <h3 class="font-semibold">Distribution</h3>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span>Service-like</span>
+          <strong><%= number_with_delimiter(counts[:service_like].to_i) %></strong>
+        </div>
+
+        <div class="flex justify-between">
+          <span>Retail-like</span>
+          <strong><%= number_with_delimiter(counts[:retail_like].to_i) %></strong>
+        </div>
+
+        <div class="flex justify-between">
+          <span>Unknown</span>
+          <strong><%= number_with_delimiter(counts[:unknown].to_i) %></strong>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+      <h3 class="font-semibold">Fraîcheur</h3>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <div class="flex justify-between">
+          <span>Dernier actor label</span>
+          <strong class="<%= last_actor_label_at.present? && last_actor_label_at < 6.hours.ago ? "text-amber-300" : "text-slate-100" %>">
+            <%= last_actor_label_at&.strftime("%d/%m %H:%M:%S") || "—" %>
+          </strong>
+        </div>
+
+        <div class="flex justify-between">
+          <span>Dernier actor profile</span>
+          <strong>
+            <%= last_actor_profile_at&.strftime("%d/%m %H:%M:%S") || "—" %>
+          </strong>
+        </div>
+      </div>
+    </div>
+
+    <% by_label = activity[:by_label] || {} %>
+
+    <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4 md:col-span-2">
+      <h3 class="font-semibold">Fraîcheur par label</h3>
+
+      <div class="mt-3 space-y-2 text-sm">
+        <% %w[exchange_like whale_like etf_candidate service_like retail_like unknown].each do |label| %>
+          <% updated_at = by_label[label]&.in_time_zone(Time.zone) %>
+
+          <div class="flex justify-between gap-4">
+            <span><%= label %></span>
+
+            <strong class="text-right <%= updated_at.present? && updated_at < 6.hours.ago ? "text-amber-300" : "text-slate-100" %>">
+              <% if updated_at.present? %>
+                <%= updated_at.strftime("%d/%m %H:%M:%S") %>
+                <span class="ml-2 text-xs text-slate-500">
+                  <%= time_ago_in_words(updated_at) %>
+                </span>
+              <% else %>
+                —
+              <% end %>
+            </strong>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+    <h3 class="font-semibold">Queues Actor Labels</h3>
+
+    <div class="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
+      <% queues.each do |name, size| %>
+        <div class="flex justify-between rounded-lg bg-slate-950 px-3 py-2">
+          <span class="text-slate-400"><%= name %></span>
+          <strong><%= size %></strong>
+        </div>
+      <% end %>
+    </div>
+  </div>
+
+  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
+    <h3 class="font-semibold">Workers Actor Labels actifs</h3>
+
+    <% if workers.any? %>
+      <div class="mt-3 space-y-2 text-sm">
+        <% workers.each do |worker| %>
+          <div class="rounded-lg bg-slate-950 px-3 py-2">
+            <div class="flex justify-between gap-3">
+              <span class="text-slate-400"><%= worker[:queue] %></span>
+              <strong class="text-slate-200"><%= worker[:klass] %></strong>
+            </div>
+
+            <% if worker[:args].present? %>
+              <div class="mt-1 font-mono text-xs text-slate-500">
+                <%= worker[:args].inspect.truncate(120) %>
+              </div>
+            <% end %>
+          </div>
+        <% end %>
+      </div>
+    <% else %>
+      <p class="mt-3 text-sm text-slate-500">
+        Aucun worker Actor Labels actif au moment du snapshot.
+      </p>
+    <% end %>
+  </div>
+</section>
