@@ -145,7 +145,7 @@ class WhaleAlertsController < ApplicationController
     range       = from_time..to_time
     today_range = Time.current.beginning_of_day..Time.current.end_of_day
 
-    # ⚠️ summary global (pas filtré par les inputs), comme avant
+    # summary global (pas filtré par les inputs), comme avant
     @counts_range =
       WhaleAlert.where(block_time: range, alert_type: WANTED_TYPES).group(:alert_type).count
 

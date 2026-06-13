@@ -1,6 +1,11 @@
 <div class="min-h-screen bg-slate-950 text-slate-100">
   <div class="mx-auto max-w-7xl px-6 py-10">
 
+    <% latest = @latest_day %>
+    <% netflow = latest&.netflow_btc.to_f || 0 %>
+    <% positive = netflow.positive? %>
+    <% negative = netflow.negative? %>
+
     <div>
       <div class="inline-flex rounded-full border border-purple-500/20 bg-purple-500/10 px-3 py-1 text-xs font-medium text-purple-300">
         Whale Intelligence
@@ -20,46 +25,73 @@
     <div class="mt-8 grid gap-6 lg:grid-cols-3">
       <div class="rounded-3xl border border-slate-800 bg-slate-900/60 p-6 lg:col-span-2">
         <div class="text-xs uppercase tracking-[0.2em] text-slate-500">
-          Signal actuel
+          Whale Core Flow
         </div>
 
         <h2 class="mt-3 text-2xl font-semibold text-white">
-          <% if @signal&.direction == "bullish" %>
-            Accumulation whale détectée
-          <% elsif @signal&.direction == "bearish" %>
-            Distribution whale détectée
+          <% if positive %>
+            Accumulation whale observée
+          <% elsif negative %>
+            Distribution whale observée
           <% else %>
-            Signal whale neutre
+            Activité whale neutre
           <% end %>
         </h2>
 
         <p class="mt-4 text-sm leading-6 text-slate-400">
-          <%= @signal&.reason || "Aucun signal whale disponible pour le moment." %>
+          <% if positive %>
+            Les acteurs classés <span class="text-purple-300">whale_like</span>
+            reçoivent davantage de BTC qu'ils n'en distribuent actuellement.
+          <% elsif negative %>
+            Les acteurs classés <span class="text-purple-300">whale_like</span>
+            distribuent davantage de BTC qu'ils n'en reçoivent actuellement.
+          <% else %>
+            Les flux observés sont équilibrés entre entrées et sorties.
+          <% end %>
         </p>
 
-        <% if @signal.present? %>
+        <% if latest.present? %>
           <div class="mt-6 grid gap-4 md:grid-cols-3">
             <div class="rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
-              <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Inflow</div>
+              <div class="text-xs uppercase tracking-[0.2em] text-slate-500">
+                Inflow
+              </div>
+
               <div class="mt-2 text-2xl font-semibold text-white">
-                <%= number_with_delimiter(@signal.metadata["inflow_btc"].to_f.round(2), delimiter: " ") %> BTC
+                <%= number_with_delimiter(latest.inflow_btc.to_f.round(2), delimiter: " ") %> BTC
               </div>
             </div>
 
             <div class="rounded-2xl border border-slate-800 bg-slate-950/50 p-5">
-              <div class="text-xs uppercase tracking-[0.2em] text-slate-500">Outflow</div>
+              <div class="text-xs uppercase tracking-[0.2em] text-slate-500">
+                Outflow
+              </div>
+
               <div class="mt-2 text-2xl font-semibold text-white">
-                <%= number_with_delimiter(@signal.metadata["outflow_btc"].to_f.round(2), delimiter: " ") %> BTC
+                <%= number_with_delimiter(latest.outflow_btc.to_f.round(2), delimiter: " ") %> BTC
               </div>
             </div>
 
             <div class="rounded-2xl border border-purple-500/20 bg-purple-500/10 p-5">
-              <div class="text-xs uppercase tracking-[0.2em] text-purple-300">Netflow</div>
-              <div class="mt-2 text-2xl font-semibold text-white">
-                <%= number_with_delimiter(@signal.metadata["netflow_btc"].to_f.round(2), delimiter: " ") %> BTC
+              <div class="text-xs uppercase tracking-[0.2em] text-purple-300">
+                Netflow
+              </div>
+
+              <div class="mt-2 text-2xl font-semibold <%= positive ? "text-emerald-300" : negative ? "text-rose-300" : "text-white" %>">
+                <%= positive ? "▲" : negative ? "▼" : "≈" %>
+                <%= number_with_delimiter(netflow.abs.round(2), delimiter: " ") %> BTC
               </div>
             </div>
           </div>
+
+          <div class="mt-4 text-xs text-slate-500">
+            Données du <%= l(latest.day, format: :long) %> ·
+            <%= number_with_delimiter(latest.events_count) %> événements analysés
+          </div>
+        <% else %>
+          <p class="mt-6 text-sm text-slate-500">
+            Aucune donnée whale_like disponible pour le moment.
+          </p>
         <% end %>
       </div>
 
@@ -73,9 +105,17 @@
         </h2>
 
         <div class="mt-5 space-y-3 text-sm leading-6 text-slate-400">
-          <p>Whales reçoivent plus de BTC → accumulation → signal haussier.</p>
-          <p>Whales envoient plus de BTC → distribution → signal baissier.</p>
-          <p>Le signal reste expérimental et doit être vérifié dans le temps.</p>
+          <p>
+            Whales reçoivent plus de BTC → accumulation potentielle.
+          </p>
+
+          <p>
+            Whales envoient plus de BTC → distribution potentielle.
+          </p>
+
+          <p>
+            Le signal reste expérimental et doit être vérifié dans le temps.
+          </p>
         </div>
       </div>
     </div>
@@ -105,16 +145,39 @@
 
           <tbody class="divide-y divide-slate-800">
             <% @days.each do |day| %>
-              <% positive = day.netflow_btc.to_d >= 0 %>
+              <% day_netflow = day.netflow_btc.to_f %>
+              <% day_positive = day_netflow.positive? %>
+              <% day_negative = day_netflow.negative? %>
 
               <tr class="hover:bg-slate-800/40">
-                <td class="px-8 py-5 text-sm text-slate-300"><%= day.day %></td>
-                <td class="px-8 py-5 text-sm text-slate-300"><%= number_with_delimiter(day.inflow_btc.to_f.round(2), delimiter: " ") %> BTC</td>
-                <td class="px-8 py-5 text-sm text-slate-300"><%= number_with_delimiter(day.outflow_btc.to_f.round(2), delimiter: " ") %> BTC</td>
-                <td class="px-8 py-5 text-sm font-semibold <%= positive ? 'text-emerald-300' : 'text-rose-300' %>">
-                  <%= number_with_delimiter(day.netflow_btc.to_f.round(2), delimiter: " ") %> BTC
+                <td class="px-8 py-5 text-sm text-slate-300">
+                  <%= day.day %>
                 </td>
-                <td class="px-8 py-5 text-sm text-slate-400"><%= day.events_count %></td>
+
+                <td class="px-8 py-5 text-sm text-slate-300">
+                  <%= number_with_delimiter(day.inflow_btc.to_f.round(2), delimiter: " ") %> BTC
+                </td>
+
+                <td class="px-8 py-5 text-sm text-slate-300">
+                  <%= number_with_delimiter(day.outflow_btc.to_f.round(2), delimiter: " ") %> BTC
+                </td>
+
+                <td class="px-8 py-5 text-sm font-semibold <%= day_positive ? "text-emerald-300" : day_negative ? "text-rose-300" : "text-slate-300" %>">
+                  <%= day_positive ? "▲" : day_negative ? "▼" : "≈" %>
+                  <%= number_with_delimiter(day_netflow.abs.round(2), delimiter: " ") %> BTC
+                </td>
+
+                <td class="px-8 py-5 text-sm text-slate-400">
+                  <%= number_with_delimiter(day.events_count) %>
+                </td>
+              </tr>
+            <% end %>
+
+            <% if @days.empty? %>
+              <tr>
+                <td colspan="5" class="px-8 py-8 text-center text-sm text-slate-500">
+                  Aucune donnée historique whale_like disponible.
+                </td>
               </tr>
             <% end %>
           </tbody>
@@ -147,10 +210,29 @@
           <tbody class="divide-y divide-slate-800">
             <% @whale_labels.each do |label| %>
               <tr class="hover:bg-slate-800/40">
-                <td class="px-8 py-5 text-sm font-medium text-white">#<%= label.cluster_id %></td>
-                <td class="px-8 py-5 text-sm text-purple-300"><%= label.confidence %>%</td>
-                <td class="px-8 py-5 text-sm text-slate-400"><%= label.source %></td>
-                <td class="px-8 py-5 text-sm text-slate-400"><%= label.updated_at %></td>
+                <td class="px-8 py-5 text-sm font-medium text-white">
+                  #<%= label.cluster_id %>
+                </td>
+
+                <td class="px-8 py-5 text-sm text-purple-300">
+                  <%= label.confidence %>%
+                </td>
+
+                <td class="px-8 py-5 text-sm text-slate-400">
+                  <%= label.source %>
+                </td>
+
+                <td class="px-8 py-5 text-sm text-slate-400">
+                  <%= label.updated_at %>
+                </td>
+              </tr>
+            <% end %>
+
+            <% if @whale_labels.empty? %>
+              <tr>
+                <td colspan="4" class="px-8 py-8 text-center text-sm text-slate-500">
+                  Aucun acteur whale_like disponible.
+                </td>
               </tr>
             <% end %>
           </tbody>

@@ -1,9 +1,6 @@
 # frozen_string_literal: true
 
 class AddressLookupController < ApplicationController
-  RETAIL_STRUCTURED_CLUSTER_SIZE = 50
-  RETAIL_STRUCTURED_TOTAL_SENT_BTC = 500.0
-
   def search
     raw = params[:q].to_s.strip
 
@@ -32,39 +29,26 @@ class AddressLookupController < ApplicationController
     unless @address_record
       @observed = false
       @cluster = nil
-      @cluster_profile = nil
       @user_message = nil
       @cluster_label = nil
       @cluster_tone = :neutral
-      @cluster_signals = []
       @linked_addresses = []
       @links = []
+      @cluster_total_sent_sats = 0
       return
     end
 
     @observed = true
     @cluster = @address_record.cluster
-    @cluster_profile = @cluster&.cluster_profile
-    @cluster_total_sent_sats = @cluster.present? ? @cluster.addresses.sum(:total_sent_sats) : 0
-    @cluster_metric = @cluster&.cluster_metrics&.order(snapshot_date: :desc, id: :desc)&.first
 
-    latest_signal_date = @cluster&.cluster_signals&.maximum(:snapshot_date)
-
-    @cluster_signals =
-      if @cluster.present? && latest_signal_date.present?
-        @cluster.cluster_signals
-          .where(snapshot_date: latest_signal_date)
-          .order(score: :desc, id: :desc)
-          .limit(5)
+    @cluster_total_sent_sats =
+      if @cluster.present?
+        @cluster.addresses.sum(:total_sent_sats)
       else
-        []
+        @address_record.total_sent_sats.to_i
       end
 
-    @user_message = build_user_message(
-      cluster: @cluster,
-      cluster_profile: @cluster_profile,
-      cluster_signals: @cluster_signals
-    )
+    @user_message = build_user_message(cluster: @cluster)
 
     if @cluster.present?
       @cluster_label, @cluster_tone = cluster_summary_meta(@cluster.address_count)
@@ -107,105 +91,33 @@ class AddressLookupController < ApplicationController
     end
   end
 
-  def build_user_message(cluster:, cluster_profile:, cluster_signals:)
-    return nil unless cluster_profile.present?
+  def build_user_message(cluster:)
+    return nil unless cluster.present?
 
-    if cluster_profile.present? && cluster.present?
-      addr_total = cluster.addresses.maximum(:total_sent_sats).to_i
-      cluster_total = cluster_profile.total_sent_sats.to_i
+    address_count = cluster.address_count.to_i
 
-      if addr_total > cluster_total
-        return {
-          title: "Cluster incomplet ou en cours de construction",
-          body: "Le volume observé sur une adresse dépasse l’agrégat du cluster. Certaines adresses liées peuvent ne pas être encore identifiées.",
-          tone: :info
-        }
-      end
-    end
-
-    classification = cluster_profile.classification.to_s
-    score = cluster_profile.score.to_i
-    traits = Array(cluster_profile.traits).map(&:to_s)
-
-    cluster_size = cluster&.address_count.to_i
-    total_sent_sats = cluster_profile.total_sent_sats.to_i
-    total_sent_btc = total_sent_sats / 100_000_000.0
-
-    signals = Array(cluster_signals)
-    high_signal_present = signals.any? { |signal| signal.severity.to_s == "high" }
-    signal_types = signals.map { |signal| signal.signal_type.to_s }
-
-    structured_retail =
-      classification == "retail" && (
-        cluster_size >= RETAIL_STRUCTURED_CLUSTER_SIZE ||
-        total_sent_btc >= RETAIL_STRUCTURED_TOTAL_SENT_BTC ||
-        high_signal_present ||
-        traits.include?("high_volume") ||
-        traits.include?("whale_like") ||
-        signal_types.include?("large_transfers") ||
-        signal_types.include?("volume_spike")
-      )
-
-    if structured_retail
-      return {
-        title: "Cluster utilisateur à activité significative",
-        body: "Adresse classée côté utilisateur, mais rattachée à un cluster présentant un volume ou une activité récents compatibles avec un acteur structuré. Vérification recommandée avant envoi.",
-        tone: :warning
-      }
-    end
-
-    title =
-      case classification
-      when "exchange_like", "service"
-        "Adresse liée à une plateforme probable"
-      when "whale"
-        "Adresse liée à un acteur important"
-      when "retail"
-        "Adresse liée à un utilisateur individuel"
+    title, tone =
+      case address_count
+      when 0, 1
+        ["Adresse isolée", :neutral]
+      when 2..20
+        ["Petit cluster observé", :neutral]
+      when 21..1000
+        ["Cluster multi-input observé", :info]
       else
-        "Adresse observée sur le réseau"
+        ["Grand cluster multi-input observé", :warning]
       end
 
-    risk =
-      if traits.include?("high_volume") || traits.include?("whale_like")
-        :warning
-      elsif score >= 80
-        :info
+    body =
+      if address_count > 1000
+        "Cette adresse appartient à un grand cluster construit par heuristique multi-input. Cela suggère une activité structurée, sans identifier avec certitude le propriétaire."
+      elsif address_count > 20
+        "Cette adresse appartient à un cluster significatif construit par heuristique multi-input. Le contexte mérite d’être analysé avant interprétation."
+      elsif address_count > 1
+        "Cette adresse est liée à d’autres adresses par des transactions multi-input observées."
       else
-        :neutral
+        "Cette adresse est observée, mais aucun regroupement significatif n’est actuellement affiché."
       end
-
-    tone =
-      case risk
-      when :warning then :warning
-      when :info    then :info
-      else :neutral
-      end
-
-    parts = []
-    parts << "cluster de grande taille" if traits.include?("large_cluster")
-    parts << "activité élevée" if traits.include?("high_activity")
-    parts << "volume important" if traits.include?("high_volume")
-    parts << "activité compatible avec des volumes institutionnels" if traits.include?("whale_like")
-
-    description =
-      if parts.any?
-        parts.join(", ")
-      else
-        "activité on-chain observée"
-      end
-
-    recommendation =
-      case risk
-      when :warning
-        "Vérification recommandée avant envoi."
-      when :info
-        "Contexte actif, analyse recommandée."
-      else
-        "Aucune alerte particulière détectée."
-      end
-
-    body = "#{description.capitalize}. #{recommendation}"
 
     {
       title: title,

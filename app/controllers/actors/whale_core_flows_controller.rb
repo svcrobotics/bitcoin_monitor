@@ -2,11 +2,6 @@
 module Actors
   class WhaleCoreFlowsController < ApplicationController
     def index
-      @signal = MarketSignal
-        .where(source: "tansa", indicator: "WHALE_CORE_FLOW")
-        .order(observed_on: :desc)
-        .first
-
       @days = WhaleCoreFlowDay
         .where("events_count > 0")
         .order(day: :desc)
