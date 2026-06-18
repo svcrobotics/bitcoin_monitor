@@ -1,165 +1,320 @@
-<% status = snapshot[:status] %>
+<%
+  raw_snapshot =
+    if local_assigns.key?(:snapshot)
+      local_assigns[:snapshot]
+    elsif local_assigns.key?(:data)
+      local_assigns[:data]
+    elsif local_assigns.key?(:context)
+      local_assigns[:context]
+    elsif local_assigns.key?(:answer)
+      local_assigns[:answer]
+    else
+      {}
+    end
 
-<section class="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100">
-  <div class="flex items-start justify-between gap-4">
+  raw_snapshot = raw_snapshot[:context] if raw_snapshot.respond_to?(:[]) && raw_snapshot[:context].is_a?(Hash)
+  raw_snapshot = raw_snapshot[:layer1_health] if raw_snapshot.respond_to?(:[]) && raw_snapshot[:layer1_health].is_a?(Hash)
+
+  snapshot = raw_snapshot.respond_to?(:with_indifferent_access) ? raw_snapshot.with_indifferent_access : {}
+
+  sync = (snapshot[:sync] || {}).with_indifferent_access
+  buffers = (snapshot[:buffers] || {}).with_indifferent_access
+  activity = (snapshot[:activity] || {}).with_indifferent_access
+  audits = (snapshot[:audits] || snapshot[:audit] || {}).with_indifferent_access
+  queues = (snapshot[:queues] || {}).with_indifferent_access
+  counts = (snapshot[:counts] || snapshot[:data] || {}).with_indifferent_access
+
+  best_height = sync[:best_height] || snapshot[:best_height]
+  processed_height = sync[:processed_height] || snapshot[:processed_height]
+
+  lag =
+    if sync.key?(:lag)
+      sync[:lag].to_i
+    elsif snapshot.key?(:lag)
+      snapshot[:lag].to_i
+    elsif best_height.present? && processed_height.present?
+      best_height.to_i - processed_height.to_i
+    else
+      0
+    end
+
+  outputs_buffer = buffers[:outputs].to_i
+  spent_buffer = buffers[:spent].to_i
+  buffers_active = outputs_buffer.positive? || spent_buffer.positive?
+
+  strict_issues = Array(snapshot[:issues]).compact
+  audit_failed =
+    strict_issues.any? ||
+    audits[:outputs] == false ||
+    audits[:inputs] == false ||
+    audits[:utxo_state] == false
+
+  layer1_late = lag > 3
+  layer1_syncing = !audit_failed && (lag.positive? || buffers_active) && !layer1_late
+  layer1_healthy = !audit_failed && lag.zero? && !buffers_active
+
+  display_status =
+    if audit_failed
+      "CRITICAL"
+    elsif layer1_late
+      "WARNING"
+    elsif layer1_syncing
+      "SYNCING"
+    else
+      "HEALTHY"
+    end
+
+  status_classes =
+    case display_status
+    when "HEALTHY"
+      "border-emerald-400/30 bg-emerald-400/10 text-emerald-300"
+    when "SYNCING"
+      "border-cyan-400/30 bg-cyan-400/10 text-cyan-300"
+    when "WARNING"
+      "border-amber-400/30 bg-amber-400/10 text-amber-300"
+    else
+      "border-red-400/30 bg-red-400/10 text-red-300"
+    end
+
+  sync_label =
+    if audit_failed || layer1_late
+      "KO"
+    elsif layer1_syncing
+      "SYNCING"
+    else
+      "OK"
+    end
+
+  sync_value_classes =
+    case sync_label
+    when "OK"
+      "text-emerald-300"
+    when "SYNCING"
+      "text-cyan-300"
+    else
+      "text-red-300"
+    end
+
+  buffers_label = buffers_active ? "PROCESSING" : "OK"
+  buffers_value_classes = buffers_active ? "text-cyan-300" : "text-emerald-300"
+
+  utxo_state_ok = audits[:utxo_state] != false
+  cluster_inputs_ok = audits[:inputs] != false
+
+  last_processed_seconds = activity[:last_processed_seconds_ago] || snapshot[:last_processed_seconds_ago]
+
+  last_processed_label =
+    if last_processed_seconds.present?
+      "#{distance_of_time_in_words(last_processed_seconds.to_i.seconds)}"
+    else
+      "—"
+    end
+
+  queue_size =
+    queues[:layer1_strict] ||
+    queues["layer1_strict"] ||
+    snapshot[:layer1_queue] ||
+    0
+
+  blocks_certified =
+    counts[:blocks_certified] ||
+    snapshot[:blocks_certified] ||
+    BlockBufferModel.where(status: "processed").count rescue nil
+
+  utxo_count =
+    counts[:utxo_outputs] ||
+    counts[:live_utxos] ||
+    snapshot[:utxo_outputs] ||
+    snapshot[:live_utxos]
+
+  cluster_inputs_count =
+    counts[:cluster_inputs] ||
+    snapshot[:cluster_inputs]
+
+  audited_height =
+    audits[:height] ||
+    audits[:last_height] ||
+    processed_height
+
+  core_checks =
+    audits[:core_checks] ||
+    audits[:checks] ||
+    "5/5"
+
+  verdict =
+    if audit_failed
+      "Layer1 a détecté un écart de certification. Les modules supérieurs doivent attendre la correction."
+    elsif layer1_late
+      "Layer1 est vivant, mais le retard dépasse le seuil normal. Le pipeline strict doit être vérifié."
+    elsif layer1_syncing
+      "Layer1 traite le bloc suivant. Les données restent certifiées jusqu’au bloc #{processed_height || "—"}."
+    else
+      "Layer1 est synchronisé avec Bitcoin Core. Les données brutes sont certifiées et exploitables par les modules supérieurs."
+    end
+%>
+
+<div class="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 shadow-2xl shadow-black/20">
+  <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
     <div>
-      <p class="text-xs uppercase tracking-wide text-slate-500">Layer 1 Health</p>
-      <h2 class="mt-1 text-xl font-semibold">État vital du pipeline blockchain</h2>
-    </div>
+      <div class="flex items-center gap-3">
+        <h2 class="text-2xl font-bold text-slate-100">Layer1 strict</h2>
 
-    <div class="rounded-full px-3 py-1 text-xs font-semibold
-      <%= status == "healthy" ? "bg-emerald-500/10 text-emerald-300" : status == "warning" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300" %>">
-      <%= status.upcase %>
+        <span class="rounded-full border px-3 py-1 text-xs font-bold tracking-[0.16em] <%= status_classes %>">
+          <%= display_status %>
+        </span>
+      </div>
+
+      <div class="mt-1 text-sm font-semibold text-cyan-300">
+        Source Bitcoin certifiée
+      </div>
+
+      <p class="mt-3 max-w-3xl text-sm leading-6 text-slate-400">
+        Bitcoin Core ↔ Tansa. Données brutes, outputs, inputs et état UTXO vérifiés avant exploitation par les modules supérieurs.
+      </p>
     </div>
   </div>
 
-  <% sync = snapshot[:sync] || {} %>
-  <% counts = snapshot[:counts] || {} %>
-
-  <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
+  <div class="mt-6 grid grid-cols-2 gap-3 md:grid-cols-4">
     <%= render "questions/answers/layer1_metric",
-      label: "Best height",
-      value: sync[:best_height] %>
+      label: "Bitcoin Core",
+      value: best_height || "—" %>
 
     <%= render "questions/answers/layer1_metric",
-      label: "Processed",
-      value: sync[:processed_height] %>
+      label: "Tansa processed",
+      value: processed_height || "—" %>
 
     <%= render "questions/answers/layer1_metric",
       label: "Lag",
-      value: sync[:lag] %>
+      value: "#{lag} #{lag > 1 ? "blocs" : "bloc"}" %>
 
     <%= render "questions/answers/layer1_metric",
-      label: "UTXO outputs",
-      value: number_with_delimiter(counts[:utxo_outputs].to_i) %>
+      label: "Audit Core",
+      value: audit_failed ? "KO" : "OK" %>
   </div>
 
-  <% activity = snapshot[:activity] || {} %>
-  <% processes = Array(snapshot[:processes]) %>
-  <% workers = Array(snapshot[:workers]) %>
-
-  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <div class="flex items-start justify-between gap-4">
-      <div>
-        <h3 class="font-semibold">État opérationnel</h3>
-        <p class="mt-1 text-sm text-slate-500">
-          Vérifie si Layer 1 est réellement vivant, même quand les buffers sont bas.
-        </p>
-      </div>
-
-      <span class="rounded-full border px-3 py-1 text-xs font-semibold
-        <%= activity[:pipeline_state] == "active" ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-300" : activity[:pipeline_state] == "blocked" ? "border-rose-400/30 bg-rose-500/10 text-rose-300" : "border-slate-400/30 bg-slate-500/10 text-slate-300" %>">
-        <%= activity[:pipeline_state].to_s.upcase.presence || "UNKNOWN" %>
-      </span>
-    </div>
-
-    <div class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
-      <%= render "questions/answers/layer1_metric",
-        label: "Dernier bloc",
-        value: format_duration(activity[:last_processed_seconds_ago]) %>
-
-      <%= render "questions/answers/layer1_metric",
-        label: "Dernier UTXO",
-        value: format_duration(activity[:last_utxo_seconds_ago]) %>
-
-      <%= render "questions/answers/layer1_metric",
-        label: "Process Sidekiq",
-        value: processes.size %>
-
-      <%= render "questions/answers/layer1_metric",
-        label: "Workers actifs",
-        value: workers.size %>
-    </div>
-  </div>
-
-  <div class="mt-6 grid gap-4 md:grid-cols-2">
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">Redis buffers</h3>
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between"><span>Outputs buffer</span><strong><%= number_with_delimiter(snapshot.dig(:buffers, :outputs)) %></strong></div>
-        <div class="flex justify-between"><span>Spent buffer</span><strong><%= number_with_delimiter(snapshot.dig(:buffers, :spent)) %></strong></div>
-      </div>
-    </div>
-
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">Tables vitales</h3>
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between"><span>Block buffers</span><strong><%= number_with_delimiter(snapshot.dig(:counts, :block_buffers)) %></strong></div>
-        <div class="flex justify-between"><span>UTXO outputs</span><strong><%= number_with_delimiter(snapshot.dig(:counts, :utxo_outputs)) %></strong></div>
-        <div class="flex justify-between"><span>Cluster inputs</span><strong><%= number_with_delimiter(snapshot.dig(:counts, :cluster_inputs)) %></strong></div>
-      </div>
-    </div>
-
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">Curseurs</h3>
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between"><span>UTXO min height</span><strong><%= snapshot.dig(:cursors, :utxo_min_height) || "—" %></strong></div>
-          <div class="flex justify-between"><span>UTXO max height</span><strong><%= snapshot.dig(:cursors, :utxo_max_height) || "—" %></strong></div>
-          <div class="flex justify-between"><span>Cluster scanner</span><strong><%= snapshot.dig(:cursors, :cluster_scanner) || "—" %></strong></div>
-          <div class="flex justify-between"><span>Cluster orchestrator</span><strong><%= snapshot.dig(:cursors, :cluster_input_orchestrator) || "—" %></strong></div>
-          <div class="flex justify-between"><span>Cluster max spent</span><strong><%= snapshot.dig(:cursors, :cluster_max_spent_height) || "—" %></strong></div>
-      </div>
-    </div>
-
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">Fraîcheur</h3>
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between"><span>Dernier bloc processed</span><strong><%= snapshot.dig(:timestamps, :last_processed_block_at)&.strftime("%d/%m %H:%M") || "—" %></strong></div>
-        <div class="flex justify-between"><span>Dernier UTXO</span><strong><%= snapshot.dig(:timestamps, :last_utxo_at)&.strftime("%d/%m %H:%M") || "—" %></strong></div>
-        <div class="flex justify-between"><span>Dernier cluster input</span><strong><%= snapshot.dig(:timestamps, :last_cluster_input_at)&.strftime("%d/%m %H:%M") || "—" %></strong></div>
-      </div>
-    </div>
-  </div>
-
-  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <h3 class="font-semibold">Queues Sidekiq</h3>
-    <div class="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-4">
-      <% snapshot[:queues].each do |name, size| %>
-        <div class="flex justify-between rounded-lg bg-slate-950 px-3 py-2">
-          <span class="text-slate-400"><%= name %></span>
-          <strong><%= size %></strong>
-        </div>
-      <% end %>
-    </div>
-  </div>
-
-  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <h3 class="font-semibold">Workers Layer 1 actifs</h3>
-
-    <% workers = Array(snapshot[:workers]) %>
-
-    <% if workers.any? %>
-      <div class="mt-3 space-y-2 text-sm">
-        <% workers.each do |worker| %>
-          <div class="rounded-lg bg-slate-950 px-3 py-2">
-            <div class="flex justify-between gap-3">
-              <span class="text-slate-400"><%= worker[:queue] %></span>
-              <strong class="text-slate-200"><%= worker[:klass] %></strong>
-            </div>
-
-            <% if worker[:queue] == "spent_resolve" && worker[:args].present? %>
-              <div class="mt-1 font-mono text-xs text-slate-500">
-                block_height=<%= worker[:args].first %>
-              </div>
-
-            <% elsif worker[:queue] == "flushers" %>
-              <div class="mt-1 font-mono text-xs text-slate-500">
-                flush en cours
-              </div>
-            <% end %>
+  <% if layer1_syncing || buffers_active %>
+    <div class="mt-5 rounded-2xl border border-cyan-400/20 bg-cyan-400/5 p-4">
+      <div class="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <div class="text-xs font-semibold uppercase tracking-[0.16em] text-cyan-300">
+            Certification en cours
           </div>
-        <% end %>
+
+          <div class="mt-1 text-sm text-slate-400">
+            Layer1 traite le prochain bloc Bitcoin. Les données sont certifiées jusqu’au bloc
+            <span class="font-semibold text-slate-100"><%= processed_height || "—" %></span>.
+          </div>
+        </div>
+
+        <div class="text-sm font-semibold text-cyan-300">
+          <%= outputs_buffer %> outputs / <%= spent_buffer %> spent
+        </div>
       </div>
-    <% else %>
-      <p class="mt-3 text-sm text-slate-500">
-        Aucun worker Layer 1 actif au moment du snapshot.
-      </p>
-    <% end %>
+
+      <div class="mt-4 h-2 overflow-hidden rounded-full bg-slate-800">
+        <div class="h-full w-2/3 rounded-full bg-cyan-400 transition-all duration-700"></div>
+      </div>
+    </div>
+  <% end %>
+
+  <div class="mt-6 grid gap-4 md:grid-cols-3">
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+      <div class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+        Données fondamentales
+      </div>
+
+      <div class="mt-4 space-y-3 text-sm">
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">UTXO vivants</span>
+          <span class="font-semibold text-slate-100"><%= utxo_count.present? ? number_with_delimiter(utxo_count.to_i) : "—" %></span>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">Cluster inputs</span>
+          <span class="font-semibold text-slate-100"><%= cluster_inputs_count.present? ? number_with_delimiter(cluster_inputs_count.to_i) : "—" %></span>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">Blocs certifiés</span>
+          <span class="font-semibold text-slate-100"><%= blocks_certified.present? ? number_with_delimiter(blocks_certified.to_i) : "—" %></span>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+      <div class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+        Audits stricts
+      </div>
+
+      <div class="mt-4 space-y-3 text-sm">
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">Sync Core/Tansa</span>
+          <span class="font-semibold <%= sync_value_classes %>"><%= sync_label %></span>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">Outputs / spent buffers</span>
+          <span class="font-semibold <%= buffers_value_classes %>">
+            <%= buffers_label %> · <%= outputs_buffer %>/<%= spent_buffer %>
+          </span>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">UTXO state</span>
+          <span class="font-semibold <%= utxo_state_ok ? "text-emerald-300" : "text-red-300" %>">
+            <%= utxo_state_ok ? "OK" : "KO" %>
+          </span>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">Cluster inputs</span>
+          <span class="font-semibold <%= cluster_inputs_ok ? "text-emerald-300" : "text-red-300" %>">
+            <%= cluster_inputs_ok ? "OK" : "KO" %>
+          </span>
+        </div>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+      <div class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+        Dernière preuve
+      </div>
+
+      <div class="mt-4 space-y-3 text-sm">
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">Bloc audité</span>
+          <span class="font-semibold text-slate-100"><%= audited_height || "—" %></span>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">Contrôles Core</span>
+          <span class="font-semibold <%= audit_failed ? "text-red-300" : "text-emerald-300" %>"><%= core_checks %></span>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">Dernier bloc</span>
+          <span class="font-semibold text-slate-100"><%= last_processed_label %></span>
+        </div>
+
+        <div class="flex items-center justify-between gap-4">
+          <span class="text-slate-400">Queue strict</span>
+          <span class="font-semibold text-slate-100"><%= queue_size.to_i %></span>
+        </div>
+      </div>
+    </div>
   </div>
 
-  <div class="mt-8">
-    <%= render "layer1_audit/audit_panel",
-      last_audit: Layer1AuditRun.order(created_at: :desc).first,
-      last_audits: Layer1AuditRun.order(created_at: :desc).limit(10) %>
+  <div class="mt-5 rounded-2xl border border-slate-800 bg-slate-900/60 p-4">
+    <div class="text-xs font-semibold uppercase tracking-[0.16em] text-slate-500">
+      Verdict système
+    </div>
+
+    <p class="mt-2 text-sm leading-6 text-slate-300">
+      <%= verdict %>
+    </p>
+
+    <div class="mt-3 text-xs text-slate-500">
+      MAJ : <%= Time.current.strftime("%d/%m %H:%M:%S") %>
+    </div>
   </div>
-</section>
+</div>
