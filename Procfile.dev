@@ -1,18 +1,27 @@
 web: bin/rails server -p 3000
 css: bin/rails tailwindcss:watch
 
-sidekiq_layer1: nice -n 0 bundle exec sidekiq -c 1 -q process -q ingest -q realtime -q btc_realtime
+sidekiq_layer1_strict: LAYER1_STRICT_ONLY=1 LAYER1_STRICT_TIP_SYNC_INTERVAL_SECONDS=30 LAYER1_STRICT_TIP_SYNC_MAX_BLOCKS=3 bundle exec sidekiq -c 1 -q layer1_strict
 
-sidekiq_layer1_drain: OUTPUT_FLUSH_BATCH_SIZE=4000 SPENT_OUTPUT_FLUSH_BATCH_SIZE=250 LAYER1_DRAIN_MAX_SECONDS=30 nice -n 0 bundle exec sidekiq -c 1 -q layer1_drain
+sidekiq_cluster_strict: LAYER1_STRICT_ONLY=1 CLUSTER_TIMING_LOGS=false CLUSTER_STRICT_SYNC_LIMIT=2 bundle exec sidekiq -c 1 -q cluster_strict
 
-sidekiq_spent_resolve: SPENT_RESOLVE_BATCH_SIZE=25 ENABLE_EXCHANGE_AFTER_SPENT_RESOLVE=1 nice -n 5 bundle exec sidekiq -c 2 -q spent_resolve
+#sidekiq_actor_profile_strict: LAYER1_STRICT_ONLY=1 ACTOR_PROFILE_STRICT_BATCH_LIMIT=10 ACTOR_PROFILE_STRICT_WAIT_SECONDS=30 bundle exec sidekiq -c 1 -q actor_profile_strict
 
-sidekiq_clusters: nice -n 15 bundle exec sidekiq -c 1 -q p3_clusters_scan -q p3_clusters -q p3_clusters_refresh
+#sidekiq_layer1: bundle exec sidekiq -c 1 -q process -q ingest -q realtime -q btc_realtime
 
-sidekiq_actor_profiles: nice -n 18 bundle exec sidekiq -c 1 -q p3_actor_profile_light -q p3_actor_profile_heavy
+#sidekiq_layer1_drain_1: OUTPUT_FLUSH_BATCH_SIZE=10000 SPENT_OUTPUT_FLUSH_BATCH_SIZE=500 LAYER1_DRAIN_MAX_SECONDS=120 bundle exec sidekiq -c 1 -q layer1_drain
 
-sidekiq_actor_labels: nice -n 19 bundle exec sidekiq -c 1 -q actor_labels
+#idekiq_flushers_1: SPENT_OUTPUT_FLUSH_BATCH_SIZE=500 bundle exec sidekiq -c 1 -q flushers
 
-sidekiq_default: nice -n 19 bundle exec sidekiq -c 1 -q default -q low
+#sidekiq_spent_resolve_1: SPENT_RESOLVE_BATCH_SIZE=50 ENABLE_EXCHANGE_AFTER_SPENT_RESOLVE=0 bundle exec sidekiq -c 2 -q spent_resolve
+#sidekiq_spent_resolve_2: SPENT_RESOLVE_BATCH_SIZE=50 ENABLE_EXCHANGE_AFTER_SPENT_RESOLVE=1 bundle exec sidekiq -c 2 -q spent_resolve
 
-sidekiq_p1_exchange: nice -n 10 bundle exec sidekiq -c 2 -q p1_exchange
+#sidekiq_clusters: nice -n 15 bundle exec sidekiq -c 1 -q p3_clusters_scan -q p3_clusters -q p3_clusters_refresh
+
+#sidekiq_actor_profiles: nice -n 18 bundle exec sidekiq -c 1 -q p3_actor_profile_light -q p3_actor_profile_heavy
+
+#sidekiq_actor_labels: nice -n 19 bundle exec sidekiq -c 1 -q actor_labels
+
+#sidekiq_default: nice -n 19 bundle exec sidekiq -c 1 -q default -q low
+
+#sidekiq_p1_exchange: nice -n 10 bundle exec sidekiq -c 2 -q p1_exchange
