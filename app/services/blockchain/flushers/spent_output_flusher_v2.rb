@@ -48,7 +48,7 @@ module Blockchain
 
         tx_updated = 0
         utxo_deleted = 0
-        cluster_inserted = 0
+        cluster_result = empty_cluster_result
 
         begin
           ActiveRecord::Base.transaction do
@@ -71,7 +71,7 @@ module Blockchain
                 end
             end
 
-            cluster_inserted =
+            cluster_result =
               measure_stage("bulk_upsert_cluster_inputs", timings) do
                 upsert_cluster_inputs_from_temp(connection, temp_table)
               end
@@ -97,7 +97,11 @@ module Blockchain
           "[spent_output_flusher_v2] flushed=#{rows.size} " \
           "tx_updated=#{tx_updated} " \
           "tx_update_mode=#{tx_outputs_update_deferred? ? 'async' : 'inline'} " \
-          "cluster_inserted=#{cluster_inserted} " \
+          "cluster_mode=#{cluster_result[:mode]} " \
+          "cluster_inserted=#{cluster_result[:inserted]} " \
+          "cluster_conflicts=#{cluster_result[:conflicts]} " \
+          "cluster_conflicts_identical=#{cluster_result[:identical]} " \
+          "cluster_conflicts_divergent=#{cluster_result[:divergent]} " \
           "utxo_deleted=#{utxo_deleted} " \
           "missing_tx=#{tx_outputs_update_deferred? ? 'deferred' : rows.size - tx_updated} " \
           "missing_utxo=#{rows.size - utxo_deleted} " \
@@ -111,7 +115,11 @@ module Blockchain
           flushed: rows.size,
           tx_updated: tx_updated,
           tx_update_deferred: tx_outputs_update_deferred?,
-          cluster_inserted: cluster_inserted,
+          cluster_inserted: cluster_result[:inserted],
+          cluster_conflicts: cluster_result[:conflicts],
+          cluster_conflicts_identical: cluster_result[:identical],
+          cluster_conflicts_divergent: cluster_result[:divergent],
+          cluster_mode: cluster_result[:mode],
           utxo_deleted: utxo_deleted,
           missing_tx: (rows.size - tx_updated unless tx_outputs_update_deferred?),
           missing_utxo: rows.size - utxo_deleted,
@@ -138,6 +146,10 @@ module Blockchain
           tx_updated: 0,
           tx_update_deferred: tx_outputs_update_deferred?,
           cluster_inserted: 0,
+          cluster_conflicts: 0,
+          cluster_conflicts_identical: 0,
+          cluster_conflicts_divergent: 0,
+          cluster_mode: mode,
           utxo_deleted: 0,
           missing_tx: 0,
           missing_utxo: 0,
@@ -158,6 +170,20 @@ module Blockchain
         raise ArgumentError, "unknown spent output flusher mode #{value.inspect}"
       rescue NoMethodError
         raise ArgumentError, "unknown spent output flusher mode #{value.inspect}"
+      end
+
+      def realtime?
+        mode == :realtime
+      end
+
+      def empty_cluster_result
+        {
+          inserted: 0,
+          conflicts: 0,
+          identical: 0,
+          divergent: 0,
+          mode: mode
+        }
       end
 
       def batch_size
@@ -234,7 +260,15 @@ module Blockchain
       # tx_outputs est une projection historique asynchrone et ne doit plus
       # participer au chemin de certification temps réel.
       def upsert_cluster_inputs_from_temp(connection, temp_table)
-        result = connection.exec_query(<<~SQL.squish)
+        if realtime?
+          insert_cluster_inputs_realtime(connection, temp_table)
+        else
+          upsert_cluster_inputs_recovery(connection, temp_table)
+        end
+      end
+
+      def cluster_inputs_source_cte(temp_table)
+        <<~SQL
           WITH source_rows AS (
             SELECT DISTINCT ON (txid, vout)
               txid,
@@ -263,6 +297,175 @@ module Blockchain
               AND address IS NOT NULL
               AND amount_btc IS NOT NULL
           )
+        SQL
+      end
+
+      def insert_cluster_inputs_realtime(connection, temp_table)
+        conflicts =
+          realtime_cluster_input_conflicts(
+            connection,
+            temp_table
+          )
+
+        if conflicts[:divergent].positive?
+          samples =
+            divergent_cluster_input_samples(
+              connection,
+              temp_table
+            )
+
+          raise(
+            "divergent cluster_inputs in realtime spent flusher " \
+            "count=#{conflicts[:divergent]} samples=#{samples.inspect}"
+          )
+        end
+
+        result = connection.exec_query(<<~SQL.squish)
+          #{cluster_inputs_source_cte(temp_table)}
+          INSERT INTO cluster_inputs (
+            block_height,
+            txid,
+            vout,
+            address,
+            amount_btc,
+            spent,
+            spent_txid,
+            spent_block_height,
+            address_balance_btc,
+            address_received_btc,
+            address_sent_btc,
+            created_at,
+            updated_at
+          )
+          SELECT
+            eligible.block_height,
+            eligible.txid,
+            eligible.vout,
+            eligible.address,
+            eligible.amount_btc,
+            TRUE,
+            eligible.spent_txid,
+            eligible.spent_block_height,
+            stats.net_btc,
+            stats.received_btc,
+            stats.sent_btc,
+            NOW(),
+            NOW()
+          FROM eligible
+          LEFT JOIN address_flow_stats AS stats
+            ON stats.address = eligible.address
+          ON CONFLICT (txid, vout) DO NOTHING
+          RETURNING id
+        SQL
+
+        {
+          inserted: result.rows.size,
+          conflicts: conflicts[:conflicts],
+          identical: conflicts[:identical],
+          divergent: conflicts[:divergent],
+          mode: mode
+        }
+      end
+
+      def realtime_cluster_input_conflicts(connection, temp_table)
+        result = connection.exec_query(<<~SQL.squish)
+          #{cluster_inputs_source_cte(temp_table)}
+          SELECT
+            COUNT(*)::integer AS conflicts,
+            COUNT(*) FILTER (
+              WHERE ROW(
+                cluster_inputs.block_height,
+                cluster_inputs.address,
+                cluster_inputs.amount_btc,
+                cluster_inputs.spent,
+                cluster_inputs.spent_txid,
+                cluster_inputs.spent_block_height
+              ) IS NOT DISTINCT FROM ROW(
+                eligible.block_height,
+                eligible.address,
+                eligible.amount_btc,
+                TRUE,
+                eligible.spent_txid,
+                eligible.spent_block_height
+              )
+            )::integer AS identical,
+            COUNT(*) FILTER (
+              WHERE ROW(
+                cluster_inputs.block_height,
+                cluster_inputs.address,
+                cluster_inputs.amount_btc,
+                cluster_inputs.spent,
+                cluster_inputs.spent_txid,
+                cluster_inputs.spent_block_height
+              ) IS DISTINCT FROM ROW(
+                eligible.block_height,
+                eligible.address,
+                eligible.amount_btc,
+                TRUE,
+                eligible.spent_txid,
+                eligible.spent_block_height
+              )
+            )::integer AS divergent
+          FROM eligible
+          INNER JOIN cluster_inputs
+            ON cluster_inputs.txid = eligible.txid
+           AND cluster_inputs.vout = eligible.vout
+        SQL
+
+        row = result.first || {}
+
+        {
+          conflicts: row["conflicts"].to_i,
+          identical: row["identical"].to_i,
+          divergent: row["divergent"].to_i
+        }
+      end
+
+      def divergent_cluster_input_samples(connection, temp_table)
+        connection.exec_query(<<~SQL.squish).to_a
+          #{cluster_inputs_source_cte(temp_table)}
+          SELECT
+            eligible.txid,
+            eligible.vout,
+            cluster_inputs.block_height AS existing_block_height,
+            eligible.block_height AS incoming_block_height,
+            cluster_inputs.address AS existing_address,
+            eligible.address AS incoming_address,
+            cluster_inputs.amount_btc AS existing_amount_btc,
+            eligible.amount_btc AS incoming_amount_btc,
+            cluster_inputs.spent AS existing_spent,
+            TRUE AS incoming_spent,
+            cluster_inputs.spent_txid AS existing_spent_txid,
+            eligible.spent_txid AS incoming_spent_txid,
+            cluster_inputs.spent_block_height AS existing_spent_block_height,
+            eligible.spent_block_height AS incoming_spent_block_height
+          FROM eligible
+          INNER JOIN cluster_inputs
+            ON cluster_inputs.txid = eligible.txid
+           AND cluster_inputs.vout = eligible.vout
+          WHERE ROW(
+            cluster_inputs.block_height,
+            cluster_inputs.address,
+            cluster_inputs.amount_btc,
+            cluster_inputs.spent,
+            cluster_inputs.spent_txid,
+            cluster_inputs.spent_block_height
+          ) IS DISTINCT FROM ROW(
+            eligible.block_height,
+            eligible.address,
+            eligible.amount_btc,
+            TRUE,
+            eligible.spent_txid,
+            eligible.spent_block_height
+          )
+          ORDER BY eligible.txid, eligible.vout
+          LIMIT 5
+        SQL
+      end
+
+      def upsert_cluster_inputs_recovery(connection, temp_table)
+        result = connection.exec_query(<<~SQL.squish)
+          #{cluster_inputs_source_cte(temp_table)}
           INSERT INTO cluster_inputs (
             block_height,
             txid,
@@ -330,7 +533,13 @@ module Blockchain
           RETURNING id
         SQL
 
-        result.rows.size
+        {
+          inserted: result.rows.size,
+          conflicts: 0,
+          identical: 0,
+          divergent: 0,
+          mode: mode
+        }
       end
 
       def delete_utxo_outputs_from_temp(connection, temp_table)

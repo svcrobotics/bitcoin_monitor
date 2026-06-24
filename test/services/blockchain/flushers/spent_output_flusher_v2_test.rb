@@ -291,4 +291,178 @@ class SpentOutputFlusherV2Test < ActiveSupport::TestCase
     assert ClusterInput.find_by!(txid: txid, vout: 0).spent?
     assert_not UtxoOutput.exists?(txid: txid, vout: 0)
   end
+
+  test "realtime inserts new cluster input with conflict metrics" do
+    txid = "3" * 64
+    row = spent_row(
+      txid: txid,
+      vout: 0,
+      spent_txid: "4" * 64,
+      spent_block_height: 410,
+      prevout_address: "bc1qrealtimeinsert",
+      prevout_amount_btc: "1.75",
+      prevout_block_height: 390
+    )
+
+    UtxoOutput.create!(
+      txid: txid,
+      vout: 0,
+      address: "bc1qrealtimeinsert",
+      amount_btc: BigDecimal("1.75"),
+      block_height: 390
+    )
+
+    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new([row]),
+      logger: Rails.logger,
+      mode: :realtime
+    ).call
+
+    assert result[:ok]
+    assert_equal :realtime, result[:cluster_mode]
+    assert_equal 1, result[:cluster_inserted]
+    assert_equal 0, result[:cluster_conflicts]
+    assert_equal 0, result[:cluster_conflicts_identical]
+    assert_equal 0, result[:cluster_conflicts_divergent]
+    assert ClusterInput.find_by!(txid: txid, vout: 0).spent?
+  end
+
+  test "realtime accepts identical cluster input conflict as idempotent" do
+    txid = "4" * 64
+    spent_txid = "5" * 64
+    row = spent_row(
+      txid: txid,
+      vout: 0,
+      spent_txid: spent_txid,
+      spent_block_height: 420,
+      prevout_address: "bc1qrealtimeidentical",
+      prevout_amount_btc: "2.25",
+      prevout_block_height: 400
+    )
+
+    ClusterInput.create!(
+      block_height: 400,
+      txid: txid,
+      vout: 0,
+      address: "bc1qrealtimeidentical",
+      amount_btc: BigDecimal("2.25"),
+      spent: true,
+      spent_txid: spent_txid,
+      spent_block_height: 420
+    )
+
+    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new([row]),
+      logger: Rails.logger,
+      mode: :realtime
+    ).call
+
+    assert result[:ok]
+    assert_equal 0, result[:cluster_inserted]
+    assert_equal 1, result[:cluster_conflicts]
+    assert_equal 1, result[:cluster_conflicts_identical]
+    assert_equal 0, result[:cluster_conflicts_divergent]
+  end
+
+  test "realtime fails on divergent cluster input conflict" do
+    txid = "5" * 64
+    row = spent_row(
+      txid: txid,
+      vout: 0,
+      spent_txid: "6" * 64,
+      spent_block_height: 430,
+      prevout_address: "bc1qincoming",
+      prevout_amount_btc: "3.25",
+      prevout_block_height: 410
+    )
+
+    ClusterInput.create!(
+      block_height: 409,
+      txid: txid,
+      vout: 0,
+      address: "bc1qexisting",
+      amount_btc: BigDecimal("3.25"),
+      spent: true,
+      spent_txid: "6" * 64,
+      spent_block_height: 430
+    )
+
+    error =
+      assert_raises(RuntimeError) do
+        Blockchain::Flushers::SpentOutputFlusherV2.new(
+          redis: FakeRedis.new([row]),
+          logger: Rails.logger,
+          mode: :realtime
+        ).call
+      end
+
+    assert_match "divergent cluster_inputs in realtime spent flusher", error.message
+
+    existing = ClusterInput.find_by!(txid: txid, vout: 0)
+    assert_equal 409, existing.block_height
+    assert_equal "bc1qexisting", existing.address
+  end
+
+  test "recovery continues to update divergent cluster input conflict" do
+    txid = "6" * 64
+    spent_txid = "7" * 64
+    row = spent_row(
+      txid: txid,
+      vout: 0,
+      spent_txid: spent_txid,
+      spent_block_height: 440,
+      prevout_address: "bc1qrecoverycorrected",
+      prevout_amount_btc: "4.25",
+      prevout_block_height: 420
+    )
+
+    ClusterInput.create!(
+      block_height: 419,
+      txid: txid,
+      vout: 0,
+      address: "bc1qrecoverywrong",
+      amount_btc: BigDecimal("4.00"),
+      spent: true,
+      spent_txid: spent_txid,
+      spent_block_height: 440
+    )
+
+    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new([row]),
+      logger: Rails.logger,
+      mode: :recovery
+    ).call
+
+    assert result[:ok]
+    assert_equal :recovery, result[:cluster_mode]
+    assert_equal 1, result[:cluster_inserted]
+    assert_equal 0, result[:cluster_conflicts_divergent]
+
+    corrected = ClusterInput.find_by!(txid: txid, vout: 0)
+    assert_equal 420, corrected.block_height
+    assert_equal "bc1qrecoverycorrected", corrected.address
+    assert_equal BigDecimal("4.25"), corrected.amount_btc
+  end
+
+  private
+
+  def spent_row(
+    txid:,
+    vout:,
+    spent_txid:,
+    spent_block_height:,
+    prevout_address:,
+    prevout_amount_btc:,
+    prevout_block_height:
+  )
+    {
+      "txid" => txid,
+      "vout" => vout,
+      "spent_txid" => spent_txid,
+      "spent_block_height" => spent_block_height,
+      "prevout_address" => prevout_address,
+      "prevout_amount_btc" => prevout_amount_btc,
+      "prevout_block_height" => prevout_block_height
+    }
+  end
 end
