@@ -1,0 +1,294 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+class SpentOutputFlusherV2Test < ActiveSupport::TestCase
+  setup do
+    @previous_async_setting = ENV["TX_OUTPUTS_SPENT_ASYNC"]
+    ENV["TX_OUTPUTS_SPENT_ASYNC"] = "0"
+  end
+
+  teardown do
+    ENV["TX_OUTPUTS_SPENT_ASYNC"] = @previous_async_setting
+  end
+
+  class FakeRedis
+    attr_reader :payloads
+
+    def initialize(rows)
+      @payloads = rows.map { |row| JSON.generate(row) }
+    end
+
+    def lpop(_key, count)
+      @payloads.shift(count)
+    end
+
+    def lpush(_key, *values)
+      @payloads.unshift(*values)
+    end
+  end
+
+  test "upserts cluster inputs from bitcoin core prevout without reading tx outputs or utxo outputs" do
+    utxo_txid = "a" * 64
+    tx_output_txid = "b" * 64
+    prevout_txid = "c" * 64
+    spending_txid = "d" * 64
+
+    TxOutput.create!(
+      txid: utxo_txid,
+      vout: 0,
+      address: "bc1qtxoutputignored",
+      amount_btc: BigDecimal("9.00"),
+      block_height: 90,
+      spent: false
+    )
+
+    UtxoOutput.create!(
+      txid: utxo_txid,
+      vout: 0,
+      address: "bc1qutxowrong",
+      amount_btc: BigDecimal("9.99"),
+      block_height: 99
+    )
+
+    TxOutput.create!(
+      txid: tx_output_txid,
+      vout: 1,
+      address: "bc1qtxoutputsource",
+      amount_btc: BigDecimal("2.50"),
+      block_height: 110,
+      spent: false
+    )
+
+    AddressFlowStat.create!(
+      address: "bc1qprevoutsource",
+      received_btc: BigDecimal("4.00"),
+      sent_btc: BigDecimal("2.75"),
+      net_btc: BigDecimal("1.25")
+    )
+
+    rows = [
+      {
+        "txid" => utxo_txid,
+        "vout" => 0,
+        "spent_txid" => spending_txid,
+        "spent_block_height" => 200,
+        "prevout_address" => "bc1qprevoutsource",
+        "prevout_amount_btc" => "1.25",
+        "prevout_block_height" => 100
+      },
+      {
+        "txid" => tx_output_txid,
+        "vout" => 1,
+        "spent_txid" => spending_txid,
+        "spent_block_height" => 200,
+        "prevout_address" => "bc1qprevoutignored2",
+        "prevout_amount_btc" => "7.00",
+        "prevout_block_height" => 70
+      },
+      {
+        "txid" => prevout_txid,
+        "vout" => 2,
+        "spent_txid" => spending_txid,
+        "spent_block_height" => 200,
+        "prevout_address" => "bc1qbitcoincore",
+        "prevout_amount_btc" => "3.75",
+        "prevout_block_height" => 120
+      }
+    ]
+
+    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new(rows),
+      logger: Rails.logger
+    ).call
+
+    assert result[:ok]
+    assert_equal 3, result[:flushed]
+    assert_equal 2, result[:tx_updated]
+    assert_equal 3, result[:cluster_inserted]
+    assert_equal 1, result[:utxo_deleted]
+
+    assert TxOutput.find_by!(txid: utxo_txid, vout: 0).spent?
+    assert TxOutput.find_by!(txid: tx_output_txid, vout: 1).spent?
+    assert_not UtxoOutput.exists?(txid: utxo_txid, vout: 0)
+
+    from_utxo = ClusterInput.find_by!(txid: utxo_txid, vout: 0)
+    assert_equal "bc1qprevoutsource", from_utxo.address
+    assert_equal BigDecimal("1.25"), from_utxo.amount_btc
+    assert_equal 100, from_utxo.block_height
+    assert_equal BigDecimal("1.25"), from_utxo.address_balance_btc
+
+    from_prevout_despite_tx_output = ClusterInput.find_by!(txid: tx_output_txid, vout: 1)
+    assert_equal "bc1qprevoutignored2", from_prevout_despite_tx_output.address
+    assert_equal BigDecimal("7.00"), from_prevout_despite_tx_output.amount_btc
+    assert_equal 70, from_prevout_despite_tx_output.block_height
+
+    from_prevout = ClusterInput.find_by!(txid: prevout_txid, vout: 2)
+    assert_equal "bc1qbitcoincore", from_prevout.address
+    assert_equal BigDecimal("3.75"), from_prevout.amount_btc
+    assert_equal 120, from_prevout.block_height
+  end
+
+  test "uses bitcoin core prevout for self spend in same block and deletes live utxo" do
+    txid = "9" * 64
+    spending_txid = "8" * 64
+    height = 300
+
+    UtxoOutput.create!(
+      txid: txid,
+      vout: 0,
+      address: "bc1qlocalwrong",
+      amount_btc: BigDecimal("8.00"),
+      block_height: height
+    )
+
+    row = {
+      "txid" => txid,
+      "vout" => 0,
+      "spent_txid" => spending_txid,
+      "spent_block_height" => height,
+      "prevout_address" => "bc1qselfspend",
+      "prevout_amount_btc" => "2.25",
+      "prevout_block_height" => height
+    }
+
+    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new([row]),
+      logger: Rails.logger
+    ).call
+
+    assert result[:ok]
+    assert_equal 1, result[:cluster_inserted]
+    assert_equal 1, result[:utxo_deleted]
+    assert_not UtxoOutput.exists?(txid: txid, vout: 0)
+
+    cluster_input = ClusterInput.find_by!(txid: txid, vout: 0)
+    assert_equal height, cluster_input.block_height
+    assert_equal "bc1qselfspend", cluster_input.address
+    assert_equal BigDecimal("2.25"), cluster_input.amount_btc
+    assert_equal spending_txid, cluster_input.spent_txid
+    assert_equal height, cluster_input.spent_block_height
+  end
+
+  test "does not create cluster input when bitcoin core prevout height is missing" do
+    txid = "7" * 64
+
+    UtxoOutput.create!(
+      txid: txid,
+      vout: 0,
+      address: "bc1qlocalmustnotfallback",
+      amount_btc: BigDecimal("1.00"),
+      block_height: 250
+    )
+
+    row = {
+      "txid" => txid,
+      "vout" => 0,
+      "spent_txid" => "6" * 64,
+      "spent_block_height" => 350,
+      "prevout_address" => "bc1qincomplete",
+      "prevout_amount_btc" => "1.00",
+      "prevout_block_height" => nil
+    }
+
+    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new([row]),
+      logger: Rails.logger
+    ).call
+
+    assert result[:ok]
+    assert_equal 0, result[:cluster_inserted]
+    assert_equal 1, result[:utxo_deleted]
+    assert_nil ClusterInput.find_by(txid: txid, vout: 0)
+    assert_not UtxoOutput.exists?(txid: txid, vout: 0)
+  end
+
+  test "does not rewrite an unchanged cluster input on conflict" do
+    ENV["TX_OUTPUTS_SPENT_ASYNC"] = "1"
+
+    txid = "1" * 64
+    spending_txid = "2" * 64
+
+    UtxoOutput.create!(
+      txid: txid,
+      vout: 0,
+      address: "bc1qidempotent",
+      amount_btc: BigDecimal("1.50"),
+      block_height: 175
+    )
+
+    row = {
+      "txid" => txid,
+      "vout" => 0,
+      "spent_txid" => spending_txid,
+      "spent_block_height" => 250,
+      "prevout_address" => "bc1qidempotent",
+      "prevout_amount_btc" => "1.50",
+      "prevout_block_height" => 175
+    }
+
+    first_result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new([row]),
+      logger: Rails.logger
+    ).call
+
+    cluster_input = ClusterInput.find_by!(txid: txid, vout: 0)
+    original_updated_at = cluster_input.updated_at
+
+    second_result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new([row]),
+      logger: Rails.logger
+    ).call
+
+    assert_equal 1, first_result[:cluster_inserted]
+    assert_equal 0, second_result[:cluster_inserted]
+    assert_equal original_updated_at, cluster_input.reload.updated_at
+  end
+
+  test "defers tx output projection while keeping cluster inputs and utxo deletion strict" do
+    ENV["TX_OUTPUTS_SPENT_ASYNC"] = "1"
+
+    txid = "e" * 64
+    spending_txid = "f" * 64
+
+    TxOutput.create!(
+      txid: txid,
+      vout: 0,
+      address: "bc1qasync",
+      amount_btc: BigDecimal("1.00"),
+      block_height: 150,
+      spent: false
+    )
+
+    UtxoOutput.create!(
+      txid: txid,
+      vout: 0,
+      address: "bc1qasync",
+      amount_btc: BigDecimal("1.00"),
+      block_height: 150
+    )
+
+    rows = [{
+      "txid" => txid,
+      "vout" => 0,
+      "spent_txid" => spending_txid,
+      "spent_block_height" => 200,
+      "prevout_address" => "bc1qasync",
+      "prevout_amount_btc" => "1.00",
+      "prevout_block_height" => 150
+    }]
+
+    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new(rows),
+      logger: Rails.logger
+    ).call
+
+    assert result[:ok]
+    assert result[:tx_update_deferred]
+    assert_equal 0, result[:tx_updated]
+    assert_nil result[:missing_tx]
+    assert_not TxOutput.find_by!(txid: txid, vout: 0).spent?
+    assert ClusterInput.find_by!(txid: txid, vout: 0).spent?
+    assert_not UtxoOutput.exists?(txid: txid, vout: 0)
+  end
+end
