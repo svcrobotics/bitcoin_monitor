@@ -9,7 +9,10 @@ module Blockchain
       CONTINUE_THRESHOLD = 5_000
 
       def perform
-        result = Blockchain::Flushers::SpentOutputFlusher.new.call
+        result =
+          Blockchain::Flushers::SpentOutputFlusherSelector.call(
+            mode: :recovery
+          )
 
         remaining = ::Redis.new(
           url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0")

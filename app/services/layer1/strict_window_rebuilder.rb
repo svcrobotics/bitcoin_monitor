@@ -443,7 +443,8 @@ module Layer1
             "spent_flusher_iteration_#{iteration_number}"
           ) do
             Blockchain::Flushers::SpentOutputFlusherSelector.call(
-              redis: @redis
+              redis: @redis,
+              mode: :realtime
             )
           end
 

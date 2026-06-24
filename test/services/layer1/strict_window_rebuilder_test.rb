@@ -121,6 +121,38 @@ module Layer1
       assert_equal 0, TxOutput.where(block_height: height).count
     end
 
+    test "flushes spent outputs in realtime mode" do
+      height = 956_023
+      block_hash = "4" * 64
+      modes = []
+      original_call =
+        Blockchain::Flushers::SpentOutputFlusherSelector.method(:call)
+
+      rpc = FakeRpc.new(
+        height: height,
+        block_hash: block_hash,
+        block: block_payload(
+          previous_txid: "4" * 64,
+          spending_txid: "5" * 64
+        )
+      )
+
+      with_stubbed(
+        Blockchain::Flushers::SpentOutputFlusherSelector,
+        :call,
+        lambda do |*args, **kwargs|
+          modes << kwargs[:mode]
+          original_call.call(*args, **kwargs)
+        end
+      ) do
+        result = run_strict_rebuilder(height: height, rpc: rpc)
+
+        assert result[:ok]
+      end
+
+      assert_includes modes, :realtime
+    end
+
     test "does not create tx output projection checkpoint when certification fails" do
       height = 956_022
       block_hash = "3" * 64

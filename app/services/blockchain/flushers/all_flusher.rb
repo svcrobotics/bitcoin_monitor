@@ -5,7 +5,10 @@ module Blockchain
     class AllFlusher
       def call
         outputs = Blockchain::Flushers::OutputFlusher.new.call
-        spent_outputs = Blockchain::Flushers::SpentOutputFlusher.new.call
+        spent_outputs =
+          Blockchain::Flushers::SpentOutputFlusherSelector.call(
+            mode: :recovery
+          )
         status = System::BlockchainPipelineStatus.call
 
         {

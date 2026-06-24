@@ -24,7 +24,11 @@ module Layer1
           output_result = Blockchain::Flushers::OutputFlusher.new(redis: redis).call
           total_outputs += output_result[:flushed].to_i
 
-          spent_result = Blockchain::Flushers::SpentOutputFlusher.new(redis: redis).call
+          spent_result =
+            Blockchain::Flushers::SpentOutputFlusherSelector.call(
+              redis: redis,
+              mode: :recovery
+            )
           total_spent += spent_result[:flushed].to_i if spent_result.is_a?(Hash)
 
           break if output_result[:flushed].to_i.zero? && total_spent.zero?

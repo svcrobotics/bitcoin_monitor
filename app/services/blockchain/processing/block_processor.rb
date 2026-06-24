@@ -9,20 +9,26 @@ module Blockchain
       PREVOUT_TIMEOUT_SECONDS = 45
       UTXO_TIMEOUT_SECONDS = 60
       PARSE_TIMEOUT_SECONDS = 120
-      FLUSH_TIMEOUT_SECONDS = 180
+      FLUSH_TIMEOUT_SECONDS = 300
 
       def initialize(
         rpc: BitcoinRpc.new,
         logger: Rails.logger,
         tx_processor: TxProcessor.new,
         flush_after_block: false,
-        fast_layer1: ENV.fetch("LAYER1_FAST_PATH", "true") == "true"
+        fast_layer1: ENV.fetch("LAYER1_FAST_PATH", "true") == "true",
+        block_verbosity: Integer(ENV.fetch("LAYER1_BLOCK_VERBOSITY", "2")),
+        strict_prevout: false,
+        mark_processed: true
       )
         @rpc = rpc
         @logger = logger
         @tx_processor = tx_processor
         @flush_after_block = flush_after_block
         @fast_layer1 = fast_layer1
+        @block_verbosity = block_verbosity.to_i
+        @strict_prevout = strict_prevout
+        @mark_processed = mark_processed
       end
 
       def call(block_buffer)
@@ -75,7 +81,8 @@ module Blockchain
 
         @logger.info(
           "[block_processor] prevout_cache height=#{block_buffer.height} " \
-          "size=#{prevout_cache.size} duration_ms=#{prevout_cache_duration_ms}"
+          "size=#{prevout_cache.size} duration_ms=#{prevout_cache_duration_ms} " \
+          "block_verbosity=#{@block_verbosity} strict_prevout=#{@strict_prevout}"
         )
 
         heartbeat(
@@ -109,7 +116,9 @@ module Blockchain
                 errors: 0,
                 mode: "fast_layer1",
                 outputs: utxo_result[:outputs],
-                spent_outputs: utxo_result[:spent_outputs]
+                spent_outputs: utxo_result[:spent_outputs],
+                prevout_found: utxo_result[:prevout_found],
+                prevout_missing: utxo_result[:prevout_missing]
               }
             else
               @tx_processor = TxProcessor.new(
@@ -142,22 +151,37 @@ module Blockchain
 
         duration_ms = monotonic_ms - started_at
 
-        mark_processed(
-          block_buffer,
-          metrics: {
-            duration_ms: duration_ms,
-            rpc_duration_ms: rpc_duration_ms,
-            parse_duration_ms: parse_duration_ms,
-            flush_duration_ms: flush_duration_ms
-          }
-        )
+        if @mark_processed
+          mark_processed(
+            block_buffer,
+            metrics: {
+              duration_ms: duration_ms,
+              rpc_duration_ms: rpc_duration_ms,
+              parse_duration_ms: parse_duration_ms,
+              flush_duration_ms: flush_duration_ms
+            }
+          )
+        else
+          heartbeat(
+            block_buffer,
+            metrics: {
+              duration_ms: duration_ms,
+              rpc_duration_ms: rpc_duration_ms,
+              parse_duration_ms: parse_duration_ms,
+              flush_duration_ms: flush_duration_ms
+            }
+          )
+        end
 
         @logger.info(
           "[block_processor] done height=#{block_buffer.height} " \
           "mode=#{stats[:mode] || 'full'} txs=#{stats[:txs]} " \
           "errors=#{stats[:errors]} duration_ms=#{duration_ms} " \
           "rpc_ms=#{rpc_duration_ms} parse_ms=#{parse_duration_ms} " \
-          "flush_ms=#{flush_duration_ms}"
+          "flush_ms=#{flush_duration_ms} " \
+          "block_verbosity=#{@block_verbosity} " \
+          "strict_prevout=#{@strict_prevout} " \
+          "mark_processed=#{@mark_processed}"
         )
 
         {
@@ -169,6 +193,8 @@ module Blockchain
           errors: stats[:errors],
           outputs: stats[:outputs],
           spent_outputs: stats[:spent_outputs],
+          prevout_found: stats[:prevout_found],
+          prevout_missing: stats[:prevout_missing],
           duration_ms: duration_ms,
           rpc_duration_ms: rpc_duration_ms,
           parse_duration_ms: parse_duration_ms,
@@ -289,7 +315,10 @@ module Blockchain
 
         batch =
           Blockchain::Processing::BlockUtxoBatchBuilder
-            .new(prevout_cache: prevout_cache)
+            .new(
+              prevout_cache: prevout_cache,
+              strict_prevout: @strict_prevout
+            )
             .call(block, block_buffer)
 
         outputs_count =
@@ -303,12 +332,17 @@ module Blockchain
         @logger.info(
           "[block_processor] block_utxos height=#{block_buffer.height} " \
           "txs=#{batch[:tx_count]} inputs=#{batch[:input_count]} " \
-          "outputs=#{outputs_count} spent=#{spent_count} duration_ms=#{duration_ms}"
+          "outputs=#{outputs_count} spent=#{spent_count} " \
+          "prevout_found=#{batch[:prevout_found_count]} " \
+          "prevout_missing=#{batch[:prevout_missing_count]} " \
+          "duration_ms=#{duration_ms}"
         )
 
         {
           outputs: outputs_count,
           spent_outputs: spent_count,
+          prevout_found: batch[:prevout_found_count],
+          prevout_missing: batch[:prevout_missing_count],
           duration_ms: duration_ms
         }
       end
@@ -318,7 +352,7 @@ module Blockchain
       end
 
       def fetch_block(block_hash)
-        @rpc.getblock(block_hash, 2)
+        @rpc.getblock(block_hash, @block_verbosity)
       end
 
       def process_transactions(block, block_buffer, parse_started_at:)
@@ -364,8 +398,15 @@ module Blockchain
       end
 
       def flush_buffers
-        Blockchain::Flushers::OutputFlusher.new.call
-        Blockchain::Flushers::SpentOutputFlusher.new.call
+        10.times do
+          out = Blockchain::Flushers::OutputFlusher.new.call
+          spent =
+            Blockchain::Flushers::SpentOutputFlusherSelector.call(
+              mode: :recovery
+            )
+
+          break if out[:flushed].to_i.zero? && spent[:flushed].to_i.zero?
+        end
       end
 
       def mark_processing(block_buffer)

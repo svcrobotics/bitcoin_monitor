@@ -8,6 +8,7 @@ module Blockchain
     class SpentOutputFlusherV2
       KEY = Blockchain::Buffers::SpentOutputBuffer::KEY
       DEFAULT_BATCH_SIZE = 20_000
+      MODES = Blockchain::Flushers::SpentOutputFlusherSelector::MODES
 
       COLUMNS = %w[
         txid
@@ -19,9 +20,16 @@ module Blockchain
         prevout_block_height
       ].freeze
 
-      def initialize(redis: ::Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0")), logger: Rails.logger)
+      attr_reader :mode
+
+      def initialize(
+        redis: ::Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0")),
+        logger: Rails.logger,
+        mode: :recovery
+      )
         @redis = redis
         @logger = logger
+        @mode = normalize_mode(mode)
       end
 
       def call
@@ -141,6 +149,15 @@ module Blockchain
 
       def tx_outputs_update_deferred?
         Layer1::TxOutputsSpentSync::Config.enabled?
+      end
+
+      def normalize_mode(value)
+        normalized = value.to_sym
+        return normalized if MODES.include?(normalized)
+
+        raise ArgumentError, "unknown spent output flusher mode #{value.inspect}"
+      rescue NoMethodError
+        raise ArgumentError, "unknown spent output flusher mode #{value.inspect}"
       end
 
       def batch_size

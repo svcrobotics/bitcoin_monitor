@@ -6,14 +6,24 @@ module Blockchain
       KEY = Blockchain::Buffers::SpentOutputBuffer::KEY
       DEFAULT_BATCH_SIZE = 5_000
       SLICE_SIZE = 1_000
+      MODES = Blockchain::Flushers::SpentOutputFlusherSelector::MODES
 
-      def initialize(redis: ::Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0")), logger: Rails.logger)
+      attr_reader :mode
+
+      def initialize(
+        redis: ::Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0")),
+        logger: Rails.logger,
+        mode: :recovery
+      )
         @redis = redis
         @logger = logger
+        @mode = normalize_mode(mode)
       end
 
       def call
         started_at = monotonic_ms
+        rows = []
+        committed = false
 
         rows = measure_stage("pop_batch") { pop_batch }
         return empty_result if rows.empty?
@@ -23,42 +33,45 @@ module Blockchain
         cluster_inserted = 0
         slice_timings = []
 
-        rows.each_slice(SLICE_SIZE).with_index(1) do |slice, index|
-          slice_started_at = monotonic_ms
-          timings = {}
+        ActiveRecord::Base.transaction do
+          rows.each_slice(SLICE_SIZE).with_index(1) do |slice, index|
+            slice_started_at = monotonic_ms
+            timings = {}
 
-          tx_updated +=
-            measure_stage("slice_#{index}_update_tx_outputs", timings) do
-              update_tx_outputs(slice)
-            end
+            tx_updated +=
+              measure_stage("slice_#{index}_update_tx_outputs", timings) do
+                update_tx_outputs(slice)
+              end
 
-          consumer_result =
-            measure_stage("slice_#{index}_spent_utxo_consumer", timings) do
-              Clusters::SpentUtxoConsumer.call(rows: slice)
-            end
+            consumer_result =
+              measure_stage("slice_#{index}_spent_utxo_consumer", timings) do
+                Clusters::SpentUtxoConsumer.call(rows: slice)
+              end
 
-          cluster_inserted += consumer_result[:inserted].to_i
+            cluster_inserted += consumer_result[:inserted].to_i
 
-          utxo_deleted +=
-            measure_stage("slice_#{index}_delete_utxo_outputs", timings) do
-              delete_utxo_outputs(slice)
-            end
+            utxo_deleted +=
+              measure_stage("slice_#{index}_delete_utxo_outputs", timings) do
+                delete_utxo_outputs(slice)
+              end
 
-          slice_duration_ms = monotonic_ms - slice_started_at
+            slice_duration_ms = monotonic_ms - slice_started_at
 
-          slice_timings << {
-            slice: index,
-            rows: slice.size,
-            duration_ms: slice_duration_ms,
-            timings: timings
-          }
+            slice_timings << {
+              slice: index,
+              rows: slice.size,
+              duration_ms: slice_duration_ms,
+              timings: timings
+            }
 
-          @logger.info(
-            "[spent_output_flusher_slice] slice=#{index} rows=#{slice.size} " \
-            "duration_ms=#{slice_duration_ms} timings=#{timings.inspect}"
-          )
+            @logger.info(
+              "[spent_output_flusher_slice] slice=#{index} rows=#{slice.size} " \
+              "duration_ms=#{slice_duration_ms} timings=#{timings.inspect}"
+            )
+          end
         end
 
+        committed = true
         duration_ms = monotonic_ms - started_at
 
         @logger.info(
@@ -84,6 +97,15 @@ module Blockchain
           duration_ms: duration_ms,
           slice_timings: slice_timings
         }
+      rescue StandardError => e
+        requeue_rows(rows) if rows.any? && !committed
+
+        @logger.error(
+          "[spent_output_flusher] failed rows=#{rows.size} " \
+          "requeued=#{rows.any? && !committed} error=#{e.class}: #{e.message}"
+        )
+
+        raise
       end
 
       private
@@ -106,9 +128,23 @@ module Blockchain
         ENV.fetch("SPENT_OUTPUT_FLUSH_BATCH_SIZE", DEFAULT_BATCH_SIZE).to_i
       end
 
+      def normalize_mode(value)
+        normalized = value.to_sym
+        return normalized if MODES.include?(normalized)
+
+        raise ArgumentError, "unknown spent output flusher mode #{value.inspect}"
+      rescue NoMethodError
+        raise ArgumentError, "unknown spent output flusher mode #{value.inspect}"
+      end
+
       def pop_batch
         payloads = @redis.lpop(KEY, batch_size)
         Array(payloads).map { |payload| JSON.parse(payload) }
+      end
+
+      def requeue_rows(rows)
+        payloads = rows.reverse.map { |row| JSON.generate(row) }
+        @redis.lpush(KEY, *payloads) if payloads.any?
       end
 
       def values_sql(rows)
