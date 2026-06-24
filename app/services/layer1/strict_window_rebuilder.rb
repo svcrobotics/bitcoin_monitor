@@ -128,7 +128,7 @@ module Layer1
       end
 
       measure_stage(stage_timings, height, "flush_buffers_until_empty") do
-        flush_buffers_until_empty!
+        flush_buffers_until_empty!(height: height)
       end
 
       reconcile_result =
@@ -203,17 +203,42 @@ module Layer1
         }
       end
 
+      strict_output_facts =
+        measure_stage(stage_timings, height, "strict_output_facts") do
+          Layer1::StrictOutputFacts.call(height: height)
+        end
+
+      tx_output_projection =
+        measure_stage(stage_timings, height, "register_tx_output_projection") do
+          Layer1::TxOutputProjection::Register.call(
+            height: height,
+            block_hash: block_hash,
+            expected_outputs_count: strict_output_facts.fetch(:outputs_count),
+            expected_outputs_value_btc: strict_output_facts.fetch(:outputs_value_btc)
+          )
+        end
+
+      tx_outputs_sync =
+        if Layer1::TxOutputsSpentSync::Config.enabled?
+          measure_stage(stage_timings, height, "register_tx_outputs_async_sync") do
+            Layer1::TxOutputsSpentSync::Register.call(
+              height: height,
+              block_hash: block_hash
+            )
+          end
+        end
+
       duration_ms = monotonic_ms - started_at
 
       counts =
         measure_stage(stage_timings, height, "final_counts") do
           {
-            tx_outputs_count: TxOutput.where(block_height: height).count,
+            strict_outputs_count: strict_output_facts.fetch(:outputs_count),
             cluster_inputs_count: ClusterInput.where(spent_block_height: height).count
           }
         end
 
-      tx_outputs_count = counts[:tx_outputs_count]
+      strict_outputs_count = counts[:strict_outputs_count]
       cluster_inputs_count = counts[:cluster_inputs_count]
 
       Blockchain::Buffer::BlockBuffer.mark_processed(
@@ -225,17 +250,26 @@ module Layer1
           inputs_audit_ok: true,
           utxo_audit_ok: true,
           duration_ms: duration_ms,
+          rpc_duration_ms: processor_result[:rpc_duration_ms],
+          parse_duration_ms: processor_result[:parse_duration_ms],
+          flush_duration_ms: stage_timings[:flush_buffers_until_empty],
           block_verbosity: @block_verbosity,
           strict_prevout: @strict_prevout,
-          tx_outputs: tx_outputs_count,
+          strict_outputs: strict_outputs_count,
           cluster_inputs: cluster_inputs_count,
           stage_timings: stage_timings,
           node_inputs_count: inputs_audit[:node_inputs_count],
           db_inputs_count: inputs_audit[:db_inputs_count],
           expected_live_outputs_count: utxo_audit[:expected_live_outputs_count],
-          actual_live_utxos_count: utxo_audit[:actual_live_utxos_count]
+          actual_live_utxos_count: utxo_audit[:actual_live_utxos_count],
+          tx_output_projection_deferred: true,
+          tx_output_projection_status: tx_output_projection.status,
+          tx_outputs_sync_deferred: tx_outputs_sync.present?,
+          tx_outputs_sync_status: tx_outputs_sync&.status
         }
       )
+
+      enqueue_tx_outputs_async_sync if tx_outputs_sync
 
       result = {
         ok: true,
@@ -252,6 +286,10 @@ module Layer1
 
         utxo_audit_ok: true,
         reconcile_spent_outputs: reconcile_result,
+        tx_output_projection_deferred: true,
+        tx_output_projection_status: tx_output_projection.status,
+        tx_outputs_sync_deferred: tx_outputs_sync.present?,
+        tx_outputs_sync_status: tx_outputs_sync&.status,
         expected_live_outputs_count: utxo_audit[:expected_live_outputs_count],
         actual_live_utxos_count: utxo_audit[:actual_live_utxos_count],
         expected_live_value_btc: utxo_audit[:expected_live_value_btc],
@@ -261,7 +299,7 @@ module Layer1
         spent_utxos_count: utxo_audit[:spent_utxos_count],
 
         tx_count: block_buffer.tx_count,
-        tx_outputs: tx_outputs_count,
+        strict_outputs: strict_outputs_count,
         cluster_inputs: cluster_inputs_count,
         duration_ms: duration_ms,
         stage_timings: stage_timings
@@ -294,6 +332,8 @@ module Layer1
 
       duration_ms = monotonic_ms - started_at
       timings[stage.to_sym] = duration_ms
+
+      Blockchain::Buffer::BlockBuffer.heartbeat(height) if height.is_a?(Integer)
 
       @logger.info(
         "[layer1_strict_rebuild] stage_done " \
@@ -338,43 +378,93 @@ module Layer1
       block_buffer
     end
 
-    def flush_buffers_until_empty!
+    def flush_buffers_until_empty!(height:)
+      flush_started_at = monotonic_ms
+
       100.times do |iteration|
+        iteration_number = iteration + 1
+
         before_outputs = @redis.llen(OUTPUTS_KEY)
         before_spent = @redis.llen(SPENT_KEY)
 
+        Blockchain::Buffer::BlockBuffer.heartbeat(
+          height,
+          metrics: {
+            phase: "flush_start",
+            flush_iteration: iteration_number,
+            outputs_remaining: before_outputs,
+            spent_remaining: before_spent
+          }
+        )
+
         @logger.info(
           "[layer1_strict_rebuild] flush_iteration_start " \
-          "iteration=#{iteration + 1} " \
+          "height=#{height} " \
+          "iteration=#{iteration_number} " \
           "outputs_before=#{before_outputs} " \
           "spent_before=#{before_spent}"
         )
 
         out =
-          measure_stage({}, "flush", "output_flusher_iteration_#{iteration + 1}") do
-            Blockchain::Flushers::OutputFlusher.new(redis: @redis).call
+          measure_stage(
+            {},
+            height,
+            "output_flusher_iteration_#{iteration_number}"
+          ) do
+            Blockchain::Flushers::OutputFlusher
+              .new(redis: @redis)
+              .call
           end
 
         after_outputs = @redis.llen(OUTPUTS_KEY)
 
+        Blockchain::Buffer::BlockBuffer.heartbeat(
+          height,
+          metrics: {
+            phase: "outputs_flushed",
+            flush_iteration: iteration_number,
+            outputs_flushed: out[:flushed].to_i,
+            outputs_remaining: after_outputs
+          }
+        )
+
         @logger.info(
           "[layer1_strict_rebuild] output_flusher_done " \
-          "iteration=#{iteration + 1} " \
+          "height=#{height} " \
+          "iteration=#{iteration_number} " \
           "outputs_flushed=#{out[:flushed].to_i} " \
           "outputs_remaining=#{after_outputs}"
         )
 
         spent =
-          measure_stage({}, "flush", "spent_flusher_iteration_#{iteration + 1}") do
-            Blockchain::Flushers::SpentOutputFlusher.new(redis: @redis).call
+          measure_stage(
+            {},
+            height,
+            "spent_flusher_iteration_#{iteration_number}"
+          ) do
+            Blockchain::Flushers::SpentOutputFlusherSelector.call(
+              redis: @redis
+            )
           end
 
         outputs_remaining = @redis.llen(OUTPUTS_KEY)
         spent_remaining = @redis.llen(SPENT_KEY)
 
+        Blockchain::Buffer::BlockBuffer.heartbeat(
+          height,
+          metrics: {
+            phase: "flush_complete",
+            flush_iteration: iteration_number,
+            flush_duration_ms: monotonic_ms - flush_started_at,
+            outputs_remaining: outputs_remaining,
+            spent_remaining: spent_remaining
+          }
+        )
+
         @logger.info(
           "[layer1_strict_rebuild] spent_flusher_done " \
-          "iteration=#{iteration + 1} " \
+          "height=#{height} " \
+          "iteration=#{iteration_number} " \
           "spent_flushed=#{spent[:flushed].to_i} " \
           "outputs_remaining=#{outputs_remaining} " \
           "spent_remaining=#{spent_remaining}"
@@ -391,6 +481,15 @@ module Layer1
       raise(
         "redis buffers not empty after flush " \
         "outputs=#{outputs_remaining} spent=#{spent_remaining}"
+      )
+    end
+
+    def enqueue_tx_outputs_async_sync
+      Layer1::TxOutputsSpentSyncKickJob.perform_async
+    rescue StandardError => e
+      @logger.error(
+        "[layer1_strict_rebuild] tx_outputs_async_enqueue_failed " \
+        "error=#{e.class}: #{e.message}"
       )
     end
 

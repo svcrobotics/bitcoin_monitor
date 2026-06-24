@@ -42,8 +42,9 @@ module Blockchain
           "[output_flusher] flushed=#{rows.size} " \
           "tx_inserted=#{result[:tx_inserted]} " \
           "utxo_inserted=#{result[:utxo_inserted]} " \
-          "tx_skipped=#{rows.size - result[:tx_inserted]} " \
+          "tx_skipped=#{result[:tx_skipped]} " \
           "utxo_skipped=#{rows.size - result[:utxo_inserted]} " \
+          "tx_outputs_deferred=#{result[:tx_outputs_deferred]} " \
           "batch_size=#{batch_size} " \
           "duration_ms=#{duration_ms} " \
           "stage_timings=#{result[:stage_timings].inspect}"
@@ -54,8 +55,9 @@ module Blockchain
           flushed: rows.size,
           tx_inserted: result[:tx_inserted],
           utxo_inserted: result[:utxo_inserted],
-          tx_skipped: rows.size - result[:tx_inserted],
+          tx_skipped: result[:tx_skipped],
           utxo_skipped: rows.size - result[:utxo_inserted],
+          tx_outputs_deferred: result[:tx_outputs_deferred],
           duration_ms: duration_ms,
           stage_timings: result[:stage_timings]
         }
@@ -71,6 +73,7 @@ module Blockchain
           utxo_inserted: 0,
           tx_skipped: 0,
           utxo_skipped: 0,
+          tx_outputs_deferred: true,
           duration_ms: 0,
           stage_timings: {}
         }
@@ -91,7 +94,6 @@ module Blockchain
         connection = ActiveRecord::Base.connection
         raw = connection.raw_connection
 
-        tx_inserted = 0
         utxo_inserted = 0
         utxo_inserted_rows = nil
         stage_timings = {}
@@ -105,11 +107,6 @@ module Blockchain
             copy_rows(raw, temp_table, rows)
           end
 
-          tx_inserted =
-            measure_stage("insert_tx_outputs", stage_timings) do
-              insert_tx_outputs(connection, temp_table)
-            end
-
           utxo_inserted_rows =
             measure_stage("insert_utxo_outputs", stage_timings) do
               insert_utxo_outputs(connection, temp_table)
@@ -119,8 +116,10 @@ module Blockchain
         end
 
         {
-          tx_inserted: tx_inserted,
+          tx_inserted: 0,
+          tx_skipped: 0,
           utxo_inserted: utxo_inserted,
+          tx_outputs_deferred: true,
           stage_timings: stage_timings
         }
       end
@@ -167,43 +166,6 @@ module Blockchain
             )
           end
         end
-      end
-
-      def insert_tx_outputs(connection, temp_table)
-        result = connection.exec_query(<<~SQL)
-          INSERT INTO tx_outputs (
-            txid,
-            vout,
-            address,
-            amount_btc,
-            block_height,
-            block_hash,
-            block_time,
-            spent,
-            spent_txid,
-            spent_block_height,
-            created_at,
-            updated_at
-          )
-          SELECT
-            txid,
-            vout,
-            address,
-            amount_btc,
-            block_height,
-            block_hash,
-            block_time,
-            FALSE,
-            spent_txid,
-            spent_block_height,
-            created_at,
-            updated_at
-          FROM #{temp_table}
-          ON CONFLICT (txid, vout) DO NOTHING
-          RETURNING id
-        SQL
-
-        result.rows.size
       end
 
       def insert_utxo_outputs(connection, temp_table)
