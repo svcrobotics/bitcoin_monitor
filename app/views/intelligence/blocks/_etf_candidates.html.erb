@@ -17,6 +17,7 @@
       .sort_by { |c| -c[:balance_btc].to_f }
 
     top_candidate = candidates.first
+    unavailable_label = "indisponible"
   %>
 
   <div class="mt-5 grid grid-cols-1 gap-3 sm:grid-cols-3">
@@ -73,11 +74,11 @@
             </td>
 
             <td class="text-emerald-300">
-              <%= candidate[:etf_score].to_i %>
+              <%= candidate[:etf_score].nil? ? unavailable_label : candidate[:etf_score].to_i %>
             </td>
 
             <td class="text-cyan-300">
-              <%= candidate[:whale_score].to_i %>
+              <%= candidate[:whale_score].nil? ? unavailable_label : candidate[:whale_score].to_i %>
             </td>
 
             <td>

@@ -32,6 +32,13 @@
     </div>
   </div>
 
+  <%
+    unavailable_label = "indisponible"
+    numeric_or_unavailable = lambda do |value|
+      value.nil? ? unavailable_label : number_with_delimiter(value.to_d.round(2))
+    end
+  %>
+
   <div class="mt-6 overflow-hidden rounded-xl border border-slate-800">
     <table class="w-full text-left text-sm">
       <thead class="bg-slate-900 text-xs uppercase tracking-wide text-slate-500">
@@ -50,10 +57,10 @@
         <% Array(data[:candidates]).each do |candidate| %>
           <tr>
             <td class="px-4 py-3 font-mono text-slate-300"><%= candidate[:cluster_id] %></td>
-            <td class="px-4 py-3 text-emerald-300"><%= candidate[:etf_score].to_i %></td>
-            <td class="px-4 py-3"><%= number_with_delimiter(candidate[:balance_btc].to_d.round(2)) %></td>
-            <td class="px-4 py-3"><%= number_with_delimiter(candidate[:total_received_btc].to_d.round(2)) %></td>
-            <td class="px-4 py-3"><%= number_with_delimiter(candidate[:total_sent_btc].to_d.round(2)) %></td>
+            <td class="px-4 py-3 text-emerald-300"><%= candidate[:etf_score].nil? ? unavailable_label : candidate[:etf_score].to_i %></td>
+            <td class="px-4 py-3"><%= numeric_or_unavailable.call(candidate[:balance_btc]) %></td>
+            <td class="px-4 py-3"><%= numeric_or_unavailable.call(candidate[:total_received_btc]) %></td>
+            <td class="px-4 py-3"><%= numeric_or_unavailable.call(candidate[:total_sent_btc]) %></td>
             <td class="px-4 py-3"><%= number_with_delimiter(candidate[:tx_count].to_i) %></td>
             <td class="px-4 py-3 text-slate-400"><%= candidate[:classification] || "—" %></td>
           </tr>
