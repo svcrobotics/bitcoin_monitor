@@ -23,17 +23,37 @@ class ClusterCoverageBlock < ApplicationRecord
     }
 
   scope :pending_or_failed, lambda {
-    where(
-      status: %w[
-        pending
-        deferred
-        failed
-      ]
-    )
+    block_coverage
+      .where(
+        status: %w[
+          pending
+          deferred
+          failed
+        ]
+      )
   }
 
   scope :completed, lambda {
-    where(status: "completed")
+    block_coverage.where(status: "completed")
+  }
+
+  scope :block_coverage, lambda {
+    where(
+      "height > 0"
+    )
+  }
+
+  scope :address_coverage, lambda {
+    where(
+      height: 0,
+      block_hash: "addresses"
+    ).where(
+      "metadata ->> 'source' = ?",
+      "addresses"
+    ).where(
+      "metadata ->> 'profile_version' = ?",
+      "address_coverage_v1"
+    )
   }
 
   def completed?
