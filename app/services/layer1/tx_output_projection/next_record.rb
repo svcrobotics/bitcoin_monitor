@@ -9,9 +9,16 @@ module Layer1
             <<~SQL.squish,
               status = :pending
               OR (status = :failed AND attempts < :max_attempts)
+              OR (
+                status = :processing
+                AND attempts < :max_attempts
+                AND last_attempt_at < :stale_before
+              )
             SQL
             pending: "pending",
             failed: "failed",
+            processing: "processing",
+            stale_before: Config.processing_stale_after_seconds.seconds.ago,
             max_attempts: Config.max_attempts
           )
           .order(:height)

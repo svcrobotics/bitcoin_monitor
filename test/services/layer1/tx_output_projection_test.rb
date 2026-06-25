@@ -76,7 +76,11 @@ class TxOutputProjectionTest < ActiveSupport::TestCase
 
   test "next record returns the oldest retryable checkpoint" do
     old_value = ENV["TX_OUTPUT_PROJECTION_MAX_ATTEMPTS"]
+    old_stale =
+      ENV["TX_OUTPUT_PROJECTION_PROCESSING_STALE_AFTER_SECONDS"]
+
     ENV["TX_OUTPUT_PROJECTION_MAX_ATTEMPTS"] = "2"
+    ENV["TX_OUTPUT_PROJECTION_PROCESSING_STALE_AFTER_SECONDS"] = "60"
 
     projected = Layer1TxOutputProjectionBlock.create!(
       height: 955_110,
@@ -98,18 +102,45 @@ class TxOutputProjectionTest < ActiveSupport::TestCase
       attempts: 1
     )
 
-    pending = Layer1TxOutputProjectionBlock.create!(
+    fresh_processing = Layer1TxOutputProjectionBlock.create!(
       height: 955_113,
       block_hash: "7" * 64,
+      status: "processing",
+      attempts: 1,
+      last_attempt_at: 30.seconds.ago
+    )
+
+    stale_processing = Layer1TxOutputProjectionBlock.create!(
+      height: 955_114,
+      block_hash: "8" * 64,
+      status: "processing",
+      attempts: 1,
+      last_attempt_at: 2.minutes.ago
+    )
+
+    pending = Layer1TxOutputProjectionBlock.create!(
+      height: 955_115,
+      block_hash: "9" * 64,
       status: "pending"
     )
 
     assert_equal retryable, Layer1::TxOutputProjection::NextRecord.call
     assert_not_equal projected, Layer1::TxOutputProjection::NextRecord.call
     assert_not_equal too_failed, Layer1::TxOutputProjection::NextRecord.call
+    assert_not_equal fresh_processing, Layer1::TxOutputProjection::NextRecord.call
+    assert_not_equal pending, Layer1::TxOutputProjection::NextRecord.call
+
+    retryable.update!(
+      attempts: 2
+    )
+
+    assert_equal stale_processing, Layer1::TxOutputProjection::NextRecord.call
     assert_not_equal pending, Layer1::TxOutputProjection::NextRecord.call
   ensure
     ENV["TX_OUTPUT_PROJECTION_MAX_ATTEMPTS"] = old_value
+    ENV[
+      "TX_OUTPUT_PROJECTION_PROCESSING_STALE_AFTER_SECONDS"
+    ] = old_stale
   end
 
   test "projects tx outputs from bitcoin core idempotently" do
