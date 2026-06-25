@@ -39,7 +39,62 @@ module Clusters
         assert_equal 3, result[:updated]
         assert_equal 3, result[:singleton_clusters_created]
         assert_equal addresses.last.id, result[:last_address_id]
+        assert_performance_metrics(result)
         assert_equal 3, addresses.map { |address| address.reload.cluster_id }.compact.uniq.size
+      end
+
+      test "returns duration metrics measured with the monotonic clock" do
+        ticks =
+          [
+            100.0,
+            100.25
+          ]
+
+        clock_ids = []
+
+        clock =
+          lambda do |clock_id|
+            clock_ids << clock_id
+            ticks.shift
+          end
+
+        builder =
+          lambda do |batch_size:, after_id:|
+            {
+              ok: true,
+              scanned: 100,
+              valid_addresses: 100,
+              invalid_addresses: 0,
+              updated: 100,
+              singleton_clusters_created: 100,
+              ignored_already_clustered: 0,
+              last_address_id: 100
+            }
+          end
+
+        Process.stub(:clock_gettime, clock) do
+          Clusters::Coverage::SingletonBuilder.stub(:call, builder) do
+            result =
+              Clusters::Coverage::SingletonRunner.call(
+                batch_size: 100,
+                max_batches: 1,
+                lock: false
+              )
+
+            assert_equal true, result[:ok]
+            assert_equal 250, result[:duration_ms]
+            assert_equal 0.25, result[:duration_seconds]
+            assert_equal 400.0, result[:addresses_per_second]
+          end
+        end
+
+        assert_equal(
+          [
+            Process::CLOCK_MONOTONIC,
+            Process::CLOCK_MONOTONIC
+          ],
+          clock_ids
+        )
       end
 
       test "passes the configured batch size to the builder" do
@@ -174,6 +229,7 @@ module Clusters
           assert_equal false, result[:locked]
           assert_equal "already_running", result[:stopped_reason]
           assert_equal 0, result[:batches]
+          assert_performance_metrics(result)
         ensure
           advisory_unlock(connection)
         end
@@ -209,6 +265,7 @@ module Clusters
           assert_equal false, result[:ok]
           assert_equal "error", result[:stopped_reason]
           assert_equal "RuntimeError", result[:error_class]
+          assert_performance_metrics(result)
         end
 
         assert lock_available_from_separate_connection?
@@ -253,6 +310,7 @@ module Clusters
           assert_equal 42, result[:last_address_id]
           assert_equal "RuntimeError", result[:error_class]
           assert_equal "second batch failed", result[:error_message]
+          assert_performance_metrics(result)
         end
       end
 
@@ -341,6 +399,17 @@ module Clusters
           data,
           Bech32::Encoding::BECH32
         )
+      end
+
+      def assert_performance_metrics(result)
+        assert_kind_of Integer, result[:duration_ms]
+        assert_operator result[:duration_ms], :>=, 0
+
+        assert_kind_of Float, result[:duration_seconds]
+        assert_operator result[:duration_seconds], :>=, 0.0
+
+        assert_kind_of Float, result[:addresses_per_second]
+        assert_operator result[:addresses_per_second], :>=, 0.0
       end
 
       def with_separate_connection

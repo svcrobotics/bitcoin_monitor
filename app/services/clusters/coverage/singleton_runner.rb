@@ -48,17 +48,33 @@ module Clusters
       end
 
       def call
-        if lock
-          @locked = acquire_lock
+        started_at =
+          Process.clock_gettime(
+            Process::CLOCK_MONOTONIC
+          )
 
-          return already_running_result unless locked
+        result = nil
+
+        begin
+          if lock
+            @locked = acquire_lock
+
+            result =
+              unless locked
+                already_running_result
+              end
+          end
+
+          result ||= run_batches
+        rescue StandardError => error
+          result = error_result(error)
+        ensure
+          release_lock if lock && locked
         end
 
-        run_batches
-      rescue StandardError => error
-        error_result(error)
-      ensure
-        release_lock if lock && locked
+        result.merge(
+          duration_metrics(started_at)
+        )
       end
 
       private
@@ -168,6 +184,30 @@ module Clusters
           initial_after_id: initial_after_id,
           last_address_id: last_address_id
         }
+      end
+
+      def duration_metrics(started_at)
+        duration_seconds =
+          Process.clock_gettime(
+            Process::CLOCK_MONOTONIC
+          ) - started_at
+
+        {
+          duration_ms:
+            (duration_seconds * 1_000).round,
+
+          duration_seconds:
+            duration_seconds.round(3),
+
+          addresses_per_second:
+            addresses_per_second(duration_seconds)
+        }
+      end
+
+      def addresses_per_second(duration_seconds)
+        return 0.0 unless duration_seconds.positive?
+
+        (scanned / duration_seconds).round(2)
       end
 
       def acquire_lock
