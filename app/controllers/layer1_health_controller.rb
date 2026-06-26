@@ -2,7 +2,7 @@
 
 class Layer1HealthController < ApplicationController
   def show
-    snapshot = Layer1::HealthSnapshot.call.with_indifferent_access
+    snapshot = Layer1::CachedHealthSnapshot.read.with_indifferent_access
 
     context = {
       module: "layer1_health",

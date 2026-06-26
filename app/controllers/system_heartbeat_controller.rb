@@ -1,6 +1,6 @@
 class SystemHeartbeatController < ApplicationController
   def show
-    snapshot = Layer1::HealthSnapshot.call
+    snapshot = Layer1::CachedHealthSnapshot.read
 
     render json: {
       status: snapshot[:status] || heartbeat_status(snapshot),

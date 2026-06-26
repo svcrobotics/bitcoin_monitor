@@ -3,7 +3,7 @@ class QuestionsController < ApplicationController
     question = QuestionDefinition.find_by!(key: params[:key])
 
     if layer1_question?(question)
-      snapshot = Layer1::HealthSnapshot.call
+      snapshot = Layer1::CachedHealthSnapshot.read
 
       render turbo_stream: turbo_stream.update(
         "dashboard_answer",
