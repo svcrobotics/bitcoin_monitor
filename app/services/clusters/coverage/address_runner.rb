@@ -166,7 +166,18 @@ module Clusters
         cursor_record
           .metadata
           .to_h
-          .fetch("reconciliation_after_address_id", "0")
+          .fetch(
+            "reconciliation_after_address_id",
+            reconciliation_floor_id.to_s
+          )
+          .to_i
+      end
+
+      def reconciliation_floor_id
+        cursor_record
+          .metadata
+          .to_h
+          .fetch("seeded_from_bootstrap_address_id", "0")
           .to_i
       end
 
@@ -275,7 +286,8 @@ module Clusters
                   # Le passage est terminé. Le prochain cycle repart
                   # du début afin de revoir les adresses précédemment
                   # réservées à Cluster strict.
-                  "reconciliation_after_address_id" => "0"
+                  "reconciliation_after_address_id" =>
+                    reconciliation_floor_id.to_s
                 )
           end
 

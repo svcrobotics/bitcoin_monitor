@@ -324,6 +324,47 @@ module Clusters
         )
       end
 
+      test "reconciliation resets to the certified bootstrap floor" do
+        seed_address =
+          Address.create!(
+            address: segwit_address(99)
+          )
+
+        cursor =
+          cursor_record
+
+        cursor.update!(
+          status: "pending",
+          after_tx_output_id: seed_address.id,
+          max_tx_output_id: seed_address.id,
+          metadata:
+            cursor.metadata.merge(
+              "seeded_from_bootstrap_address_id" =>
+                seed_address.id.to_s,
+              "reconciliation_after_address_id" =>
+                seed_address.id.to_s
+            )
+        )
+
+        result =
+          Clusters::Coverage::AddressRunner.call(
+            batch_size: 10,
+            max_batches: 1,
+            reconcile: true,
+            lock: false
+          )
+
+        assert_equal true, result[:ok]
+        assert_equal "empty_batch", result[:stopped_reason]
+        assert_equal(
+          seed_address.id.to_s,
+          cursor_record
+            .reload
+            .metadata
+            .fetch("reconciliation_after_address_id")
+        )
+      end
+
       test "coverage defers addresses still owned by pending strict cluster input" do
         address =
           Address.create!(
