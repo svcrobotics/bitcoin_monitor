@@ -272,8 +272,10 @@ module Clusters
                 .metadata
                 .to_h
                 .merge(
-                  "reconciliation_after_address_id" =>
-                    high_watermark.to_s
+                  # Le passage est terminé. Le prochain cycle repart
+                  # du début afin de revoir les adresses précédemment
+                  # réservées à Cluster strict.
+                  "reconciliation_after_address_id" => "0"
                 )
           end
 

@@ -52,7 +52,14 @@ module Clusters
           spent: true,
           spent_txid: unique_hash("spent"),
           spent_block_height: 955_369,
-          cluster_processed_at: Time.current
+          cluster_processed_at: nil
+        )
+
+        ClusterProcessedBlock.create!(
+          height: 955_369,
+          block_hash: unique_hash("cluster-processed"),
+          status: "processed",
+          processed_at: Time.current
         )
 
         result =
@@ -269,7 +276,7 @@ module Clusters
         assert_nil third.reload.cluster_id
       end
 
-      test "reconciliation empty batch keeps secondary cursor at high watermark" do
+      test "reconciliation empty batch resets secondary cursor for the next cycle" do
         address =
           Address.create!(
             address: segwit_address(93)
@@ -309,7 +316,7 @@ module Clusters
 
         assert_equal "empty_batch", result[:stopped_reason]
         assert_equal(
-          address.id.to_s,
+          "0",
           cursor_record
             .reload
             .metadata
@@ -349,6 +356,87 @@ module Clusters
         end
 
         assert_nil address.reload.cluster_id
+      end
+
+      test "reconciliation revisits an address after Cluster certifies its height" do
+        ClusterProcessedBlock.delete_all
+
+        address =
+          Address.create!(
+            address: segwit_address(98),
+            first_seen_height: 955_500,
+            last_seen_height: 955_500
+          )
+
+        ClusterInput.create!(
+          block_height: 955_000,
+          txid: unique_hash("reconciliation-deferred-input"),
+          vout: 0,
+          address: address.address,
+          amount_btc: BigDecimal("0.1"),
+          spent: true,
+          spent_txid: unique_hash("reconciliation-deferred-spent"),
+          spent_block_height: 955_500,
+          cluster_processed_at: nil
+        )
+
+        ClusterProcessedBlock.create!(
+          height: 955_499,
+          block_hash: unique_hash("cluster-before-deferred-height"),
+          status: "processed",
+          processed_at: Time.current
+        )
+
+        initial =
+          Clusters::Coverage::AddressRunner.call(
+            batch_size: 10,
+            max_batches: 2,
+            lock: false
+          )
+
+        assert_equal true, initial[:ok]
+        assert_equal 1, initial[:skipped_pending_cluster_inputs]
+        assert_nil address.reload.cluster_id
+        assert_equal address.id, cursor_record.reload.after_tx_output_id
+
+        first_reconciliation =
+          Clusters::Coverage::AddressRunner.call(
+            batch_size: 10,
+            max_batches: 2,
+            reconcile: true,
+            lock: false
+          )
+
+        assert_equal true, first_reconciliation[:ok]
+        assert_equal 1, first_reconciliation[:skipped_pending_cluster_inputs]
+        assert_nil address.reload.cluster_id
+        assert_equal(
+          "0",
+          cursor_record
+            .reload
+            .metadata
+            .fetch("reconciliation_after_address_id")
+        )
+
+        ClusterProcessedBlock.create!(
+          height: 955_500,
+          block_hash: unique_hash("cluster-at-deferred-height"),
+          status: "processed",
+          processed_at: Time.current
+        )
+
+        second_reconciliation =
+          Clusters::Coverage::AddressRunner.call(
+            batch_size: 10,
+            max_batches: 2,
+            reconcile: true,
+            lock: false
+          )
+
+        assert_equal true, second_reconciliation[:ok]
+        assert_equal 1, second_reconciliation[:updated]
+        assert_equal 1, second_reconciliation[:singleton_clusters_created]
+        assert address.reload.cluster_id.present?
       end
 
       test "coverage does not leave an empty singleton during strict merge race" do

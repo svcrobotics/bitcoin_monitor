@@ -140,9 +140,32 @@ module Clusters
 
         return Set.new if values.empty?
 
+        cluster_tip =
+          ClusterProcessedBlock
+            .where(status: "processed")
+            .maximum(:height)
+
+        # Sans checkpoint Cluster certifié, seules les adresses ayant
+        # réellement des inputs restent réservées au pipeline strict.
+        # Les adresses connues uniquement par leurs outputs peuvent
+        # recevoir immédiatement un cluster singleton.
+        if cluster_tip.nil?
+          return ClusterInput
+            .where(address: values)
+            .distinct
+            .pluck(:address)
+            .to_set
+        end
+
+        # Une adresse reste réservée à Cluster strict lorsqu'au moins
+        # un de ses inputs appartient à un bloc non encore certifié,
+        # ou lorsque sa hauteur de dépense est inconnue.
         ClusterInput
           .where(address: values)
-          .where(cluster_processed_at: nil)
+          .where(
+            "spent_block_height IS NULL OR spent_block_height > ?",
+            cluster_tip
+          )
           .distinct
           .pluck(:address)
           .to_set
