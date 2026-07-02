@@ -181,6 +181,29 @@ module Layer1
       assert_nil Layer1TxOutputProjectionBlock.find_by(height: height)
     end
 
+    test "certification path does not read aggregate audit state" do
+      height = 956_024
+      block_hash = "5" * 64
+      rpc = FakeRpc.new(
+        height: height,
+        block_hash: block_hash,
+        block: block_payload(
+          previous_txid: "6" * 64,
+          spending_txid: "7" * 64
+        )
+      )
+
+      with_stubbed(
+        Layer1::Audit::OperationalSnapshot,
+        :call,
+        ->(*) { raise "aggregate audit state must not gate certification" }
+      ) do
+        result = run_strict_rebuilder(height: height, rpc: rpc)
+
+        assert result[:ok]
+      end
+    end
+
     private
 
     def run_strict_rebuilder(
