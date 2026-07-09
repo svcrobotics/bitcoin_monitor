@@ -10,10 +10,99 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_09_081932) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
+  enable_extension "pg_stat_statements"
   enable_extension "vector"
+
+  create_table "actor_behavior_heavy_snapshots", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "actor_profile_id", null: false
+    t.bigint "actor_behavior_snapshot_id", null: false
+    t.bigint "downstream_cluster_id"
+    t.string "analysis_kind", default: "exchange_infrastructure", null: false
+    t.string "heavy_version", null: false
+    t.string "status", null: false
+    t.string "source_profile_fingerprint", null: false
+    t.integer "source_profile_height", null: false
+    t.integer "source_cluster_composition_version", null: false
+    t.string "source_behavior_version", null: false
+    t.integer "window_from_height", null: false
+    t.integer "window_to_height", null: false
+    t.jsonb "signals", default: {}, null: false
+    t.jsonb "scores", default: {}, null: false
+    t.jsonb "evidence", default: {}, null: false
+    t.string "evidence_fingerprint", null: false
+    t.datetime "computed_at", null: false
+    t.string "error_code"
+    t.text "error_message"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_behavior_snapshot_id"], name: "idx_behavior_heavy_on_strict_snapshot"
+    t.index ["actor_profile_id"], name: "index_actor_behavior_heavy_snapshots_on_actor_profile_id"
+    t.index ["cluster_id", "analysis_kind"], name: "idx_actor_behavior_heavy_snapshots_cluster_analysis", unique: true
+    t.index ["downstream_cluster_id"], name: "index_actor_behavior_heavy_snapshots_on_downstream_cluster_id"
+    t.index ["evidence_fingerprint"], name: "idx_behavior_heavy_fingerprint"
+    t.index ["heavy_version"], name: "idx_behavior_heavy_version"
+    t.index ["status", "window_to_height"], name: "idx_behavior_heavy_status_height"
+  end
+
+  create_table "actor_behavior_runs", force: :cascade do |t|
+    t.string "behavior_version", null: false
+    t.string "mode", null: false
+    t.string "trigger", null: false
+    t.integer "requested_limit", null: false
+    t.string "status", null: false
+    t.datetime "started_at", null: false
+    t.datetime "finished_at"
+    t.bigint "duration_ms"
+    t.integer "selected", default: 0, null: false
+    t.integer "missing_selected", default: 0, null: false
+    t.integer "stale_selected", default: 0, null: false
+    t.integer "created_count", default: 0, null: false
+    t.integer "updated_count", default: 0, null: false
+    t.integer "unchanged_count", default: 0, null: false
+    t.integer "deferred_count", default: 0, null: false
+    t.integer "failed_count", default: 0, null: false
+    t.jsonb "reasons", default: {}, null: false
+    t.string "error_code"
+    t.text "error_message"
+    t.integer "actor_profiles_certified_at_start"
+    t.integer "actor_profile_max_height_at_start"
+    t.bigint "cluster_processed_tip_at_start"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["behavior_version"], name: "index_actor_behavior_runs_on_behavior_version"
+    t.index ["finished_at"], name: "index_actor_behavior_runs_on_finished_at"
+    t.index ["started_at"], name: "index_actor_behavior_runs_on_started_at"
+    t.index ["status", "started_at"], name: "index_actor_behavior_runs_on_status_and_started_at"
+    t.index ["status"], name: "index_actor_behavior_runs_on_status"
+    t.index ["trigger"], name: "index_actor_behavior_runs_on_trigger"
+  end
+
+  create_table "actor_behavior_snapshots", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "actor_profile_id", null: false
+    t.string "profile_version", null: false
+    t.integer "profile_height", null: false
+    t.bigint "cluster_composition_version", null: false
+    t.string "profile_fingerprint", null: false
+    t.string "behavior_version", null: false
+    t.string "status", null: false
+    t.jsonb "signals", default: {}, null: false
+    t.jsonb "scores", default: {}, null: false
+    t.jsonb "evidence", default: {}, null: false
+    t.datetime "computed_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_profile_id"], name: "index_actor_behavior_snapshots_on_actor_profile_id"
+    t.index ["cluster_id", "profile_height", "cluster_composition_version"], name: "idx_actor_behavior_snapshot_checkpoint"
+    t.index ["cluster_id"], name: "index_actor_behavior_snapshots_on_cluster_id", unique: true
+    t.index ["profile_fingerprint"], name: "index_actor_behavior_snapshots_on_profile_fingerprint"
+    t.index ["profile_height"], name: "index_actor_behavior_snapshots_on_profile_height"
+    t.index ["status"], name: "index_actor_behavior_snapshots_on_status"
+  end
 
   create_table "actor_labels", force: :cascade do |t|
     t.bigint "cluster_id", null: false
@@ -54,21 +143,18 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.index ["whale_score"], name: "index_actor_metrics_on_whale_score"
   end
 
-  create_table "actor_profile_deltas", force: :cascade do |t|
-    t.bigint "cluster_id", null: false
-    t.integer "block_height", null: false
-    t.decimal "received_btc_delta", precision: 24, scale: 8, default: "0.0", null: false
-    t.decimal "sent_btc_delta", precision: 24, scale: 8, default: "0.0", null: false
-    t.decimal "net_btc_delta", precision: 24, scale: 8, default: "0.0", null: false
-    t.integer "tx_count_delta", default: 0, null: false
-    t.datetime "first_seen_at"
-    t.datetime "last_seen_at"
-    t.datetime "processed_at"
+  create_table "actor_profile_certification_epochs", force: :cascade do |t|
+    t.string "profile_version", null: false
+    t.integer "start_height", null: false
+    t.datetime "activated_at", null: false
+    t.string "source", null: false
+    t.jsonb "metadata", default: {}, null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.index ["cluster_id", "block_height"], name: "index_actor_profile_deltas_on_cluster_id_and_block_height"
-    t.index ["cluster_id"], name: "index_actor_profile_deltas_on_cluster_id"
-    t.index ["processed_at"], name: "index_actor_profile_deltas_on_processed_at"
+    t.index ["profile_version"], name: "index_actor_profile_epochs_on_version", unique: true
+    t.check_constraint "profile_version::text <> ''::text", name: "actor_profile_epochs_version_present"
+    t.check_constraint "source::text <> ''::text", name: "actor_profile_epochs_source_present"
+    t.check_constraint "start_height > 0", name: "actor_profile_epochs_positive_height"
   end
 
   create_table "actor_profiles", force: :cascade do |t|
@@ -96,8 +182,10 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.integer "last_computed_height"
     t.boolean "dirty", default: false, null: false
     t.string "priority"
+    t.bigint "cluster_composition_version"
     t.index ["classification"], name: "index_actor_profiles_on_classification"
     t.index ["cluster_id"], name: "index_actor_profiles_on_cluster_id"
+    t.index ["cluster_id"], name: "index_actor_profiles_on_cluster_id_unique", unique: true
     t.index ["dirty"], name: "index_actor_profiles_on_dirty"
     t.index ["last_computed_height"], name: "index_actor_profiles_on_last_computed_height"
     t.index ["priority"], name: "index_actor_profiles_on_priority"
@@ -139,6 +227,44 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.index ["block_height"], name: "index_address_links_on_block_height"
     t.index ["txid", "link_type"], name: "index_address_links_on_txid_and_link_type"
     t.index ["txid"], name: "index_address_links_on_txid"
+  end
+
+  create_table "address_spend_projection_blocks", force: :cascade do |t|
+    t.integer "height", null: false
+    t.string "block_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.bigint "input_count", default: 0, null: false
+    t.integer "address_count", default: 0, null: false
+    t.bigint "total_sent_sats", default: 0, null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "processing_started_at"
+    t.datetime "completed_at"
+    t.text "error_message"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["height"], name: "index_address_spend_projection_blocks_on_height", unique: true
+    t.index ["status", "height"], name: "index_address_spend_projection_blocks_on_status_and_height"
+    t.check_constraint "address_count >= 0", name: "address_spend_projection_blocks_address_count_check"
+    t.check_constraint "height >= 0", name: "address_spend_projection_blocks_height_check"
+    t.check_constraint "input_count >= 0", name: "address_spend_projection_blocks_input_count_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "address_spend_projection_blocks_status_check"
+    t.check_constraint "total_sent_sats >= 0", name: "address_spend_projection_blocks_total_sent_sats_check"
+  end
+
+  create_table "address_spend_stats", force: :cascade do |t|
+    t.bigint "total_sent_sats", default: 0, null: false
+    t.bigint "spent_inputs_count", default: 0, null: false
+    t.integer "first_spent_height"
+    t.integer "last_spent_height"
+    t.integer "source_height", null: false
+    t.string "projection_version", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "address", null: false
+    t.index ["address"], name: "index_address_spend_stats_on_address", unique: true
+    t.index ["last_spent_height"], name: "index_address_spend_stats_on_last_spent_height"
+    t.index ["source_height"], name: "index_address_spend_stats_on_source_height"
   end
 
   create_table "addresses", force: :cascade do |t|
@@ -197,6 +323,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.integer "flush_duration_ms"
     t.string "error_class"
     t.text "error_message"
+    t.jsonb "strict_metrics", default: {}, null: false
     t.index ["block_hash"], name: "index_block_buffers_on_block_hash", unique: true
     t.index ["failed_at"], name: "index_block_buffers_on_failed_at"
     t.index ["height", "status"], name: "index_block_buffers_on_height_and_status"
@@ -365,6 +492,31 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.index ["cluster_id"], name: "index_cluster_activity_states_on_cluster_id"
   end
 
+  create_table "cluster_coverage_blocks", force: :cascade do |t|
+    t.bigint "height", null: false
+    t.string "block_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.bigint "max_tx_output_id"
+    t.bigint "after_tx_output_id"
+    t.integer "expected_outputs_count", default: 0, null: false
+    t.integer "processed_outputs_count", default: 0, null: false
+    t.integer "expected_address_outputs_count", default: 0, null: false
+    t.integer "processed_address_outputs_count", default: 0, null: false
+    t.integer "scripts_without_address_count", default: 0, null: false
+    t.integer "addresses_created_count", default: 0, null: false
+    t.integer "singleton_clusters_created_count", default: 0, null: false
+    t.integer "pages_processed", default: 0, null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.text "last_error"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["height"], name: "index_cluster_coverage_blocks_on_height", unique: true
+    t.index ["status", "height"], name: "index_cluster_coverage_blocks_on_status_and_height"
+  end
+
   create_table "cluster_input_cursors", force: :cascade do |t|
     t.integer "last_height_processed"
     t.datetime "created_at", null: false
@@ -391,7 +543,6 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.index ["cluster_processed_at"], name: "index_cluster_inputs_on_cluster_processed_at"
     t.index ["spent_block_height", "spent_txid"], name: "index_cluster_inputs_on_spent_block_height_and_spent_txid"
     t.index ["spent_block_height"], name: "index_cluster_inputs_on_spent_block_height"
-    t.index ["spent_txid"], name: "index_cluster_inputs_on_spent_txid"
     t.index ["txid", "vout"], name: "index_cluster_inputs_on_txid_and_vout", unique: true
   end
 
@@ -415,6 +566,26 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.datetime "processed_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+  end
+
+  create_table "cluster_processed_blocks", force: :cascade do |t|
+    t.bigint "height", null: false
+    t.string "block_hash", null: false
+    t.string "status", default: "processed", null: false
+    t.jsonb "scan_result", default: {}, null: false
+    t.jsonb "cleanup_result", default: {}, null: false
+    t.jsonb "audit_result", default: {}, null: false
+    t.datetime "processed_at", null: false
+    t.text "error_message"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.datetime "processing_started_at"
+    t.integer "duration_ms"
+    t.jsonb "stage_timings", default: {}, null: false
+    t.index ["height"], name: "index_cluster_processed_blocks_on_height", unique: true
+    t.index ["processed_at"], name: "index_cluster_processed_blocks_on_processed_at"
+    t.index ["processing_started_at"], name: "index_cluster_processed_blocks_on_processing_started_at"
+    t.index ["status"], name: "index_cluster_processed_blocks_on_status"
   end
 
   create_table "cluster_profiles", force: :cascade do |t|
@@ -453,6 +624,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.integer "last_seen_height"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.bigint "composition_version", default: 0, null: false
     t.index ["first_seen_height"], name: "index_clusters_on_first_seen_height"
     t.index ["last_seen_height"], name: "index_clusters_on_last_seen_height"
   end
@@ -850,6 +1022,51 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.datetime "updated_at", null: false
   end
 
+  create_table "layer1_tx_output_projection_blocks", force: :cascade do |t|
+    t.bigint "height", null: false
+    t.string "block_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "expected_outputs_count", default: 0, null: false
+    t.decimal "expected_outputs_value_btc", precision: 24, scale: 8, default: "0.0", null: false
+    t.integer "projected_outputs_count", default: 0, null: false
+    t.decimal "projected_outputs_value_btc", precision: 24, scale: 8, default: "0.0", null: false
+    t.integer "rows_inserted", default: 0, null: false
+    t.integer "rows_skipped", default: 0, null: false
+    t.integer "attempts", default: 0, null: false
+    t.integer "duration_ms"
+    t.datetime "started_at"
+    t.datetime "last_attempt_at"
+    t.datetime "completed_at"
+    t.text "last_error"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["completed_at"], name: "index_layer1_tx_output_projection_blocks_on_completed_at"
+    t.index ["height"], name: "index_layer1_tx_output_projection_blocks_on_height", unique: true
+    t.index ["status", "height"], name: "idx_layer1_tx_output_projection_status_height"
+  end
+
+  create_table "layer1_tx_output_syncs", force: :cascade do |t|
+    t.bigint "height", null: false
+    t.string "block_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "inputs_count", default: 0, null: false
+    t.integer "matching_tx_outputs_count", default: 0, null: false
+    t.integer "rows_updated", default: 0, null: false
+    t.integer "remaining_rows"
+    t.integer "attempts", default: 0, null: false
+    t.integer "duration_ms"
+    t.datetime "started_at"
+    t.datetime "last_attempt_at"
+    t.datetime "completed_at"
+    t.text "last_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["completed_at"], name: "index_layer1_tx_output_syncs_on_completed_at"
+    t.index ["height"], name: "index_layer1_tx_output_syncs_on_height", unique: true
+    t.index ["status", "height"], name: "index_layer1_tx_output_syncs_on_status_and_height"
+  end
+
   create_table "login_challenges", force: :cascade do |t|
     t.string "nonce", null: false
     t.string "domain", null: false
@@ -1156,9 +1373,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.integer "spent_block_height"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_tx_outputs_on_address"
     t.index ["block_height", "address"], name: "index_tx_outputs_on_block_height_and_address"
     t.index ["block_height"], name: "index_tx_outputs_on_block_height"
-    t.index ["spent_block_height", "address"], name: "index_tx_outputs_on_spent_block_height_and_address"
     t.index ["spent_block_height"], name: "index_tx_outputs_on_spent_block_height"
     t.index ["txid", "vout"], name: "index_tx_outputs_on_txid_and_vout", unique: true
   end
@@ -1309,9 +1526,14 @@ ActiveRecord::Schema[8.0].define(version: 2026_06_11_215329) do
     t.index ["txid", "address", "direction"], name: "index_whale_core_flow_events_on_txid_and_address_and_direction", unique: true
   end
 
+  add_foreign_key "actor_behavior_heavy_snapshots", "actor_behavior_snapshots"
+  add_foreign_key "actor_behavior_heavy_snapshots", "actor_profiles"
+  add_foreign_key "actor_behavior_heavy_snapshots", "clusters"
+  add_foreign_key "actor_behavior_heavy_snapshots", "clusters", column: "downstream_cluster_id"
+  add_foreign_key "actor_behavior_snapshots", "actor_profiles", on_delete: :cascade
+  add_foreign_key "actor_behavior_snapshots", "clusters", on_delete: :cascade
   add_foreign_key "actor_labels", "clusters", on_delete: :cascade
   add_foreign_key "actor_metrics", "clusters", on_delete: :cascade
-  add_foreign_key "actor_profile_deltas", "clusters"
   add_foreign_key "actor_profiles", "clusters"
   add_foreign_key "address_links", "addresses", column: "address_a_id"
   add_foreign_key "address_links", "addresses", column: "address_b_id"
