@@ -32,7 +32,10 @@ module Clusters
       cluster = nil
 
       ApplicationRecord.transaction do
-        cluster = Cluster.create!
+        cluster =
+          Cluster.create!(
+            composition_version: 1
+          )
 
         Address.where(id: address_records.map(&:id)).update_all(
           cluster_id: cluster.id,
@@ -109,7 +112,13 @@ module Clusters
       ids = Array(cluster_ids).compact
       return if ids.empty?
 
-      ActorProfileDelta.where(cluster_id: ids).delete_all
+      ActorBehaviorHeavySnapshot
+        .where(
+          "cluster_id IN (:ids) OR downstream_cluster_id IN (:ids)",
+          ids: ids
+        )
+        .delete_all
+
       ActorLabel.where(cluster_id: ids).delete_all
       ActorProfile.where(cluster_id: ids).delete_all
       ClusterActivityState.where(cluster_id: ids).delete_all
