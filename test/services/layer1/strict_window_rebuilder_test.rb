@@ -179,6 +179,8 @@ module Layer1
       assert_not result[:ok]
       assert_equal "audit_outputs", result[:failed][:stage]
       assert_nil Layer1TxOutputProjectionBlock.find_by(height: height)
+      assert_nil Layer1TxOutputSync.find_by(height: height)
+      assert_not_equal "processed", BlockBufferModel.find_by!(height: height).status
     end
 
     test "certification path does not read aggregate audit state" do
@@ -213,6 +215,9 @@ module Layer1
       output_audit_result = AuditResult.new(status: "healthy", id: 42, issues: [])
       original_flusher =
         Blockchain::Flushers::SpentOutputFlusherSelector.method(:call)
+      original_register =
+        Layer1::TxOutputsSpentSync::Register.method(:call)
+      previous_async = ENV["TX_OUTPUTS_SPENT_ASYNC"]
       rpc = FakeRpc.new(
         height: height,
         block_hash: "6" * 64,
@@ -222,39 +227,56 @@ module Layer1
         )
       )
 
-      with_stubbed(
-        Blockchain::Flushers::SpentOutputFlusherSelector,
-        :call,
-        lambda do |*args, **kwargs|
-          events << :flush
-          original_flusher.call(*args, **kwargs)
-        end
-      ) do
-        result = assert_no_queries_match(/\btx_outputs\b/i) do
-          run_strict_rebuilder(
-            height: height,
-            rpc: rpc,
-            reconcile: lambda do |height:|
-              reconcile_heights << height
-              events << :reconcile_strict_utxo
-              { ok: true, height: height }
-            end,
-            output_audit: lambda do |height:|
-              events << :audit_outputs
-              output_audit_result
-            end,
-            inputs_audit: lambda do |height:|
-              events << :audit_inputs
-              inputs_audit_result
-            end,
-            utxo_audit: lambda do |height:|
-              events << :audit_utxo_state
-              utxo_audit_result
-            end
-          )
-        end
+      ENV["TX_OUTPUTS_SPENT_ASYNC"] = "0"
 
-        assert result[:ok]
+      begin
+        with_stubbed(
+          Layer1::TxOutputsSpentSync::Register,
+          :call,
+          lambda do |height:, block_hash:|
+            events << :register_tx_outputs_sync
+            original_register.call(height: height, block_hash: block_hash)
+          end
+        ) do
+          with_stubbed(
+            Blockchain::Flushers::SpentOutputFlusherSelector,
+            :call,
+            lambda do |*args, **kwargs|
+              events << :flush
+              original_flusher.call(*args, **kwargs)
+            end
+          ) do
+            result = run_strict_rebuilder(
+              height: height,
+              rpc: rpc,
+              reconcile: lambda do |height:|
+                reconcile_heights << height
+                events << :reconcile_strict_utxo
+                { ok: true, height: height }
+              end,
+              output_audit: lambda do |height:|
+                events << :audit_outputs
+                output_audit_result
+              end,
+              inputs_audit: lambda do |height:|
+                events << :audit_inputs
+                inputs_audit_result
+              end,
+              utxo_audit: lambda do |height:|
+                events << :audit_utxo_state
+                utxo_audit_result
+              end
+            )
+
+            assert result[:ok]
+          end
+        end
+      ensure
+        if previous_async.nil?
+          ENV.delete("TX_OUTPUTS_SPENT_ASYNC")
+        else
+          ENV["TX_OUTPUTS_SPENT_ASYNC"] = previous_async
+        end
       end
 
       assert_equal [height], reconcile_heights
@@ -262,10 +284,133 @@ module Layer1
       assert_operator events.index(:reconcile_strict_utxo), :<, events.index(:audit_outputs)
       assert_operator events.index(:reconcile_strict_utxo), :<, events.index(:audit_inputs)
       assert_operator events.index(:reconcile_strict_utxo), :<, events.index(:audit_utxo_state)
+      assert_operator events.index(:audit_outputs), :<, events.index(:register_tx_outputs_sync)
+      assert_operator events.index(:audit_inputs), :<, events.index(:register_tx_outputs_sync)
+      assert_operator events.index(:audit_utxo_state), :<, events.index(:register_tx_outputs_sync)
       assert_equal 1, events.count(:reconcile_strict_utxo)
+      assert_equal 1, events.count(:register_tx_outputs_sync)
+      assert Layer1TxOutputSync.exists?(height: height)
+    end
+
+    test "rolls back finalization when checkpoint registration fails" do
+      block = create_processing_block(height: 956_030, block_hash: "7" * 64)
+      error = RuntimeError.new("register failed")
+
+      raised = assert_raises(RuntimeError) do
+        with_stubbed(
+          Layer1::TxOutputsSpentSync::Register,
+          :call,
+          ->(**) { raise error }
+        ) do
+          finalize_block(block)
+        end
+      end
+
+      assert_same error, raised
+      assert_equal "processing", block.reload.status
+      assert_nil Layer1TxOutputSync.find_by(height: block.height)
+    end
+
+    test "rolls back checkpoint when mark processed returns false" do
+      block = create_processing_block(height: 956_031, block_hash: "8" * 64)
+
+      assert_raises(StrictWindowRebuilder::MarkProcessedFailed) do
+        with_stubbed(Blockchain::Buffer::BlockBuffer, :mark_processed, false) do
+          finalize_block(block)
+        end
+      end
+
+      assert_equal "processing", block.reload.status
+      assert_nil Layer1TxOutputSync.find_by(height: block.height)
+    end
+
+    test "rolls back checkpoint when mark processed raises" do
+      block = create_processing_block(height: 956_032, block_hash: "9" * 64)
+      error = RuntimeError.new("mark failed")
+
+      raised = assert_raises(RuntimeError) do
+        with_stubbed(
+          Blockchain::Buffer::BlockBuffer,
+          :mark_processed,
+          ->(*) { raise error }
+        ) do
+          finalize_block(block)
+        end
+      end
+
+      assert_same error, raised
+      assert_equal "processing", block.reload.status
+      assert_nil Layer1TxOutputSync.find_by(height: block.height)
+    end
+
+    test "rejects a block hash change before either final write" do
+      block = create_processing_block(height: 956_033, block_hash: "a" * 64)
+
+      assert_raises(StrictWindowRebuilder::BlockHashChanged) do
+        finalize_block(block, block_hash: "b" * 64)
+      end
+
+      assert_equal "processing", block.reload.status
+      assert_nil Layer1TxOutputSync.find_by(height: block.height)
+    end
+
+    test "commits processed block and checkpoint together" do
+      block = create_processing_block(height: 956_034, block_hash: "c" * 64)
+
+      checkpoint = finalize_block(block)
+
+      assert_equal "processed", block.reload.status
+      assert_equal block.height, checkpoint.height
+      assert_equal block.block_hash, checkpoint.block_hash
+      assert_equal "pending", checkpoint.status
+    end
+
+    test "reuses the same checkpoint when finalization is replayed" do
+      block = create_processing_block(height: 956_035, block_hash: "d" * 64)
+
+      first = finalize_block(block)
+      second = finalize_block(block.reload)
+
+      assert_equal first.id, second.id
+      assert_equal 1, Layer1TxOutputSync.where(height: block.height).count
+      assert_equal "processed", block.reload.status
+    end
+
+    test "keeps configuration scheduling and heavy work outside final transaction" do
+      source = File.read(
+        Rails.root.join("app/services/layer1/strict_window_rebuilder.rb")
+      )
+      finalizer = source[/def finalize_block!.*?(?=\n    def enqueue_tx_outputs_async_sync)/m]
+
+      assert_not_nil finalizer
+      assert_match(/ApplicationRecord\.transaction/, finalizer)
+      assert_match(/BlockBufferModel\.lock\.find_by!/, finalizer)
+      assert_match(/TxOutputsSpentSync::Register\.call/, finalizer)
+      assert_match(/BlockBuffer\.mark_processed/, finalizer)
+      refute_match(/Config\.enabled\?/, source)
+      refute_match(/Sidekiq|perform_(?:async|in)|BitcoinRpc|AuditBlock/, finalizer)
     end
 
     private
+
+    def create_processing_block(height:, block_hash:)
+      BlockBufferModel.create!(
+        height: height,
+        block_hash: block_hash,
+        status: "processing"
+      )
+    end
+
+    def finalize_block(block, block_hash: block.block_hash)
+      StrictWindowRebuilder
+        .allocate
+        .send(
+          :finalize_block!,
+          height: block.height,
+          block_hash: block_hash,
+          final_metrics: { strict_rebuild: true }
+        )
+    end
 
     def run_strict_rebuilder(
       height:,
@@ -406,6 +551,83 @@ module Layer1
     ensure
       object.define_singleton_method(method_name) do |*args, **kwargs, &block|
         original.call(*args, **kwargs, &block)
+      end
+    end
+  end
+
+  class StrictWindowRebuilderAtomicVisibilityTest < ActiveSupport::TestCase
+    self.use_transactional_tests = false
+
+    HEIGHT = 956_090
+
+    setup do
+      Layer1TxOutputSync.where(height: HEIGHT).delete_all
+      BlockBufferModel.where(height: HEIGHT).delete_all
+    end
+
+    teardown do
+      Layer1TxOutputSync.where(height: HEIGHT).delete_all
+      BlockBufferModel.where(height: HEIGHT).delete_all
+    end
+
+    test "publishes checkpoint and processed block in one PostgreSQL commit" do
+      block = BlockBufferModel.create!(
+        height: HEIGHT,
+        block_hash: "e" * 64,
+        status: "processing"
+      )
+      updated = Queue.new
+      release = Queue.new
+      original_mark_processed =
+        Blockchain::Buffer::BlockBuffer.method(:mark_processed)
+
+      Blockchain::Buffer::BlockBuffer.define_singleton_method(
+        :mark_processed
+      ) do |height, metrics:|
+        result = original_mark_processed.call(height, metrics: metrics)
+        updated << true
+        release.pop
+        result
+      end
+
+      thread = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          StrictWindowRebuilder
+            .allocate
+            .send(
+              :finalize_block!,
+              height: block.height,
+              block_hash: block.block_hash,
+              final_metrics: { strict_rebuild: true }
+            )
+        end
+      end
+
+      updated.pop
+
+      ActiveRecord::Base.uncached do
+        assert_equal "processing", BlockBufferModel.find(block.id).status
+        assert_nil Layer1TxOutputSync.find_by(height: block.height)
+      end
+
+      release << true
+      checkpoint = thread.value
+      thread = nil
+
+      ActiveRecord::Base.uncached do
+        assert_equal "processed", BlockBufferModel.find(block.id).status
+        assert_equal checkpoint.id, Layer1TxOutputSync.find_by!(height: block.height).id
+      end
+    ensure
+      release << true if thread&.alive?
+      thread&.join
+
+      if original_mark_processed
+        Blockchain::Buffer::BlockBuffer.define_singleton_method(
+          :mark_processed
+        ) do |*args, **kwargs, &callback|
+          original_mark_processed.call(*args, **kwargs, &callback)
+        end
       end
     end
   end

@@ -2,6 +2,9 @@
 
 module Layer1
   class StrictWindowRebuilder
+    class BlockHashChanged < StandardError; end
+    class MarkProcessedFailed < StandardError; end
+
     OUTPUTS_KEY = Blockchain::Buffers::OutputBuffer::KEY
     SPENT_KEY = "blockchain:spent_outputs:buffer"
 
@@ -218,16 +221,6 @@ module Layer1
           )
         end
 
-      tx_outputs_sync =
-        if Layer1::TxOutputsSpentSync::Config.enabled?
-          measure_stage(stage_timings, height, "register_tx_outputs_async_sync") do
-            Layer1::TxOutputsSpentSync::Register.call(
-              height: height,
-              block_hash: block_hash
-            )
-          end
-        end
-
       duration_ms = monotonic_ms - started_at
 
       counts =
@@ -241,9 +234,8 @@ module Layer1
       strict_outputs_count = counts[:strict_outputs_count]
       cluster_inputs_count = counts[:cluster_inputs_count]
 
-      Blockchain::Buffer::BlockBuffer.mark_processed(
-        height,
-        metrics: {
+      final_metrics =
+        {
           strict_rebuild: true,
           audit_run_id: outputs_audit.id,
           outputs_audit_ok: true,
@@ -264,12 +256,15 @@ module Layer1
           actual_live_utxos_count: utxo_audit[:actual_live_utxos_count],
           tx_output_projection_deferred: true,
           tx_output_projection_status: tx_output_projection.status,
-          tx_outputs_sync_deferred: tx_outputs_sync.present?,
-          tx_outputs_sync_status: tx_outputs_sync&.status
+          tx_outputs_sync_deferred: true
         }
-      )
 
-      enqueue_tx_outputs_async_sync if tx_outputs_sync
+      tx_outputs_sync =
+        finalize_block!(
+          height: height,
+          block_hash: block_hash,
+          final_metrics: final_metrics
+        )
 
       result = {
         ok: true,
@@ -483,6 +478,39 @@ module Layer1
         "redis buffers not empty after flush " \
         "outputs=#{outputs_remaining} spent=#{spent_remaining}"
       )
+    end
+
+    def finalize_block!(height:, block_hash:, final_metrics:)
+      tx_outputs_sync = nil
+
+      ApplicationRecord.transaction do
+        block = BlockBufferModel.lock.find_by!(height: height)
+
+        unless block.block_hash == block_hash
+          raise BlockHashChanged,
+                "block hash changed at height=#{height} " \
+                "expected=#{block_hash} actual=#{block.block_hash}"
+        end
+
+        tx_outputs_sync =
+          Layer1::TxOutputsSpentSync::Register.call(
+            height: height,
+            block_hash: block_hash
+          )
+
+        marked =
+          Blockchain::Buffer::BlockBuffer.mark_processed(
+            height,
+            metrics: final_metrics
+          )
+
+        unless marked
+          raise MarkProcessedFailed,
+                "failed to mark BlockBuffer processed at height=#{height}"
+        end
+      end
+
+      tx_outputs_sync
     end
 
     def enqueue_tx_outputs_async_sync
