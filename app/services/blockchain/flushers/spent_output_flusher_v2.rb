@@ -46,7 +46,6 @@ module Blockchain
         connection = ActiveRecord::Base.connection
         raw = connection.raw_connection
 
-        tx_updated = 0
         utxo_deleted = 0
         cluster_result = empty_cluster_result
 
@@ -62,13 +61,6 @@ module Blockchain
 
             measure_stage("analyze_temp_table", timings) do
               connection.execute("ANALYZE #{temp_table}")
-            end
-
-            unless tx_outputs_update_deferred?
-              tx_updated =
-                measure_stage("bulk_update_tx_outputs", timings) do
-                  update_tx_outputs_from_temp(connection, temp_table)
-                end
             end
 
             cluster_result =
@@ -95,15 +87,15 @@ module Blockchain
 
         @logger.info(
           "[spent_output_flusher_v2] flushed=#{rows.size} " \
-          "tx_updated=#{tx_updated} " \
-          "tx_update_mode=#{tx_outputs_update_deferred? ? 'async' : 'inline'} " \
+          "tx_updated=0 " \
+          "tx_update_mode=deferred " \
           "cluster_mode=#{cluster_result[:mode]} " \
           "cluster_inserted=#{cluster_result[:inserted]} " \
           "cluster_conflicts=#{cluster_result[:conflicts]} " \
           "cluster_conflicts_identical=#{cluster_result[:identical]} " \
           "cluster_conflicts_divergent=#{cluster_result[:divergent]} " \
           "utxo_deleted=#{utxo_deleted} " \
-          "missing_tx=#{tx_outputs_update_deferred? ? 'deferred' : rows.size - tx_updated} " \
+          "missing_tx=deferred " \
           "missing_utxo=#{rows.size - utxo_deleted} " \
           "batch_size=#{batch_size} " \
           "duration_ms=#{duration_ms} " \
@@ -113,15 +105,15 @@ module Blockchain
         {
           ok: true,
           flushed: rows.size,
-          tx_updated: tx_updated,
-          tx_update_deferred: tx_outputs_update_deferred?,
+          tx_updated: 0,
+          tx_update_deferred: true,
           cluster_inserted: cluster_result[:inserted],
           cluster_conflicts: cluster_result[:conflicts],
           cluster_conflicts_identical: cluster_result[:identical],
           cluster_conflicts_divergent: cluster_result[:divergent],
           cluster_mode: cluster_result[:mode],
           utxo_deleted: utxo_deleted,
-          missing_tx: (rows.size - tx_updated unless tx_outputs_update_deferred?),
+          missing_tx: nil,
           missing_utxo: rows.size - utxo_deleted,
           duration_ms: duration_ms,
           stage_timings: timings
@@ -144,7 +136,7 @@ module Blockchain
           ok: true,
           flushed: 0,
           tx_updated: 0,
-          tx_update_deferred: tx_outputs_update_deferred?,
+          tx_update_deferred: true,
           cluster_inserted: 0,
           cluster_conflicts: 0,
           cluster_conflicts_identical: 0,
@@ -157,12 +149,6 @@ module Blockchain
           stage_timings: {}
         }
       end
-
-
-      def tx_outputs_update_deferred?
-        Layer1::TxOutputsSpentSync::Config.enabled?
-      end
-
       def normalize_mode(value)
         normalized = value.to_sym
         return normalized if MODES.include?(normalized)
@@ -232,23 +218,6 @@ module Blockchain
             )
           end
         end
-      end
-
-      def update_tx_outputs_from_temp(connection, temp_table)
-        result = connection.exec_query(<<~SQL.squish)
-          UPDATE tx_outputs AS txo
-          SET
-            spent = TRUE,
-            spent_txid = data.spent_txid,
-            spent_block_height = data.spent_block_height,
-            updated_at = NOW()
-          FROM #{temp_table} AS data
-          WHERE txo.txid = data.txid
-            AND txo.vout = data.vout
-          RETURNING txo.id
-        SQL
-
-        result.rows.size
       end
 
       # Construit les ClusterInput directement dans PostgreSQL sans lire tx_outputs.

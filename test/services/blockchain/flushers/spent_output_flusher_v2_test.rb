@@ -5,11 +5,15 @@ require "test_helper"
 class SpentOutputFlusherV2Test < ActiveSupport::TestCase
   setup do
     @previous_async_setting = ENV["TX_OUTPUTS_SPENT_ASYNC"]
-    ENV["TX_OUTPUTS_SPENT_ASYNC"] = "0"
+    ENV.delete("TX_OUTPUTS_SPENT_ASYNC")
   end
 
   teardown do
-    ENV["TX_OUTPUTS_SPENT_ASYNC"] = @previous_async_setting
+    if @previous_async_setting.nil?
+      ENV.delete("TX_OUTPUTS_SPENT_ASYNC")
+    else
+      ENV["TX_OUTPUTS_SPENT_ASYNC"] = @previous_async_setting
+    end
   end
 
   class FakeRedis
@@ -28,7 +32,7 @@ class SpentOutputFlusherV2Test < ActiveSupport::TestCase
     end
   end
 
-  test "upserts cluster inputs from bitcoin core prevout without reading tx outputs or utxo outputs" do
+  test "upserts cluster inputs from bitcoin core prevout without reading or writing tx outputs" do
     utxo_txid = "a" * 64
     tx_output_txid = "b" * 64
     prevout_txid = "c" * 64
@@ -97,19 +101,23 @@ class SpentOutputFlusherV2Test < ActiveSupport::TestCase
       }
     ]
 
-    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
-      redis: FakeRedis.new(rows),
-      logger: Rails.logger
-    ).call
+    result = assert_no_queries_match(/\btx_outputs\b/i) do
+      Blockchain::Flushers::SpentOutputFlusherV2.new(
+        redis: FakeRedis.new(rows),
+        logger: Rails.logger
+      ).call
+    end
 
     assert result[:ok]
     assert_equal 3, result[:flushed]
-    assert_equal 2, result[:tx_updated]
+    assert_equal 0, result[:tx_updated]
+    assert result[:tx_update_deferred]
+    assert_nil result[:missing_tx]
     assert_equal 3, result[:cluster_inserted]
     assert_equal 1, result[:utxo_deleted]
 
-    assert TxOutput.find_by!(txid: utxo_txid, vout: 0).spent?
-    assert TxOutput.find_by!(txid: tx_output_txid, vout: 1).spent?
+    assert_not TxOutput.find_by!(txid: utxo_txid, vout: 0).spent?
+    assert_not TxOutput.find_by!(txid: tx_output_txid, vout: 1).spent?
     assert_not UtxoOutput.exists?(txid: utxo_txid, vout: 0)
 
     from_utxo = ClusterInput.find_by!(txid: utxo_txid, vout: 0)
@@ -127,6 +135,91 @@ class SpentOutputFlusherV2Test < ActiveSupport::TestCase
     assert_equal "bc1qbitcoincore", from_prevout.address
     assert_equal BigDecimal("3.75"), from_prevout.amount_btc
     assert_equal 120, from_prevout.block_height
+  end
+
+  test "strict results never depend on tx outputs async configuration" do
+    variants = ["0", "1", "", nil]
+    strict_results = []
+
+    variants.each_with_index do |setting, index|
+      if setting.nil?
+        ENV.delete("TX_OUTPUTS_SPENT_ASYNC")
+      else
+        ENV["TX_OUTPUTS_SPENT_ASYNC"] = setting
+      end
+
+      txid = (index + 1).to_s(16) * 64
+      spending_txid = (index + 10).to_s(16) * 64
+
+      TxOutput.create!(
+        txid: txid,
+        vout: 0,
+        address: "bc1qconfig#{index}",
+        amount_btc: BigDecimal("1.00"),
+        block_height: 500 + index,
+        spent: false
+      )
+
+      UtxoOutput.create!(
+        txid: txid,
+        vout: 0,
+        address: "bc1qconfig#{index}",
+        amount_btc: BigDecimal("1.00"),
+        block_height: 500 + index
+      )
+
+      row = spent_row(
+        txid: txid,
+        vout: 0,
+        spent_txid: spending_txid,
+        spent_block_height: 600 + index,
+        prevout_address: "bc1qconfig#{index}",
+        prevout_amount_btc: "1.00",
+        prevout_block_height: 500 + index
+      )
+
+      result = assert_no_queries_match(/\btx_outputs\b/i) do
+        Blockchain::Flushers::SpentOutputFlusherV2.new(
+          redis: FakeRedis.new([row]),
+          logger: Rails.logger
+        ).call
+      end
+
+      strict_results << result.slice(
+        :ok,
+        :flushed,
+        :tx_updated,
+        :tx_update_deferred,
+        :cluster_inserted,
+        :cluster_conflicts,
+        :cluster_conflicts_identical,
+        :cluster_conflicts_divergent,
+        :cluster_mode,
+        :utxo_deleted,
+        :missing_tx,
+        :missing_utxo
+      )
+
+      assert_not TxOutput.find_by!(txid: txid, vout: 0).spent?
+      assert ClusterInput.find_by!(txid: txid, vout: 0).spent?
+      assert_not UtxoOutput.exists?(txid: txid, vout: 0)
+    end
+
+    assert_equal [strict_results.first] * variants.size, strict_results
+  end
+
+  test "installed strict flusher has no async projection switch" do
+    source = File.read(
+      Rails.root.join(
+        "app/services/blockchain/flushers/spent_output_flusher_v2.rb"
+      )
+    )
+
+    refute_match(/TX_OUTPUTS_SPENT_ASYNC/, source)
+    refute_match(/TxOutputsSpentSync::Config/, source)
+    refute_match(/update_tx_outputs_from_temp/, source)
+    refute_includes source, "def tx_outputs_update_deferred?"
+    refute_includes source, "unless tx_outputs_update_deferred?"
   end
 
   test "uses bitcoin core prevout for self spend in same block and deletes live utxo" do
