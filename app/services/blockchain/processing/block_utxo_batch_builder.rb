@@ -3,9 +3,10 @@
 module Blockchain
   module Processing
     class BlockUtxoBatchBuilder
-      def initialize(prevout_cache:, logger: Rails.logger)
-        @prevout_cache = prevout_cache
+      def initialize(prevout_cache:, logger: Rails.logger, strict_prevout: false)
+        @prevout_cache = prevout_cache || {}
         @logger = logger
+        @strict_prevout = strict_prevout
       end
 
       def call(block, block_buffer)
@@ -14,9 +15,12 @@ module Blockchain
 
         output_rows = []
         spent_rows = []
+
         tx_count = 0
         input_count = 0
         output_count = 0
+        prevout_found_count = 0
+        prevout_missing_count = 0
 
         block.fetch("tx").each_with_index do |raw_tx, tx_index|
           txid = raw_tx["txid"]
@@ -54,8 +58,22 @@ module Blockchain
             next if previous_txid.blank?
             next unless previous_vout.is_a?(Integer)
 
-            prevout = @prevout_cache[[previous_txid, previous_vout]]
-            next unless prevout
+            prevout = extract_prevout(input, previous_txid, previous_vout)
+
+            if prevout.blank?
+              prevout_missing_count += 1
+
+              if @strict_prevout
+                raise(
+                  "missing prevout height=#{block_buffer.height} " \
+                  "txid=#{txid} input_txid=#{previous_txid} input_vout=#{previous_vout}"
+                )
+              end
+
+              next
+            end
+
+            prevout_found_count += 1
 
             spent_rows << {
               txid: previous_txid,
@@ -63,6 +81,15 @@ module Blockchain
               spent: true,
               spent_txid: txid,
               spent_block_height: block_buffer.height,
+
+              # Ces champs supplémentaires ne cassent pas l'ancien flusher.
+              # Ils servent au mode strict pour construire ClusterInput même si
+              # le prevout n'existe pas encore dans notre PostgreSQL local.
+              prevout_address: extract_address(prevout),
+              prevout_amount_btc: prevout["value"],
+              prevout_block_height: prevout["height"],
+              prevout_generated: prevout["generated"],
+
               updated_at: now
             }
           end
@@ -73,13 +100,17 @@ module Blockchain
           spent_rows: spent_rows,
           tx_count: tx_count,
           input_count: input_count,
-          output_count: output_count
+          output_count: output_count,
+          prevout_found_count: prevout_found_count,
+          prevout_missing_count: prevout_missing_count
         }
 
         @logger.info(
           "[block_utxo_batch_builder] height=#{block_buffer.height} " \
           "txs=#{tx_count} inputs=#{input_count} outputs=#{output_count} " \
-          "output_rows=#{output_rows.size} spent_rows=#{spent_rows.size}"
+          "output_rows=#{output_rows.size} spent_rows=#{spent_rows.size} " \
+          "prevout_found=#{prevout_found_count} prevout_missing=#{prevout_missing_count} " \
+          "strict_prevout=#{@strict_prevout}"
         )
 
         result
@@ -94,8 +125,16 @@ module Blockchain
         nil
       end
 
-      def extract_address(output)
-        script = output["scriptPubKey"] || {}
+      def extract_prevout(input, previous_txid, previous_vout)
+        # Bitcoin Core getblock verbosity 3 fournit directement vin.prevout.
+        return input["prevout"] if input["prevout"].present?
+
+        # Compatibilité avec l'ancien pipeline.
+        @prevout_cache[[previous_txid, previous_vout]]
+      end
+
+      def extract_address(output_or_prevout)
+        script = output_or_prevout["scriptPubKey"] || {}
 
         return script["address"] if script["address"].present?
         return script["addresses"].first if script["addresses"].present?
