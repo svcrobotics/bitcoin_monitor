@@ -9,6 +9,17 @@ module Blockchain
       PROCESSED = "processed"
       FAILED = "failed"
 
+      TIMING_COLUMNS = %i[
+        duration_ms
+        rpc_duration_ms
+        parse_duration_ms
+        db_duration_ms
+        flush_duration_ms
+      ].freeze
+
+      STRICT_METRICS_COLUMN =
+        :strict_metrics
+
       class << self
         def mark_enqueued(height)
           block = BlockBufferModel.find_by(height: height)
@@ -44,12 +55,10 @@ module Blockchain
           return false unless block
 
           block.update!(
-            last_heartbeat_at: Time.current,
-            duration_ms: metrics[:duration_ms],
-            rpc_duration_ms: metrics[:rpc_duration_ms],
-            parse_duration_ms: metrics[:parse_duration_ms],
-            flush_duration_ms: metrics[:flush_duration_ms],
-            updated_at: Time.current
+            {
+              last_heartbeat_at: Time.current,
+              updated_at: Time.current
+            }.merge(timing_attributes(metrics))
           )
 
           true
@@ -60,15 +69,20 @@ module Blockchain
           return false unless block
 
           block.update!(
-            status: PROCESSED,
-            processed_at: Time.current,
-            duration_ms: metrics[:duration_ms],
-            rpc_duration_ms: metrics[:rpc_duration_ms],
-            parse_duration_ms: metrics[:parse_duration_ms],
-            flush_duration_ms: metrics[:flush_duration_ms],
-            error_class: nil,
-            error_message: nil,
-            updated_at: Time.current
+            {
+              status: PROCESSED,
+              processed_at: Time.current,
+              last_heartbeat_at: Time.current,
+              error_class: nil,
+              error_message: nil,
+              updated_at: Time.current
+            }
+              .merge(
+                timing_attributes(metrics)
+              )
+              .merge(
+                strict_metrics_attributes(block, metrics)
+              )
           )
 
           true
@@ -79,19 +93,76 @@ module Blockchain
           return false unless block
 
           block.update!(
-            status: FAILED,
-            failed_at: Time.current,
-            duration_ms: metrics[:duration_ms],
-            rpc_duration_ms: metrics[:rpc_duration_ms],
-            parse_duration_ms: metrics[:parse_duration_ms],
-            flush_duration_ms: metrics[:flush_duration_ms],
-            error_class: error.class.name,
-            error_message: error.message.to_s.first(2_000),
-            updated_at: Time.current
+            {
+              status: FAILED,
+              failed_at: Time.current,
+              last_heartbeat_at: Time.current,
+              error_class: error.class.name,
+              error_message: error.message.to_s.first(2_000),
+              updated_at: Time.current
+            }
+              .merge(
+                timing_attributes(metrics)
+              )
+              .merge(
+                strict_metrics_attributes(block, metrics)
+              )
           )
 
           true
         end
+
+        private
+
+        def timing_attributes(metrics)
+          source = metrics.to_h.symbolize_keys
+
+          TIMING_COLUMNS.each_with_object({}) do |column, attributes|
+            next unless source.key?(column)
+            next if source[column].nil?
+
+            attributes[column] = source[column]
+          end
+        end
+        def strict_metrics_attributes(block, metrics)
+          return {} unless
+            BlockBufferModel
+              .column_names
+              .include?(
+                STRICT_METRICS_COLUMN.to_s
+              )
+
+          incoming_metrics =
+            normalize_strict_metrics(metrics)
+
+          return {} if incoming_metrics.empty?
+
+          persisted_metrics =
+            normalize_strict_metrics(
+              block.public_send(
+                STRICT_METRICS_COLUMN
+              )
+            )
+
+          {
+            STRICT_METRICS_COLUMN =>
+              persisted_metrics.deep_merge(
+                incoming_metrics
+              )
+          }
+        end
+
+        def normalize_strict_metrics(metrics)
+          JSON.parse(
+            metrics
+              .to_h
+              .deep_stringify_keys
+              .to_json
+          )
+        rescue StandardError
+          {}
+        end
+
       end
     end
   end
