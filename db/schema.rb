@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_09_081932) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_10_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
@@ -265,6 +265,66 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_09_081932) do
     t.index ["address"], name: "index_address_spend_stats_on_address", unique: true
     t.index ["last_spent_height"], name: "index_address_spend_stats_on_last_spent_height"
     t.index ["source_height"], name: "index_address_spend_stats_on_source_height"
+  end
+
+  create_table "address_utxo_projection_blocks", force: :cascade do |t|
+    t.integer "height", null: false
+    t.string "block_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.bigint "received_output_count", default: 0, null: false
+    t.bigint "spent_output_count", default: 0, null: false
+    t.integer "received_address_count", default: 0, null: false
+    t.integer "spent_address_count", default: 0, null: false
+    t.bigint "total_received_sats", default: 0, null: false
+    t.bigint "total_spent_sats", default: 0, null: false
+    t.datetime "processing_started_at"
+    t.datetime "completed_at"
+    t.text "error_message"
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["height"], name: "index_address_utxo_projection_blocks_on_height", unique: true
+    t.index ["status", "height"], name: "index_address_utxo_projection_blocks_on_status_and_height"
+    t.check_constraint "attempts >= 0", name: "address_utxo_projection_blocks_attempts_check"
+    t.check_constraint "btrim(block_hash::text) <> ''::text", name: "address_utxo_projection_blocks_block_hash_present"
+    t.check_constraint "height >= 0", name: "address_utxo_projection_blocks_height_check"
+    t.check_constraint "received_address_count >= 0", name: "address_utxo_projection_blocks_received_address_count_check"
+    t.check_constraint "received_output_count >= 0", name: "address_utxo_projection_blocks_received_output_count_check"
+    t.check_constraint "spent_address_count >= 0", name: "address_utxo_projection_blocks_spent_address_count_check"
+    t.check_constraint "spent_output_count >= 0", name: "address_utxo_projection_blocks_spent_output_count_check"
+    t.check_constraint "status::text <> 'completed'::text OR completed_at IS NOT NULL", name: "address_utxo_projection_blocks_completed_at_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'processing'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text, 'stale'::character varying::text])", name: "address_utxo_projection_blocks_status_check"
+    t.check_constraint "total_received_sats >= 0", name: "address_utxo_projection_blocks_total_received_sats_check"
+    t.check_constraint "total_spent_sats >= 0", name: "address_utxo_projection_blocks_total_spent_sats_check"
+  end
+
+  create_table "address_utxo_stats", force: :cascade do |t|
+    t.string "address", null: false
+    t.bigint "total_received_sats", default: 0, null: false
+    t.bigint "current_balance_sats", default: 0, null: false
+    t.bigint "live_utxo_count", default: 0, null: false
+    t.bigint "received_output_count", default: 0, null: false
+    t.integer "first_received_height"
+    t.integer "last_received_height"
+    t.integer "last_changed_height", null: false
+    t.string "projection_version", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["address"], name: "index_address_utxo_stats_on_address", unique: true
+    t.index ["last_changed_height"], name: "index_address_utxo_stats_on_last_changed_height"
+    t.check_constraint "btrim(address::text) <> ''::text", name: "address_utxo_stats_address_present"
+    t.check_constraint "btrim(projection_version::text) <> ''::text", name: "address_utxo_stats_projection_version_present"
+    t.check_constraint "current_balance_sats <= total_received_sats", name: "address_utxo_stats_balance_lte_received_check"
+    t.check_constraint "current_balance_sats >= 0", name: "address_utxo_stats_current_balance_sats_check"
+    t.check_constraint "first_received_height IS NULL OR first_received_height >= 0", name: "address_utxo_stats_first_received_height_check"
+    t.check_constraint "first_received_height IS NULL OR last_received_height IS NULL OR first_received_height <= last_received_height", name: "address_utxo_stats_received_height_order_check"
+    t.check_constraint "last_changed_height >= 0", name: "address_utxo_stats_last_changed_height_check"
+    t.check_constraint "last_received_height IS NULL OR last_received_height >= 0", name: "address_utxo_stats_last_received_height_check"
+    t.check_constraint "live_utxo_count >= 0", name: "address_utxo_stats_live_utxo_count_check"
+    t.check_constraint "received_output_count >= 0", name: "address_utxo_stats_received_output_count_check"
+    t.check_constraint "total_received_sats >= 0", name: "address_utxo_stats_total_received_sats_check"
   end
 
   create_table "addresses", force: :cascade do |t|
