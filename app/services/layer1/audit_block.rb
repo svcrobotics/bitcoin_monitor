@@ -55,8 +55,10 @@ module Layer1
         )
       end
 
+      strict_output_facts = Layer1::StrictOutputFacts.call(height: @height)
+
       node_outputs_count = node_block["tx"].sum { |tx| tx["vout"].size }
-      db_outputs_count = UtxoOutput.where(block_height: @height).count
+      db_outputs_count = strict_output_facts.fetch(:outputs_count)
 
       check!(
         "outputs_count_matches",
@@ -69,15 +71,33 @@ module Layer1
         tx["vout"].sum { |vout| BigDecimal(vout["value"].to_s) }
       end
 
-      db_outputs_value = BigDecimal(
-        UtxoOutput.where(block_height: @height).sum(:amount_btc).to_s
-      )
+      db_outputs_value = strict_output_facts.fetch(:outputs_value_btc)
 
       check!(
         "outputs_value_matches",
         db_outputs_value == node_outputs_value,
         bitcoin_core: "#{node_outputs_value.to_s("F")} BTC",
         postgresql: "#{db_outputs_value.to_s("F")} BTC"
+      )
+
+      overlapping_state_count =
+        strict_output_facts.fetch(:overlapping_state_count)
+
+      check!(
+        "strict_outputs_have_single_state",
+        overlapping_state_count.zero?,
+        bitcoin_core: 0,
+        postgresql: overlapping_state_count
+      )
+
+      conflicting_amounts_count =
+        strict_output_facts.fetch(:conflicting_amounts_count)
+
+      check!(
+        "strict_outputs_amounts_match",
+        conflicting_amounts_count.zero?,
+        bitcoin_core: 0,
+        postgresql: conflicting_amounts_count
       )
 
       final_status = @issues.empty? ? "healthy" : "failed"
