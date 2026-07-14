@@ -132,12 +132,12 @@ module Layer1
       end
 
       reconcile_result =
-        measure_stage(stage_timings, height, "reconcile_spent_outputs") do
-          Layer1::ReconcileSpentOutputs.call(height: height)
+        measure_stage(stage_timings, height, "reconcile_strict_utxo_state") do
+          Layer1::ReconcileStrictUtxoState.call(height: height)
         end
 
       @logger.info(
-        "[layer1_strict_rebuild] reconcile_spent_outputs #{reconcile_result.inspect}"
+        "[layer1_strict_rebuild] reconcile_strict_utxo_state #{reconcile_result.inspect}"
       )
 
       outputs_audit =

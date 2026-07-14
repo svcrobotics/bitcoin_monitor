@@ -204,16 +204,83 @@ module Layer1
       end
     end
 
+    test "reconciles strict UTXO state between flush and strict audits" do
+      height = 956_025
+      events = []
+      reconcile_heights = []
+      inputs_audit_result = healthy_inputs_audit
+      utxo_audit_result = healthy_utxo_audit
+      output_audit_result = AuditResult.new(status: "healthy", id: 42, issues: [])
+      original_flusher =
+        Blockchain::Flushers::SpentOutputFlusherSelector.method(:call)
+      rpc = FakeRpc.new(
+        height: height,
+        block_hash: "6" * 64,
+        block: block_payload(
+          previous_txid: "8" * 64,
+          spending_txid: "a" * 64
+        )
+      )
+
+      with_stubbed(
+        Blockchain::Flushers::SpentOutputFlusherSelector,
+        :call,
+        lambda do |*args, **kwargs|
+          events << :flush
+          original_flusher.call(*args, **kwargs)
+        end
+      ) do
+        result = assert_no_queries_match(/\btx_outputs\b/i) do
+          run_strict_rebuilder(
+            height: height,
+            rpc: rpc,
+            reconcile: lambda do |height:|
+              reconcile_heights << height
+              events << :reconcile_strict_utxo
+              { ok: true, height: height }
+            end,
+            output_audit: lambda do |height:|
+              events << :audit_outputs
+              output_audit_result
+            end,
+            inputs_audit: lambda do |height:|
+              events << :audit_inputs
+              inputs_audit_result
+            end,
+            utxo_audit: lambda do |height:|
+              events << :audit_utxo_state
+              utxo_audit_result
+            end
+          )
+        end
+
+        assert result[:ok]
+      end
+
+      assert_equal [height], reconcile_heights
+      assert_operator events.index(:flush), :<, events.index(:reconcile_strict_utxo)
+      assert_operator events.index(:reconcile_strict_utxo), :<, events.index(:audit_outputs)
+      assert_operator events.index(:reconcile_strict_utxo), :<, events.index(:audit_inputs)
+      assert_operator events.index(:reconcile_strict_utxo), :<, events.index(:audit_utxo_state)
+      assert_equal 1, events.count(:reconcile_strict_utxo)
+    end
+
     private
 
     def run_strict_rebuilder(
       height:,
       rpc:,
-      output_audit: AuditResult.new(status: "healthy", id: 42, issues: [])
+      output_audit: AuditResult.new(status: "healthy", id: 42, issues: []),
+      reconcile: nil,
+      inputs_audit: nil,
+      utxo_audit: nil
     )
       redis = FakeRedis.new
       original_spent_flusher_v2 = ENV["SPENT_OUTPUT_FLUSHER_V2"]
       original_fast_path = ENV["LAYER1_FAST_PATH"]
+      reconcile ||= { ok: true, height: height }
+      inputs_audit ||= healthy_inputs_audit
+      utxo_audit ||= healthy_utxo_audit
 
       ENV["SPENT_OUTPUT_FLUSHER_V2"] = "1"
       ENV["LAYER1_FAST_PATH"] = "true"
@@ -229,38 +296,21 @@ module Layer1
             :call,
             ->(*) { raise "ProjectHeight must not run inline" }
           ) do
-            with_stubbed(Layer1::ReconcileSpentOutputs, :call, { ok: true, height: height }) do
-              with_stubbed(Layer1::AuditBlock, :call, output_audit) do
-                with_stubbed(
-                  Layer1::AuditBlockInputs,
-                  :call,
-                  {
-                    ok: true,
-                    node_inputs_count: 1,
-                    db_inputs_count: 1,
-                    node_inputs_value_btc: BigDecimal("2.50"),
-                    db_inputs_value_btc: BigDecimal("2.50")
-                  }
-                ) do
-                  with_stubbed(
-                    Layer1::AuditBlockUtxoState,
-                    :call,
-                    {
-                      ok: true,
-                      expected_live_outputs_count: 2,
-                      actual_live_utxos_count: 2,
-                      expected_live_value_btc: BigDecimal("1.75"),
-                      actual_live_value_btc: BigDecimal("1.75"),
-                      spent_rows_still_in_utxo: 0,
-                      orphan_utxos_count: 0,
-                      spent_utxos_count: 1
-                    }
-                  ) do
-                    Layer1::StrictWindowRebuilder.call(
-                      from_height: height,
-                      to_height: height,
-                      rpc: rpc
-                    )
+            with_stubbed(
+              Layer1::ReconcileSpentOutputs,
+              :call,
+              ->(*) { raise "legacy reconciliation must not run" }
+            ) do
+              with_stubbed(Layer1::ReconcileStrictUtxoState, :call, reconcile) do
+                with_stubbed(Layer1::AuditBlock, :call, output_audit) do
+                  with_stubbed(Layer1::AuditBlockInputs, :call, inputs_audit) do
+                    with_stubbed(Layer1::AuditBlockUtxoState, :call, utxo_audit) do
+                      Layer1::StrictWindowRebuilder.call(
+                        from_height: height,
+                        to_height: height,
+                        rpc: rpc
+                      )
+                    end
                   end
                 end
               end
@@ -271,6 +321,29 @@ module Layer1
     ensure
       ENV["SPENT_OUTPUT_FLUSHER_V2"] = original_spent_flusher_v2
       ENV["LAYER1_FAST_PATH"] = original_fast_path
+    end
+
+    def healthy_inputs_audit
+      {
+        ok: true,
+        node_inputs_count: 1,
+        db_inputs_count: 1,
+        node_inputs_value_btc: BigDecimal("2.50"),
+        db_inputs_value_btc: BigDecimal("2.50")
+      }
+    end
+
+    def healthy_utxo_audit
+      {
+        ok: true,
+        expected_live_outputs_count: 2,
+        actual_live_utxos_count: 2,
+        expected_live_value_btc: BigDecimal("1.75"),
+        actual_live_value_btc: BigDecimal("1.75"),
+        spent_rows_still_in_utxo: 0,
+        orphan_utxos_count: 0,
+        spent_utxos_count: 1
+      }
     end
 
     def block_payload(previous_txid:, spending_txid:)
