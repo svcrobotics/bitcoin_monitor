@@ -15,7 +15,7 @@ class Layer1AuditController < ApplicationController
                 .pluck(:height)
 
     heights.each do |height|
-      Layer1::AuditBlock.call(height: height)
+      Layer1::Audit::BlockJob.enqueue(height: height)
     end
 
     last_audit = Layer1AuditRun.order(created_at: :desc).first
