@@ -42,6 +42,8 @@ module Clusters
       assert_equal @height, result[:height]
       assert_equal @block_hash, result[:block_hash]
       assert_equal result[:scanner][:clusters_touched], result[:clusters_touched]
+      assert_equal result[:clusters_touched].pluck(:cluster_id),
+        result[:actor_profile_handoffs][:handoffs].pluck(:cluster_id)
       assert_equal "repeatable read", isolation
       assert JSON.generate(result)
     end
@@ -65,6 +67,7 @@ module Clusters
         assert_equal 0, Address.where(address: input_addresses).count
         assert_equal 0, AddressLink.where(block_height: @height).count
         assert_equal 0, Cluster.joins(:addresses).where(addresses: { address: input_addresses }).count
+        assert_equal 0, ClusterActorProfileHandoff.where(cluster_height: @height).count
         assert_nil ClusterProcessedBlock.find_by(height: @height)
       end
 
@@ -74,6 +77,7 @@ module Clusters
         assert_equal 2, Address.where(address: input_addresses).count
         assert_equal 1, AddressLink.where(block_height: @height).count
         assert_equal 1, Cluster.joins(:addresses).where(addresses: { address: input_addresses }).distinct.count
+        assert_equal 1, ClusterActorProfileHandoff.where(cluster_height: @height).count
         assert_equal "processed", ClusterProcessedBlock.find_by!(height: @height).status
       end
       assert_equal "processed", result[:status]
@@ -91,6 +95,7 @@ module Clusters
       end
 
       assert_cluster_mutations_rolled_back
+      assert_equal 0, ClusterActorProfileHandoff.where(cluster_height: @height).count
       assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
     end
 
@@ -138,6 +143,21 @@ module Clusters
       end
     end
 
+    test "handoff insertion failure rolls back mutations and processed checkpoint" do
+      service = build_service
+      failure = lambda do |**|
+        raise ActiveRecord::StatementInvalid, "handoff insertion failed"
+      end
+
+      service.stub(:register_actor_profile_handoffs!, failure) do
+        assert_raises(ActiveRecord::StatementInvalid) { service.call }
+      end
+
+      assert_cluster_mutations_rolled_back
+      assert_equal 0, ClusterActorProfileHandoff.where(cluster_height: @height).count
+      assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
+    end
+
     test "same height and hash is idempotent after commit" do
       first = rebuild
       counts = [Address.count, Cluster.count, AddressLink.count]
@@ -149,6 +169,29 @@ module Clusters
       assert_equal "already_processed", second[:reason]
       assert_equal counts, [Address.count, Cluster.count, AddressLink.count]
       assert_equal versions, Cluster.order(:id).pluck(:id, :composition_version)
+      assert_equal 1, ClusterActorProfileHandoff.where(cluster_height: @height).count
+    end
+
+    test "empty scanner result commits an explicit empty handoff set" do
+      empty_scan = {
+        height: @height,
+        processed_txs: 0,
+        processed_inputs: 0,
+        addresses_created: 0,
+        addresses_touched: 0,
+        links_created: 0,
+        clusters_touched_count: 0,
+        clusters_touched: []
+      }
+
+      with_scanner(->(**) { empty_scan }) do
+        with_audit(healthy_audit) do
+          result = rebuild
+          assert_equal({ registered: 0, handoffs: [] }, result[:actor_profile_handoffs])
+        end
+      end
+      assert_equal 0, ClusterActorProfileHandoff.where(cluster_height: @height).count
+      assert_equal "processed", ClusterProcessedBlock.find_by!(height: @height).status
     end
 
     test "processed checkpoint with divergent hash is refused without mutation" do
@@ -235,7 +278,7 @@ module Clusters
       source = File.read(Rails.root.join("app/services/clusters/strict_window_rebuilder.rb"))
 
       refute_match(/Redis|Sidekiq|BitcoinRpc|perform_(?:later|async|in)/, source)
-      refute_match(/ActorProfile|ActorLabel|ActorBehavior|DirtyCluster/, source)
+      refute_match(/ActorProfiles::|ActorProfile\.|ActorLabel|ActorBehavior|DirtyCluster/, source)
       refute_match(/tx_outputs|utxo_outputs/, source)
       assert_empty sql.grep(/\b(?:tx_outputs|utxo_outputs)\b/i)
       assert_empty sql.grep(/\A\s*(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+\"?cluster_inputs\b/i)
@@ -336,6 +379,7 @@ module Clusters
       AddressLink.delete_all
       ClusterInput.delete_all
       Address.delete_all
+      ClusterActorProfileHandoff.delete_all
       ClusterProcessedBlock.delete_all
       BlockBufferModel.delete_all
       Cluster.delete_all

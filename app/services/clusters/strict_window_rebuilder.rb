@@ -60,7 +60,12 @@ module Clusters
           raise CheckpointHashMismatch,
             "Cluster checkpoint hash differs at height #{height}" if checkpoint.block_hash != expected_hash
 
-          result = idempotent_result(checkpoint)
+          handoff_result = register_actor_profile_handoffs!(
+            height: height,
+            block_hash: expected_hash,
+            clusters_touched: checkpoint.scan_result.deep_symbolize_keys.fetch(:clusters_touched, [])
+          )
+          result = idempotent_result(checkpoint, handoff_result: handoff_result)
           next
         end
 
@@ -87,6 +92,12 @@ module Clusters
         audit_ms = monotonic_ms - audit_started_at
         raise AuditFailed, "Cluster audit failed at height #{height}" unless audit_result[:ok]
 
+        handoff_result = register_actor_profile_handoffs!(
+          height: height,
+          block_hash: expected_hash,
+          clusters_touched: scan_result.fetch(:clusters_touched)
+        )
+
         duration_ms = monotonic_ms - started_at
         stage_timings = {
           "scan_ms" => scan_ms,
@@ -108,6 +119,7 @@ module Clusters
           status: "processed",
           scanner: scan_result,
           audit: audit_result,
+          actor_profile_handoffs: handoff_result,
           clusters_touched: scan_result.fetch(:clusters_touched),
           duration_ms: duration_ms,
           transaction_duration_ms: duration_ms,
@@ -207,7 +219,15 @@ module Clusters
       )
     end
 
-    def idempotent_result(checkpoint)
+    def register_actor_profile_handoffs!(height:, block_hash:, clusters_touched:)
+      Clusters::ActorProfileHandoffRegister.call(
+        cluster_height: height,
+        block_hash: block_hash,
+        clusters_touched: clusters_touched
+      )
+    end
+
+    def idempotent_result(checkpoint, handoff_result:)
       scan_result = checkpoint.scan_result.deep_symbolize_keys
       audit_result = checkpoint.audit_result.deep_symbolize_keys
       {
@@ -219,6 +239,7 @@ module Clusters
         reason: "already_processed",
         scanner: scan_result,
         audit: audit_result,
+        actor_profile_handoffs: handoff_result,
         clusters_touched: scan_result.fetch(:clusters_touched, []),
         duration_ms: checkpoint.duration_ms,
         transaction_duration_ms: 0,
