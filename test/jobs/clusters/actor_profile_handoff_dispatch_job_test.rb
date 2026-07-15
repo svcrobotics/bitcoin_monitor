@@ -5,8 +5,8 @@ require "minitest/mock"
 
 module Clusters
   class ActorProfileHandoffDispatchJobTest < ActiveSupport::TestCase
-    test "uses the ActorProfile strict queue" do
-      assert_equal "actor_profile_strict", ActorProfileHandoffDispatchJob.new.queue_name
+    test "uses the consumed Cluster strict queue" do
+      assert_equal "cluster_strict", ActorProfileHandoffDispatchJob.new.queue_name
     end
 
     test "invokes one bounded dispatch and schedules once only when PostgreSQL work remains" do

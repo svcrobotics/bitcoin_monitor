@@ -4,71 +4,47 @@ module Clusters
   class StrictTipSyncJob < ApplicationJob
     queue_as :cluster_strict
 
-    DEFAULT_WAIT_SECONDS = 30
+    LOCK_NAMESPACE = 41_022
+    LOCK_ID = 1
+    DEFAULT_LIMIT = 2
+    RESCHEDULE_DELAY = 1.second
 
-    def perform(limit: nil, reschedule: true)
-      if layer1_busy_for_cluster?
-        Rails.logger.info("[cluster_strict_tip_sync_job] skipped reason=layer1_busy_for_cluster")
+    def perform(limit: DEFAULT_LIMIT, start_height: nil)
+      return locked_result unless acquire_operational_lock
 
-        schedule_next(limit: limit) if reschedule
-
-        return {
-          ok: true,
-          status: "skipped",
-          reason: "layer1_busy_for_cluster"
-        }
-      end
-
-      result = Clusters::StrictTipSyncer.call(
-        limit: limit || Integer(ENV.fetch("CLUSTER_STRICT_SYNC_LIMIT", "2"))
-      )
-
-      Rails.logger.info("[cluster_strict_tip_sync_job] done result=#{result.inspect}")
-
+      result = Clusters::StrictTipSyncer.call(limit: limit, start_height: start_height)
+      schedule_once(limit: limit, start_height: start_height) if
+        Clusters::StrictTipSyncer.work_available?
       result
     ensure
-      schedule_next(limit: limit) if reschedule
+      release_operational_lock if @lock_acquired
     end
 
     private
 
-    def layer1_busy_for_cluster?
-      snapshot = Layer1::HealthSnapshot.call
-
-      lag = snapshot.dig(:sync, :lag) || snapshot[:lag]
-      buffers = snapshot[:buffers] || {}
-
-      outputs_buffer = buffers[:outputs].to_i
-      spent_buffer = buffers[:spent].to_i
-
-      max_safe_lag = Integer(ENV.fetch("CLUSTER_WAIT_LAYER1_LAG_GT", "2"))
-
-      return true if outputs_buffer.positive?
-      return true if spent_buffer.positive?
-      return true if lag.to_i > max_safe_lag
-
-      false
-    rescue StandardError => e
-      Rails.logger.warn("[cluster_strict_tip_sync_job] layer1_busy_check_failed #{e.class}: #{e.message}")
-      false
+    def acquire_operational_lock
+      value = ApplicationRecord.connection.select_value(
+        "SELECT pg_try_advisory_lock(#{LOCK_NAMESPACE}, #{LOCK_ID})"
+      )
+      @lock_acquired = value == true || value.to_s == "t"
     end
 
-    # Compatibilité avec les anciens jobs encore chargés / anciennes versions du code.
-    def layer1_lag_positive?
-      layer1_busy_for_cluster?
+    def release_operational_lock
+      ApplicationRecord.connection.select_value(
+        "SELECT pg_advisory_unlock(#{LOCK_NAMESPACE}, #{LOCK_ID})"
+      )
+      @lock_acquired = false
     end
 
-    def wait_seconds
-      Integer(ENV.fetch("CLUSTER_STRICT_WAIT_SECONDS", DEFAULT_WAIT_SECONDS.to_s))
+    def schedule_once(limit:, start_height:)
+      self.class.set(wait: RESCHEDULE_DELAY).perform_later(
+        limit: limit,
+        start_height: start_height
+      )
     end
 
-    def schedule_next(limit:)
-      self.class
-        .set(wait: wait_seconds.seconds)
-        .perform_later(
-          limit: limit || Integer(ENV.fetch("CLUSTER_STRICT_SYNC_LIMIT", "2")),
-          reschedule: true
-        )
+    def locked_result
+      { ok: true, status: "skipped", reason: "operational_lock_held" }
     end
   end
 end
