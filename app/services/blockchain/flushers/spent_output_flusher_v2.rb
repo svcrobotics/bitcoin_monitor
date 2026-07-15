@@ -6,9 +6,24 @@ require "securerandom"
 module Blockchain
   module Flushers
     class SpentOutputFlusherV2
+      class RequeueFailed < StandardError
+        attr_reader :original_error, :requeue_error
+
+        def initialize(original_error:, requeue_error:)
+          @original_error = original_error
+          @requeue_error = requeue_error
+
+          super(
+            "spent output batch failed and requeue failed: " \
+            "original=#{original_error.class}: #{original_error.message}; " \
+            "requeue=#{requeue_error.class}: #{requeue_error.message}"
+          )
+        end
+      end
+
       KEY = Blockchain::Buffers::SpentOutputBuffer::KEY
       DEFAULT_BATCH_SIZE = 20_000
-      MODES = Blockchain::Flushers::SpentOutputFlusherSelector::MODES
+      MODES = %i[recovery realtime].freeze
 
       COLUMNS = %w[
         txid
@@ -35,11 +50,16 @@ module Blockchain
       def call
         started_at = monotonic_ms
         timings = {}
+        raw_payloads = []
         rows = []
         committed = false
 
-        rows = measure_stage("pop_batch", timings) { pop_batch }
-        return empty_result if rows.empty?
+        raw_payloads = measure_stage("pop_batch", timings) { pop_batch }
+        return empty_result if raw_payloads.empty?
+
+        rows = measure_stage("parse_batch", timings) do
+          parse_payloads(raw_payloads)
+        end
 
         temp_table = "tmp_layer1_spent_#{SecureRandom.hex(8)}"
 
@@ -119,11 +139,29 @@ module Blockchain
           stage_timings: timings
         }
       rescue StandardError => e
-        requeue_rows(rows) if rows.any? && !committed
+        requeued = false
+
+        if raw_payloads.any? && !committed
+          begin
+            requeue_payloads(raw_payloads)
+            requeued = true
+          rescue StandardError => requeue_error
+            @logger.error(
+              "[spent_output_flusher_v2] requeue_failed " \
+              "rows=#{raw_payloads.size} original_error=#{e.class}: #{e.message} " \
+              "requeue_error=#{requeue_error.class}: #{requeue_error.message}"
+            )
+
+            raise RequeueFailed.new(
+              original_error: e,
+              requeue_error: requeue_error
+            ), cause: e
+          end
+        end
 
         @logger.error(
           "[spent_output_flusher_v2] failed rows=#{rows.size} " \
-          "requeued=#{rows.any? && !committed} error=#{e.class}: #{e.message}"
+          "requeued=#{requeued} error=#{e.class}: #{e.message}"
         )
 
         raise
@@ -177,13 +215,15 @@ module Blockchain
       end
 
       def pop_batch
-        payloads = @redis.lpop(KEY, batch_size)
-        Array(payloads).map { |payload| JSON.parse(payload) }
+        Array(@redis.lpop(KEY, batch_size))
       end
 
-      def requeue_rows(rows)
-        payloads = rows.reverse.map { |row| JSON.generate(row) }
-        @redis.lpush(KEY, *payloads) if payloads.any?
+      def parse_payloads(raw_payloads)
+        raw_payloads.map { |payload| JSON.parse(payload) }
+      end
+
+      def requeue_payloads(raw_payloads)
+        @redis.lpush(KEY, *raw_payloads.reverse) if raw_payloads.any?
       end
 
       def create_temp_table(connection, temp_table)
@@ -248,7 +288,14 @@ module Blockchain
               prevout_amount_btc,
               prevout_block_height
             FROM #{temp_table}
-            ORDER BY txid, vout
+            ORDER BY
+              txid,
+              vout,
+              spent_block_height DESC,
+              spent_txid DESC NULLS LAST,
+              prevout_block_height DESC NULLS LAST,
+              prevout_address DESC NULLS LAST,
+              prevout_amount_btc DESC NULLS LAST
           ), resolved AS (
             SELECT
               data.txid,
