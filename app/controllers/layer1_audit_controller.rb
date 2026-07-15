@@ -4,6 +4,7 @@ class Layer1AuditController < ApplicationController
   def show
     @last_audits = Layer1AuditRun.order(created_at: :desc).limit(20)
     @last_audit = @last_audits.first
+    @audit_operational_snapshot = Layer1::Audit::OperationalSnapshot.call
   end
 
   def run

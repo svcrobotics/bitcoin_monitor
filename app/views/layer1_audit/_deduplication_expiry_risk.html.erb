@@ -1,0 +1,100 @@
+<%
+  risk_data =
+    if risk.respond_to?(:to_h)
+      risk.to_h.with_indifferent_access
+    else
+      {}.with_indifferent_access
+    end
+
+  presentations = {
+    "healthy" => {
+      label: "Marge de déduplication saine",
+      classes: "border-emerald-500/30 bg-emerald-950/20 text-emerald-300"
+    },
+    "warning" => {
+      label: "Expiration de la déduplication à surveiller",
+      classes: "border-amber-500/30 bg-amber-950/20 text-amber-300"
+    },
+    "critical" => {
+      label: "Risque d’expiration de la déduplication",
+      classes: "border-red-500/30 bg-red-950/20 text-red-300"
+    },
+    "unavailable" => {
+      label: "Risque de déduplication indisponible",
+      classes: "border-slate-700 bg-slate-950 text-slate-300"
+    }
+  }
+
+  status = risk_data[:status].to_s
+  status = "unavailable" unless presentations.key?(status)
+  presentation = presentations.fetch(status)
+
+  valid_metric = lambda do |value|
+    next false unless value.is_a?(Numeric)
+
+    numeric_value = Float(value)
+    numeric_value.finite? && !numeric_value.negative?
+  rescue ArgumentError, TypeError
+    false
+  end
+
+  format_seconds = lambda do |value|
+    if valid_metric.call(value)
+      formatted =
+        number_with_precision(
+          value,
+          precision: 3,
+          strip_insignificant_zeros: true,
+          delimiter: " ",
+          separator: ","
+        )
+      "#{formatted} s"
+    else
+      "—"
+    end
+  end
+
+  ratio = risk_data[:queue_latency_to_ttl_ratio]
+  ratio_percentage =
+    if valid_metric.call(ratio)
+      number_to_percentage(
+        ratio * 100,
+        precision: 1,
+        strip_insignificant_zeros: true,
+        separator: ","
+      )
+    else
+      "—"
+    end
+%>
+
+<section
+  class="rounded-2xl border p-5 <%= presentation[:classes] %>"
+  data-deduplication-risk-status="<%= status %>"
+>
+  <h2 class="text-lg font-bold">
+    <%= presentation[:label] %>
+  </h2>
+
+  <p class="mt-2 text-sm text-slate-400">
+    Cet indicateur compare la latence de la queue Sidekiq au TTL configuré ;
+    il ne confirme pas l’existence d’un marqueur Redis réel.
+  </p>
+
+  <dl class="mt-4 grid gap-3 sm:grid-cols-3">
+    <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+      <dt class="text-xs uppercase tracking-wide text-slate-500">Latence de la queue</dt>
+      <dd class="mt-2 font-mono text-sm"><%= format_seconds.call(risk_data[:queue_latency_seconds]) %></dd>
+    </div>
+
+    <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+      <dt class="text-xs uppercase tracking-wide text-slate-500">TTL configuré</dt>
+      <dd class="mt-2 font-mono text-sm"><%= format_seconds.call(risk_data[:marker_ttl_seconds]) %></dd>
+    </div>
+
+    <div class="rounded-xl border border-slate-800 bg-slate-950/60 p-3">
+      <dt class="text-xs uppercase tracking-wide text-slate-500">Ratio latence / TTL</dt>
+      <dd class="mt-2 font-mono text-sm"><%= ratio_percentage %></dd>
+    </div>
+  </dl>
+</section>
