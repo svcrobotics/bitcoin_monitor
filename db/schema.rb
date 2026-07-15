@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_15_134221) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_15_190000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
@@ -617,6 +617,30 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_15_134221) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["cluster_id"], name: "index_cluster_metrics_on_cluster_id"
+  end
+
+  create_table "cluster_actor_profile_handoffs", force: :cascade do |t|
+    t.bigint "cluster_height", null: false
+    t.string "block_hash", null: false
+    t.bigint "cluster_id", null: false
+    t.bigint "composition_version", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.string "last_error_class"
+    t.datetime "claimed_at", precision: 6
+    t.datetime "completed_at", precision: 6
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_height", "block_hash", "cluster_id", "composition_version"], name: "idx_cluster_actor_handoffs_certification_version", unique: true
+    t.index ["cluster_height", "block_hash"], name: "idx_cluster_actor_handoffs_height_hash"
+    t.index ["cluster_id"], name: "index_cluster_actor_profile_handoffs_on_cluster_id"
+    t.index ["status", "cluster_height", "cluster_id"], name: "idx_cluster_actor_handoffs_claim_order"
+    t.check_constraint "attempts >= 0", name: "cluster_actor_handoffs_attempts_check"
+    t.check_constraint "status <> 'processing'::text OR claimed_at IS NOT NULL", name: "cluster_actor_handoffs_claim_check"
+    t.check_constraint "status = 'completed'::text AND completed_at IS NOT NULL OR status <> 'completed'::text AND completed_at IS NULL", name: "cluster_actor_handoffs_completion_check"
+    t.check_constraint "cluster_height >= 0", name: "cluster_actor_handoffs_height_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "cluster_actor_handoffs_status_check"
+    t.check_constraint "composition_version >= 1", name: "cluster_actor_handoffs_version_check"
   end
 
   create_table "cluster_pipeline_events", force: :cascade do |t|
@@ -1619,6 +1643,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_15_134221) do
   add_foreign_key "brc20_balances", "brc20_tokens"
   add_foreign_key "brc20_events", "brc20_tokens"
   add_foreign_key "brc20_token_daily_stats", "brc20_tokens"
+  add_foreign_key "cluster_actor_profile_handoffs", "clusters"
   add_foreign_key "cluster_activity_states", "clusters"
   add_foreign_key "cluster_metrics", "clusters"
   add_foreign_key "cluster_profiles", "clusters"
