@@ -150,6 +150,52 @@ module Layer1
         assert_equal 0, result[:worker_count]
       end
 
+      test "reports deduplication marker expiry risk from queue latency" do
+        cases = [
+          { latency: 0, status: "healthy", ratio: 0.0 },
+          { latency: 1_799.999, status: "healthy", ratio: 1_799.999 / 3_600.0 },
+          { latency: 1_800, status: "warning", ratio: 0.5 },
+          { latency: 3_599.999, status: "warning", ratio: 3_599.999 / 3_600.0 },
+          { latency: 3_600, status: "critical", ratio: 1.0 },
+          { latency: 7_200, status: "critical", ratio: 2.0 }
+        ]
+
+        cases.each do |entry|
+          risk = snapshot(queue_latency: entry[:latency]).fetch(:deduplication_expiry_risk)
+
+          assert_equal Layer1::Audit::BlockJob::INITIAL_MARKER_TTL_SECONDS,
+            risk[:marker_ttl_seconds]
+          assert_equal entry[:latency].to_f, risk[:queue_latency_seconds].to_f
+          assert_in_delta entry[:ratio], risk[:queue_latency_to_ttl_ratio], 0.000_001
+          assert_equal entry[:status], risk[:status]
+        end
+      end
+
+      test "reports unavailable expiry risk when queue latency is absent or invalid" do
+        [nil, -1, Float::INFINITY, Float::NAN].each do |latency|
+          risk = snapshot(queue_latency: latency).fetch(:deduplication_expiry_risk)
+
+          assert_nil risk[:queue_latency_seconds]
+          assert_nil risk[:queue_latency_to_ttl_ratio]
+          assert_equal "unavailable", risk[:status]
+        end
+
+        result = snapshot(queue_latency: "not-a-number")
+        assert_equal false, result[:sidekiq_available]
+        assert_nil result.dig(:deduplication_expiry_risk, :queue_latency_to_ttl_ratio)
+        assert_equal "unavailable", result.dig(:deduplication_expiry_risk, :status)
+      end
+
+      test "uses the canonical BlockJob marker TTL without a local duplicate" do
+        risk = snapshot(queue_latency: 1).fetch(:deduplication_expiry_risk)
+        source = Rails.root.join("app/services/layer1/audit/operational_snapshot.rb").read
+
+        assert_equal Layer1::Audit::BlockJob::INITIAL_MARKER_TTL_SECONDS,
+          risk[:marker_ttl_seconds]
+        assert_includes source, "Layer1::Audit::BlockJob::INITIAL_MARKER_TTL_SECONDS"
+        refute_match(/\b(?:3_600|3600)\b/, source)
+      end
+
       test "reports running activity when an audit worker is active" do
         result = snapshot(queue_size: 0, worker_queues: ["layer1_audit"])
 
@@ -182,6 +228,10 @@ module Layer1
         assert_nil result[:queue_size]
         assert_nil result[:queue_latency_seconds]
         assert_nil result[:worker_count]
+        assert_equal Layer1::Audit::BlockJob::INITIAL_MARKER_TTL_SECONDS,
+          result.dig(:deduplication_expiry_risk, :marker_ttl_seconds)
+        assert_nil result.dig(:deduplication_expiry_risk, :queue_latency_to_ttl_ratio)
+        assert_equal "unavailable", result.dig(:deduplication_expiry_risk, :status)
         assert_equal "sidekiq_error",
                      result.dig(:observability, :sidekiq_error_category)
         refute_includes JSON.generate(result), "secret redis endpoint"
@@ -253,6 +303,7 @@ module Layer1
 
         assert_kind_of String, encoded
         assert_includes encoded, '"audit_status":"healthy"'
+        assert_includes encoded, '"deduplication_expiry_risk"'
       end
 
       test "service SQL is read only" do

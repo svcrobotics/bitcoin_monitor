@@ -107,7 +107,11 @@ module Layer1
       def numeric_latency(value)
         return nil if value.nil?
 
-        Float(value).round(3)
+        latency = Float(value)
+        return nil unless latency.finite?
+        return nil if latency.negative?
+
+        latency.round(3)
       end
 
       def busy_worker_count(workers)
@@ -162,6 +166,7 @@ module Layer1
           queue_latency_seconds: sidekiq[:queue_latency_seconds],
           worker_count: sidekiq[:worker_count],
           busy_workers: sidekiq[:worker_count],
+          deduplication_expiry_risk: deduplication_expiry_risk(sidekiq),
           run_history: run_history,
           recent_runs: summarize_runs(run_history),
           last_attempted_height: latest_run&.audited_height,
@@ -195,6 +200,7 @@ module Layer1
           queue_latency_seconds: sidekiq[:queue_latency_seconds],
           worker_count: sidekiq[:worker_count],
           busy_workers: sidekiq[:worker_count],
+          deduplication_expiry_risk: deduplication_expiry_risk(sidekiq),
           run_history: [],
           recent_runs: empty_run_summary,
           last_attempted_height: nil,
@@ -248,6 +254,36 @@ module Layer1
           name: QUEUE_NAME,
           size: sidekiq[:queue_size],
           latency_seconds: sidekiq[:queue_latency_seconds]
+        }
+      end
+
+      def deduplication_expiry_risk(sidekiq)
+        marker_ttl_seconds = Layer1::Audit::BlockJob::INITIAL_MARKER_TTL_SECONDS
+        queue_latency_seconds = sidekiq[:queue_latency_seconds]
+
+        unless sidekiq[:available] && queue_latency_seconds.is_a?(Numeric)
+          return {
+            marker_ttl_seconds: marker_ttl_seconds,
+            queue_latency_seconds: nil,
+            queue_latency_to_ttl_ratio: nil,
+            status: "unavailable"
+          }
+        end
+
+        ratio = queue_latency_seconds.to_f / marker_ttl_seconds.to_f
+        status = if ratio >= 1.0
+          "critical"
+        elsif ratio >= 0.5
+          "warning"
+        else
+          "healthy"
+        end
+
+        {
+          marker_ttl_seconds: marker_ttl_seconds,
+          queue_latency_seconds: queue_latency_seconds,
+          queue_latency_to_ttl_ratio: ratio,
+          status: status
         }
       end
 
