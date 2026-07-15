@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_10_130000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_15_134221) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
@@ -1068,6 +1068,23 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_10_130000) do
     t.string "tags"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+  end
+
+  create_table "layer1_audit_operational_events", force: :cascade do |t|
+    t.string "event_type", null: false
+    t.string "severity", null: false
+    t.bigint "audited_height"
+    t.integer "defer_attempt"
+    t.string "sidekiq_jid"
+    t.string "error_class"
+    t.datetime "occurred_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.index ["audited_height", "occurred_at"], name: "idx_layer1_audit_events_height_occurred_at"
+    t.index ["event_type", "occurred_at"], name: "idx_layer1_audit_events_type_occurred_at"
+    t.index ["occurred_at"], name: "idx_layer1_audit_events_occurred_at"
+    t.check_constraint "audited_height IS NULL OR audited_height >= 0", name: "layer1_audit_events_height_check"
+    t.check_constraint "defer_attempt IS NULL OR defer_attempt >= 0", name: "layer1_audit_events_attempt_check"
+    t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "layer1_audit_events_metadata_object_check"
   end
 
   create_table "layer1_audit_runs", force: :cascade do |t|
