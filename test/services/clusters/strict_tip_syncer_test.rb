@@ -25,25 +25,21 @@ module Clusters
         { ok: true, status: "processed", height: from_height }
       end
       decision = ->(*) { guards += 1; { allowed: true } }
-      wakeups = []
 
       System::PipelineController.stub(:decision, decision) do
         StrictWindowRebuilder.stub(:call, rebuild) do
-          ActorProfileHandoffDispatcher.stub(:work_available?, true) do
-            ActorProfileHandoffDispatchJob.stub(:perform_later, -> { wakeups << true }) do
-              result = StrictTipSyncer.call(limit: 2)
-              assert_equal "synced", result[:status]
-              assert_equal 2, result[:processed]
-              assert_nil result[:next_height]
-              assert JSON.generate(result)
-            end
+          ActorProfileHandoffDispatchJob.stub(:perform_later, -> { flunk "watchdog owns wakeups" }) do
+            result = StrictTipSyncer.call(limit: 2)
+            assert_equal "synced", result[:status]
+            assert_equal 2, result[:processed]
+            assert_nil result[:next_height]
+            assert JSON.generate(result)
           end
         end
       end
 
       assert_equal [[@base + 1, @base + 1], [@base + 2, @base + 2]], calls
       assert_equal 2, guards
-      assert_equal [true], wakeups
     end
 
     test "a guard refusal before a height is fail closed and mutation free" do

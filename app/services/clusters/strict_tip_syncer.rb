@@ -67,7 +67,6 @@ module Clusters
         next_height += 1
       end
 
-      wake_actor_profile_dispatcher if results.any?
       result_payload(
         status: "synced",
         before_tip: cluster_tip,
@@ -147,17 +146,6 @@ module Clusters
       raise
     rescue StandardError => error
       raise GuardDenied, "Cluster PipelineController failed with #{error.class.name}"
-    end
-
-    def wake_actor_profile_dispatcher
-      return unless Clusters::ActorProfileHandoffDispatcher.work_available?
-
-      Clusters::ActorProfileHandoffDispatchJob.perform_later
-    rescue StandardError => error
-      @logger.warn(
-        "[cluster_strict_tip_syncer] actor_profile_wakeup_failed " \
-        "error_class=#{error.class.name}"
-      )
     end
 
     def idle_result(cluster_tip, layer1_tip)

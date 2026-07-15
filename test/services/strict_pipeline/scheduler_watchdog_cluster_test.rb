@@ -94,9 +94,9 @@ module StrictPipeline
       layer1 = @specs.find { |spec| spec.name == "layer1" }
       actor_profile = @specs.find { |spec| spec.name == "actor_profile" }
       assert_equal [], layer1.args
-      assert_equal true, actor_profile.args.first[:reschedule]
+      assert_equal [{ limit: Clusters::ActorProfileHandoffDispatchJob::DEFAULT_LIMIT }], actor_profile.args
       assert_equal "Layer1::StrictTipSyncJob", layer1.klass
-      assert_equal "ActorProfiles::StrictBatchJob", actor_profile.klass
+      assert_equal "Clusters::ActorProfileHandoffDispatchJob", actor_profile.klass
     end
 
     private

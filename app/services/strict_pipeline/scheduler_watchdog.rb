@@ -93,20 +93,12 @@ module StrictPipeline
         JobSpec.new(
           name: "actor_profile",
           queue: "actor_profile_strict",
-          klass: "ActorProfiles::StrictBatchJob",
+          klass: "Clusters::ActorProfileHandoffDispatchJob",
           kind: :active_job,
           wait_seconds: 15,
           args: [
             {
-              limit:
-                Integer(
-                  ENV.fetch(
-                    "ACTOR_PROFILE_STRICT_BATCH_LIMIT",
-                    "50"
-                  )
-                ),
-
-              reschedule: true
+              limit: Clusters::ActorProfileHandoffDispatchJob::DEFAULT_LIMIT
             }
           ],
           allow_scheduled_successor_while_active:
@@ -196,6 +188,22 @@ module StrictPipeline
           skipped: true,
           reason: "pipeline_controller_refused"
         )
+      end
+
+      if spec.name == "actor_profile"
+        unless actor_profile_work_available?
+          return result.merge(
+            skipped: true,
+            reason: "durable_backlog_empty"
+          )
+        end
+
+        unless actor_profile_pipeline_allowed?
+          return result.merge(
+            skipped: true,
+            reason: "pipeline_controller_refused"
+          )
+        end
       end
 
       repair(spec)
@@ -377,6 +385,17 @@ module StrictPipeline
 
     def cluster_pipeline_allowed?
       decision = System::PipelineController.decision(:cluster)
+      decision.is_a?(Hash) && decision[:allowed] == true
+    rescue StandardError
+      false
+    end
+
+    def actor_profile_work_available?
+      Clusters::ActorProfileHandoffDispatcher.work_available?
+    end
+
+    def actor_profile_pipeline_allowed?
+      decision = System::PipelineController.decision(:actor_profile)
       decision.is_a?(Hash) && decision[:allowed] == true
     rescue StandardError
       false
