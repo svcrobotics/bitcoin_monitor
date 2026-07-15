@@ -13,14 +13,17 @@ module Clusters
     def call
       return empty_result if address_records.empty?
 
-      cluster_ids = address_records.map(&:cluster_id).compact.uniq
+      ApplicationRecord.transaction do
+        @address_records = lock_address_records
+        cluster_ids = address_records.filter_map(&:cluster_id).uniq.sort
 
-      if cluster_ids.empty?
-        create_cluster!
-      elsif cluster_ids.size == 1
-        attach_unclustered_addresses!(cluster_ids.first)
-      else
-        merge_clusters!(cluster_ids)
+        if cluster_ids.empty?
+          create_cluster!
+        elsif cluster_ids.size == 1
+          attach_unclustered_addresses!(cluster_ids.first)
+        else
+          merge_clusters!(cluster_ids)
+        end
       end
     end
 
@@ -28,27 +31,39 @@ module Clusters
 
     attr_reader :address_records
 
+    def lock_address_records
+      Address
+        .where(id: address_records.filter_map(&:id).sort)
+        .order(:id)
+        .lock
+        .to_a
+    end
+
+    def lock_clusters(cluster_ids)
+      Cluster
+        .where(id: Array(cluster_ids).compact.uniq.sort)
+        .order(:id)
+        .lock
+        .to_a
+    end
+
     def create_cluster!
-      cluster = nil
+      cluster = Cluster.create!
 
-      ApplicationRecord.transaction do
-        cluster =
-          Cluster.create!(
-            composition_version: 1
-          )
+      Address.where(id: address_records.map(&:id)).update_all(
+        cluster_id: cluster.id,
+        updated_at: Time.current
+      )
 
-        Address.where(id: address_records.map(&:id)).update_all(
-          cluster_id: cluster.id,
-          updated_at: Time.current
-        )
-
-        cluster.recalculate_stats!
-      end
+      recalculate_cluster!(cluster.id)
 
       Result.new(
         cluster: cluster,
         created: 1,
-        merged: 0
+        merged: 0,
+        source_cluster_ids: [],
+        target_cluster_id: cluster.id,
+        composition_versions: composition_versions_for([cluster.id])
       )
     end
 
@@ -58,79 +73,100 @@ module Clusters
           .select { |record| record.cluster_id.nil? }
           .map(&:id)
 
-      if unclustered_ids.any?
-        Address.where(id: unclustered_ids).update_all(
+      cluster = lock_clusters([cluster_id]).first
+      changed = 0
+
+      if unclustered_ids.any? && cluster
+        changed =
+          Address.where(id: unclustered_ids, cluster_id: nil).update_all(
           cluster_id: cluster_id,
           updated_at: Time.current
         )
+
+        if changed.positive?
+          increment_composition_version!(cluster)
+          recalculate_cluster!(cluster.id)
+        end
       end
 
       Result.new(
         cluster: Cluster.find(cluster_id),
         created: 0,
-        merged: 0
+        merged: 0,
+        source_cluster_ids: [],
+        target_cluster_id: cluster_id,
+        composition_versions: composition_versions_for([cluster_id])
       )
     end
 
     def merge_clusters!(cluster_ids)
-      master_id = cluster_ids.min
-      other_ids = cluster_ids - [master_id]
+      locked_clusters = lock_clusters(cluster_ids)
+      master = locked_clusters.first
+      sources = locked_clusters.drop(1)
+      source_ids = sources.map(&:id)
+      next_version = locked_clusters.map(&:composition_version).max.to_i + 1
 
-      ApplicationRecord.transaction do
-        if other_ids.any?
-          Address.where(cluster_id: other_ids).update_all(
-            cluster_id: master_id,
-            updated_at: Time.current
-          )
+      changed =
+        Address.where(cluster_id: source_ids).update_all(
+          cluster_id: master.id,
+          updated_at: Time.current
+        )
 
-          cleanup_merged_clusters!(other_ids)
+      unclustered_ids =
+        address_records
+          .select { |record| record.cluster_id.nil? }
+          .map(&:id)
+
+      changed +=
+        Address.where(id: unclustered_ids, cluster_id: nil).update_all(
+          cluster_id: master.id,
+          updated_at: Time.current
+        ) if unclustered_ids.any?
+
+      if changed.positive?
+        master.update_columns(
+          composition_version: next_version,
+          updated_at: Time.current
+        )
+        ([master.id] + source_ids).each do |cluster_id|
+          recalculate_cluster!(cluster_id)
         end
-
-        unclustered_ids =
-          address_records
-            .select { |record| record.cluster_id.nil? }
-            .map(&:id)
-
-        if unclustered_ids.any?
-          Address.where(id: unclustered_ids).update_all(
-            cluster_id: master_id,
-            updated_at: Time.current
-          )
-        end
-
-        Cluster.find(master_id).recalculate_stats!
       end
 
       Result.new(
-        cluster: Cluster.find(master_id),
+        cluster: Cluster.find(master.id),
         created: 0,
-        merged: other_ids.size
+        merged: source_ids.size,
+        source_cluster_ids: source_ids,
+        target_cluster_id: master.id,
+        composition_versions:
+          composition_versions_for([master.id] + source_ids)
       )
     end
 
-    def cleanup_merged_clusters!(cluster_ids)
-      ids = Array(cluster_ids).compact
-      return if ids.empty?
+    def increment_composition_version!(cluster)
+      cluster.update_columns(
+        composition_version: cluster.composition_version.to_i + 1,
+        updated_at: Time.current
+      )
+    end
 
-      ActorBehaviorHeavySnapshot
-        .where(
-          "cluster_id IN (:ids) OR downstream_cluster_id IN (:ids)",
-          ids: ids
-        )
-        .delete_all
+    def recalculate_cluster!(cluster_id)
+      Cluster.find(cluster_id).recalculate_stats!
+    end
 
-      ActorLabel.where(cluster_id: ids).delete_all
-      ActorProfile.where(cluster_id: ids).delete_all
-      ClusterActivityState.where(cluster_id: ids).delete_all
-
-      Cluster.where(id: ids).delete_all
+    def composition_versions_for(cluster_ids)
+      Cluster.where(id: cluster_ids).pluck(:id, :composition_version).to_h
     end
 
     def empty_result
       Result.new(
         cluster: nil,
         created: 0,
-        merged: 0
+        merged: 0,
+        source_cluster_ids: [],
+        target_cluster_id: nil,
+        composition_versions: {}
       )
     end
 
@@ -138,6 +174,9 @@ module Clusters
       :cluster,
       :created,
       :merged,
+      :source_cluster_ids,
+      :target_cluster_id,
+      :composition_versions,
       keyword_init: true
     )
   end
