@@ -1,6 +1,8 @@
 web: bin/rails server -p 3000
 css: bin/rails tailwindcss:watch
 
+sidekiq_scheduler: nice -n 19 bundle exec sidekiq -c 1 -q scheduler
+
 sidekiq_layer1_strict: LAYER1_STRICT_ONLY=1 LAYER1_STRICT_TIP_SYNC_INTERVAL_SECONDS=30 LAYER1_STRICT_TIP_SYNC_MAX_BLOCKS=3 bundle exec sidekiq -c 1 -q layer1_strict
 
 sidekiq_cluster_strict: LAYER1_STRICT_ONLY=1 CLUSTER_TIMING_LOGS=false CLUSTER_STRICT_SYNC_LIMIT=2 nice -n 15 bundle exec sidekiq -c 1 -q cluster_strict

@@ -1,9 +1,18 @@
 # frozen_string_literal: true
 
 require "sidekiq/cron/job"
+require Rails.root.join("lib/strict_pipeline/watchdog_schedule").to_s
 
 if Sidekiq.server?
   schedule = {
+    "strict_pipeline_watchdog" => {
+      "cron" => StrictPipeline::WatchdogSchedule.cron,
+      "class" => "StrictPipeline::SchedulerWatchdogJob",
+      "queue" => "scheduler",
+      "active_job" => true,
+      "description" => "Repair bounded strict pipeline job chains"
+    },
+
     # ------------------------------------------------------------
     # BTC / MARKET - jobs légers, OK via Sidekiq cron
     # ------------------------------------------------------------
