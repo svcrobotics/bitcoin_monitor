@@ -5,6 +5,8 @@ sidekiq_layer1_strict: LAYER1_STRICT_ONLY=1 LAYER1_STRICT_TIP_SYNC_INTERVAL_SECO
 
 sidekiq_cluster_strict: LAYER1_STRICT_ONLY=1 CLUSTER_TIMING_LOGS=false CLUSTER_STRICT_SYNC_LIMIT=2 bundle exec sidekiq -c 1 -q cluster_strict
 
+sidekiq_layer1_audit: TANSA_PIPELINE_MODE=development_backfill TANSA_BACKFILL_ALTERNATING_ENABLED=true TANSA_BACKFILL_LAYER1_START_LAG=10 TANSA_BACKFILL_LAYER1_STOP_LAG=2 LAYER1_STRICT_ONLY=1 nice -n 19 bundle exec sidekiq -c 1 -q layer1_audit
+
 #sidekiq_actor_profile_strict: LAYER1_STRICT_ONLY=1 ACTOR_PROFILE_STRICT_BATCH_LIMIT=10 ACTOR_PROFILE_STRICT_WAIT_SECONDS=30 bundle exec sidekiq -c 1 -q actor_profile_strict
 
 #sidekiq_layer1: bundle exec sidekiq -c 1 -q process -q ingest -q realtime -q btc_realtime
