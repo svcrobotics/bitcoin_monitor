@@ -1,0 +1,209 @@
+# frozen_string_literal: true
+
+require "test_helper"
+
+module ActorProfiles
+  class StrictBuildFromClusterVersionedTest < ActiveSupport::TestCase
+    self.use_transactional_tests = false
+
+    def setup
+      cleanup!
+      @height = 956_000 + SecureRandom.random_number(1_000)
+      @cluster = Cluster.create!(
+        address_count: 1,
+        first_seen_height: @height - 2,
+        last_seen_height: @height - 1,
+        composition_version: 3
+      )
+      Address.create!(address: "versioned-#{SecureRandom.hex(8)}", cluster: @cluster)
+      BlockBufferModel.create!(height: @height, block_hash: hash_for("layer1"), status: "processed")
+      ClusterProcessedBlock.create!(
+        height: @height,
+        block_hash: hash_for("cluster"),
+        status: "processed",
+        processed_at: Time.current
+      )
+    end
+
+    def teardown
+      cleanup!
+    end
+
+    test "builds exactly the requested locked composition and then is already current" do
+      first = build(version: 3)
+      second = build(version: 3)
+
+      assert_equal "built", first[:status]
+      assert_equal false, first[:legacy]
+      assert_equal 3, ActorProfile.find(first[:profile_id]).cluster_composition_version
+      assert_equal "already_current", second[:status]
+      assert_equal first[:profile_id], second[:profile_id]
+      assert_equal 1, ActorProfile.where(cluster_id: @cluster.id).count
+      assert JSON.generate(first)
+      assert JSON.generate(second)
+    end
+
+    test "strictly validates identifiers and requested versions" do
+      [nil, 0, -1, "invalid", 1.2].each do |value|
+        assert_raises(ArgumentError) do
+          StrictBuildFromCluster.call(cluster_id: @cluster.id, composition_version: value)
+        end
+      end
+      [nil, 0, -1, "invalid", 1.2].each do |value|
+        assert_raises(ArgumentError) do
+          StrictBuildFromCluster.call(cluster_id: value, composition_version: 3)
+        end
+      end
+    end
+
+    test "refuses a future version without replacing it by the current version" do
+      result = build(version: 4)
+
+      assert_equal false, result[:ok]
+      assert_equal "refused", result[:status]
+      assert_equal "future_composition_version", result[:reason]
+      assert_equal 4, result[:requested_composition_version]
+      assert_equal 3, result[:cluster_composition_version]
+      assert_nil ActorProfile.find_by(cluster_id: @cluster.id)
+    end
+
+    test "supersedes an old version only when a newer durable handoff exists" do
+      without_handoff = build(version: 2)
+      create_handoff!(composition_version: 3)
+      with_handoff = build(version: 2)
+
+      assert_equal "refused", without_handoff[:status]
+      assert_equal "newer_handoff_missing", without_handoff[:reason]
+      assert_equal "superseded", with_handoff[:status]
+      assert_equal "newer_durable_handoff", with_handoff[:reason]
+      assert_nil ActorProfile.find_by(cluster_id: @cluster.id)
+    end
+
+    test "two concurrent calls serialize to one build and one already current result" do
+      entered = Queue.new
+      release = Queue.new
+      original = StrictBuildFromCluster.instance_method(:compute_source_stats)
+      first_call = true
+      mutex = Mutex.new
+      StrictBuildFromCluster.define_method(:compute_source_stats) do |cluster|
+        wait = mutex.synchronize do
+          selected = first_call
+          first_call = false
+          selected
+        end
+        if wait
+          entered << true
+          release.pop
+        end
+        original.bind_call(self, cluster)
+      end
+
+      first = Thread.new { ActiveRecord::Base.connection_pool.with_connection { build(version: 3) } }
+      entered.pop
+      second = Thread.new { ActiveRecord::Base.connection_pool.with_connection { build(version: 3) } }
+      sleep 0.05
+      release << true
+      results = [first.value, second.value]
+
+      assert_equal %w[already_current built], results.pluck(:status).sort
+      assert_equal 1, ActorProfile.where(cluster_id: @cluster.id).count
+    ensure
+      release << true if release&.empty?
+      first&.join
+      second&.join
+      StrictBuildFromCluster.define_method(:compute_source_stats, original) if original
+    end
+
+    test "a composition race is detected from the version locked after waiting" do
+      connection = ActiveRecord::Base.connection
+      connection.select_value(
+        "SELECT pg_advisory_lock(#{StrictBuildFromCluster::ADVISORY_LOCK_NAMESPACE}, #{@cluster.id})"
+      )
+      thread = Thread.new { ActiveRecord::Base.connection_pool.with_connection { build(version: 3) } }
+      Cluster.where(id: @cluster.id).update_all(composition_version: 4)
+      connection.select_value(
+        "SELECT pg_advisory_unlock(#{StrictBuildFromCluster::ADVISORY_LOCK_NAMESPACE}, #{@cluster.id})"
+      )
+      result = thread.value
+
+      assert_equal "refused", result[:status]
+      assert_equal 3, result[:requested_composition_version]
+      assert_equal 4, result[:cluster_composition_version]
+      assert_nil ActorProfile.find_by(cluster_id: @cluster.id)
+    ensure
+      connection&.select_value(
+        "SELECT pg_advisory_unlock(#{StrictBuildFromCluster::ADVISORY_LOCK_NAMESPACE}, #{@cluster.id})"
+      )
+      thread&.join
+    end
+
+    test "an intermediate failure rolls back profile and materialized version" do
+      original = StrictBuildFromCluster.instance_method(:compute_scores)
+      StrictBuildFromCluster.define_method(:compute_scores) { |_stats| raise "score failure" }
+
+      error = assert_raises(RuntimeError) { build(version: 3) }
+      assert_equal "score failure", error.message
+      assert_nil ActorProfile.find_by(cluster_id: @cluster.id)
+    ensure
+      StrictBuildFromCluster.define_method(:compute_scores, original) if original
+    end
+
+    test "legacy calls use the locked version explicitly and identify the compatibility path" do
+      result = StrictBuildFromCluster.call(cluster_id: @cluster.id)
+
+      assert_equal "built", result[:status]
+      assert_equal true, result[:legacy]
+      assert_equal 3, result[:cluster_composition_version]
+      assert_equal 3, ActorProfile.find(result[:profile_id]).cluster_composition_version
+    end
+
+    test "versioned idempotence has no Redis or Sidekiq effect" do
+      sql = capture_sql { @result = build(version: 3) }
+      source = File.read(Rails.root.join("app/services/actor_profiles/strict_build_from_cluster.rb"))
+
+      assert_no_match(/Redis|Sidekiq|perform_(?:async|later|in)/, source)
+      assert_empty sql.grep(/redis|sidekiq/i)
+      assert JSON.generate(@result)
+    end
+
+    private
+
+    def build(version:)
+      StrictBuildFromCluster.call(cluster_id: @cluster.id, composition_version: version)
+    end
+
+    def create_handoff!(composition_version:)
+      ClusterActorProfileHandoff.create!(
+        cluster_height: @height,
+        block_hash: hash_for("handoff"),
+        cluster: @cluster,
+        composition_version: composition_version
+      )
+    end
+
+    def hash_for(prefix)
+      Digest::SHA256.hexdigest("#{prefix}-#{SecureRandom.hex(16)}")
+    end
+
+    def capture_sql
+      statements = []
+      subscriber = lambda do |_name, _start, _finish, _id, payload|
+        statements << payload[:sql].to_s unless payload[:name] == "SCHEMA"
+      end
+      ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") { yield }
+      statements
+    end
+
+    def cleanup!
+      ActorLabel.delete_all
+      ActorProfile.delete_all
+      ClusterActorProfileHandoff.delete_all
+      ClusterInput.delete_all
+      UtxoOutput.delete_all
+      Address.delete_all
+      ClusterProcessedBlock.delete_all
+      BlockBufferModel.delete_all
+      Cluster.delete_all
+    end
+  end
+end

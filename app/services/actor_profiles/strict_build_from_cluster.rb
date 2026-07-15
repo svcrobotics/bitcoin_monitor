@@ -4,6 +4,7 @@ module ActorProfiles
 class StrictBuildFromCluster
 SOURCE = "actor_profiles_strict_build_from_cluster"
 PROFILE_VERSION = "strict_v3_core"
+UNSPECIFIED_VERSION = Object.new.freeze
 
 SATOSHI = BigDecimal("100000000")
 
@@ -29,15 +30,29 @@ SAT_COLUMNS =
     satoshis
   ].freeze
 
-def self.call(cluster_id:)
-  new(cluster_id: cluster_id).call
+def self.call(cluster_id:, composition_version: UNSPECIFIED_VERSION)
+  new(
+    cluster_id: cluster_id,
+    composition_version: composition_version
+  ).call
 end
 
-def initialize(cluster_id:)
-  @cluster_id = cluster_id.to_i
+def initialize(cluster_id:, composition_version: UNSPECIFIED_VERSION)
+  @cluster_id = normalize_positive_integer(cluster_id, :cluster_id)
+  @legacy = composition_version.equal?(UNSPECIFIED_VERSION)
+  @composition_version =
+    normalize_positive_integer(composition_version, :composition_version) unless @legacy
 end
 
 def call
+  return build_profile if @legacy
+
+  with_versioned_session_lock { build_profile }
+end
+
+private
+
+def build_profile
   started_at =
     Process.clock_gettime(
       Process::CLOCK_MONOTONIC
@@ -46,7 +61,7 @@ def call
   ActiveRecord::Base.transaction(
     isolation: :repeatable_read
   ) do
-    unless acquire_cluster_build_lock
+    if @legacy && !acquire_cluster_build_lock
       raise ActorProfiles::DeferredSnapshotError.new(
         "ActorProfile build already running " \
         "cluster_id=#{@cluster_id}",
@@ -64,8 +79,20 @@ def call
       .lock
       .find(@cluster_id)
 
-      cluster_composition_version =
+    cluster_composition_version =
       cluster.composition_version.to_i
+
+    requested_version =
+      @legacy ? cluster_composition_version : @composition_version
+    profile = ActorProfile.lock.find_by(cluster_id: cluster.id)
+
+    version_result = version_result_for(
+      cluster: cluster,
+      profile: profile,
+      requested_version: requested_version,
+      cluster_composition_version: cluster_composition_version
+    )
+    return version_result if version_result
 
     cluster_tip = current_cluster_tip
     layer1_tip = current_layer1_tip
@@ -128,10 +155,7 @@ def call
 
     scores = compute_scores(stats)
 
-    profile =
-      ActorProfile.find_or_initialize_by(
-        cluster_id: cluster.id
-      )
+    profile ||= ActorProfile.new(cluster_id: cluster.id)
 
     profile.assign_attributes(
       balance_btc:
@@ -291,6 +315,8 @@ def call
 
     {
       ok: true,
+      status: "built",
+      legacy: @legacy,
 
       profile_id:
         profile.id,
@@ -343,7 +369,98 @@ def call
   end
 end
 
-private
+def version_result_for(cluster:, profile:, requested_version:, cluster_composition_version:)
+  if requested_version > cluster_composition_version
+    return terminal_version_result(
+      status: "refused",
+      reason: "future_composition_version",
+      cluster: cluster,
+      profile: profile,
+      requested_version: requested_version,
+      cluster_composition_version: cluster_composition_version
+    )
+  end
+
+  if requested_version < cluster_composition_version
+    newer_handoff = ClusterActorProfileHandoff.where(cluster_id: cluster.id)
+      .where("composition_version > ?", requested_version)
+      .exists?
+    return terminal_version_result(
+      status: newer_handoff ? "superseded" : "refused",
+      reason: newer_handoff ? "newer_durable_handoff" : "newer_handoff_missing",
+      cluster: cluster,
+      profile: profile,
+      requested_version: requested_version,
+      cluster_composition_version: cluster_composition_version
+    )
+  end
+
+  return unless profile_complete_for?(profile, requested_version)
+
+  terminal_version_result(
+    status: "already_current",
+    reason: "composition_already_materialized",
+    cluster: cluster,
+    profile: profile,
+    requested_version: requested_version,
+    cluster_composition_version: cluster_composition_version
+  )
+end
+
+def profile_complete_for?(profile, requested_version)
+  profile&.persisted? &&
+    profile.cluster_composition_version.to_i == requested_version &&
+    profile.traits.to_h["profile_version"] == PROFILE_VERSION &&
+    profile.metadata.to_h["strict"] == true &&
+    profile.last_computed_height.present? &&
+    !profile.dirty?
+end
+
+def terminal_version_result(status:, reason:, cluster:, profile:, requested_version:,
+  cluster_composition_version:)
+  {
+    ok: status != "refused",
+    status: status,
+    reason: reason,
+    legacy: @legacy,
+    cluster_id: cluster.id,
+    requested_composition_version: requested_version,
+    cluster_composition_version: cluster_composition_version,
+    actor_profile_composition_version: profile&.cluster_composition_version,
+    profile_id: profile&.id
+  }
+end
+
+def with_versioned_session_lock
+  connection = ActiveRecord::Base.connection
+  connection.select_value(
+    "SELECT pg_advisory_lock(#{ADVISORY_LOCK_NAMESPACE}, #{@cluster_id})"
+  )
+  yield
+ensure
+  connection&.select_value(
+    "SELECT pg_advisory_unlock(#{ADVISORY_LOCK_NAMESPACE}, #{@cluster_id})"
+  )
+end
+
+def normalize_positive_integer(value, name)
+  integer =
+    case value
+    when Integer
+      value
+    when String
+      raise ArgumentError unless value.match?(/\A[+-]?\d+\z/)
+
+      Integer(value, 10)
+    else
+      raise ArgumentError
+    end
+  raise ArgumentError, "#{name} must be positive" unless integer.positive?
+
+  integer
+rescue ArgumentError, TypeError
+  raise ArgumentError, "#{name} must be a positive integer"
+end
 
 def acquire_cluster_build_lock
   value =
