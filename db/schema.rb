@@ -684,9 +684,10 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_15_134221) do
     t.integer "last_seen_height"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-    t.bigint "composition_version", default: 0, null: false
+    t.bigint "composition_version", default: 1, null: false
     t.index ["first_seen_height"], name: "index_clusters_on_first_seen_height"
     t.index ["last_seen_height"], name: "index_clusters_on_last_seen_height"
+    t.check_constraint "composition_version >= 1", name: "clusters_composition_version_positive"
   end
 
   create_table "code_chunks", force: :cascade do |t|

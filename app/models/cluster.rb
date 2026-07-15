@@ -1,4 +1,6 @@
 class Cluster < ApplicationRecord
+  INITIAL_COMPOSITION_VERSION = 1
+
   has_many :addresses, dependent: :nullify
   has_one :cluster_profile, dependent: :destroy
   has_many :cluster_metrics, dependent: :delete_all
@@ -7,6 +9,15 @@ class Cluster < ApplicationRecord
   has_one :actor_metric, dependent: :delete
   has_one :actor_profile, dependent: :destroy
   has_many :actor_labels, dependent: :destroy
+
+  validates :composition_version, presence: true
+  validates(
+    :composition_version,
+    numericality: {
+      only_integer: true,
+      greater_than_or_equal_to: INITIAL_COMPOSITION_VERSION
+    }
+  )
 
   def recalculate_stats!
     stats =
