@@ -79,19 +79,11 @@ module StrictPipeline
           name: "cluster",
           queue: "cluster_strict",
           klass: "Clusters::StrictTipSyncJob",
-          kind: :active_job,
+          kind: :cluster_active_job,
           wait_seconds: 10,
           args: [
             {
-              limit:
-                Integer(
-                  ENV.fetch(
-                    "CLUSTER_STRICT_SYNC_LIMIT",
-                    "2"
-                  )
-                ),
-
-              reschedule: true
+              limit: cluster_sync_limit
             }
           ],
           allow_scheduled_successor_while_active:
@@ -198,6 +190,13 @@ module StrictPipeline
       end
 
       return result if present
+
+      if spec.name == "cluster" && !cluster_pipeline_allowed?
+        return result.merge(
+          skipped: true,
+          reason: "pipeline_controller_refused"
+        )
+      end
 
       repair(spec)
 
@@ -340,6 +339,11 @@ module StrictPipeline
           *Array(spec.args)
         )
 
+      when :cluster_active_job
+        klass
+          .set(wait: spec.wait_seconds.seconds)
+          .perform_later(**spec.args.fetch(0))
+
       when :active_job
         klass
           .set(
@@ -357,6 +361,25 @@ module StrictPipeline
           "#{spec.kind.inspect}"
         )
       end
+    end
+
+    def cluster_sync_limit
+      raw = ENV["CLUSTER_STRICT_SYNC_LIMIT"]
+      return Clusters::StrictTipSyncJob::DEFAULT_LIMIT if raw.nil?
+
+      limit = Integer(raw, 10)
+      raise ArgumentError, "CLUSTER_STRICT_SYNC_LIMIT must be positive" unless limit.positive?
+
+      [limit, Clusters::StrictTipSyncer::MAX_LIMIT].min
+    rescue ArgumentError, TypeError
+      raise ArgumentError, "CLUSTER_STRICT_SYNC_LIMIT must be a positive integer"
+    end
+
+    def cluster_pipeline_allowed?
+      decision = System::PipelineController.decision(:cluster)
+      decision.is_a?(Hash) && decision[:allowed] == true
+    rescue StandardError
+      false
     end
 
     def process_present_for_queue?(
