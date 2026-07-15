@@ -626,7 +626,334 @@ module Layer1
         assert_match(/Layer1::AuditBlock\.call\(height: height\)/, source)
       end
 
+      test "records an already enqueued event exactly once" do
+        redis = FakeRedis.new
+        redis.mark(initial_key(956_000), "existing")
+        events = []
+
+        result = with_recorded_events(events) do
+          enqueue_with(redis: redis, height: 956_000)
+        end
+
+        assert_equal "already_enqueued", result[:status]
+        assert_equal [
+          {
+            event_type: :already_enqueued,
+            severity: :info,
+            audited_height: 956_000,
+            metadata: {}
+          }
+        ], events
+      end
+
+      test "already enqueued result survives recorder failure without sensitive logging" do
+        redis = FakeRedis.new
+        redis.mark(initial_key(956_001), "existing")
+        recorder_error = RuntimeError.new("token=secret redis_key=private payload=hidden")
+        warnings = []
+
+        result = with_recorder_failure(recorder_error, warnings: warnings) do
+          enqueue_with(redis: redis, height: 956_001)
+        end
+
+        assert_equal "already_enqueued", result[:status]
+        assert_equal false, result[:enqueued]
+        assert_equal 1, warnings.size
+        assert_safe_operational_log(warnings.first, event_type: :already_enqueued)
+      end
+
+      test "records lost initial marker ownership exactly once" do
+        redis = FakeRedis.new
+        redis.mark(initial_key(956_002), "foreign")
+        events = []
+
+        error = assert_raises(BlockJob::InitialMarkerOwnershipLost) do
+          with_recorded_events(events) do
+            perform_refused(height: 956_002, token: "owned", redis: redis)
+          end
+        end
+
+        assert_match(/956002/, error.message)
+        assert_equal [
+          {
+            event_type: :initial_marker_ownership_lost,
+            severity: :critical,
+            audited_height: 956_002,
+            error_class: "Layer1::Audit::BlockJob::InitialMarkerOwnershipLost",
+            metadata: {}
+          }
+        ], events
+      end
+
+      test "lost ownership remains the error when its recorder fails" do
+        redis = FakeRedis.new
+        redis.mark(initial_key(956_003), "foreign")
+        recorder_error = RuntimeError.new("token=secret")
+        warnings = []
+
+        error = assert_raises(BlockJob::InitialMarkerOwnershipLost) do
+          with_recorder_failure(recorder_error, warnings: warnings) do
+            perform_refused(height: 956_003, token: "owned", redis: redis)
+          end
+        end
+
+        assert_match(/956003/, error.message)
+        assert_equal 1, warnings.size
+        assert_safe_operational_log(warnings.first, event_type: :initial_marker_ownership_lost)
+      end
+
+      test "records Redis renewal failure exactly once and preserves the error" do
+        redis = FakeRedis.new
+        renewal_error = Redis::CommandError.new("renewal secret")
+        redis.eval_error = renewal_error
+        events = []
+
+        raised = assert_raises(Redis::CommandError) do
+          with_recorded_events(events) do
+            perform_refused(height: 956_004, token: "owned", redis: redis)
+          end
+        end
+
+        assert_same renewal_error, raised
+        assert_equal [
+          {
+            event_type: :marker_renewal_failed,
+            severity: :error,
+            audited_height: 956_004,
+            error_class: "Redis::CommandError",
+            metadata: {}
+          }
+        ], events
+      end
+
+      test "renewal error remains identical when its recorder fails" do
+        redis = FakeRedis.new
+        renewal_error = Redis::CommandError.new("renewal secret")
+        redis.eval_error = renewal_error
+        warnings = []
+
+        raised = assert_raises(Redis::CommandError) do
+          with_recorder_failure(RuntimeError.new("payload=hidden"), warnings: warnings) do
+            perform_refused(height: 956_005, token: "owned", redis: redis)
+          end
+        end
+
+        assert_same renewal_error, raised
+        assert_equal 1, warnings.size
+        assert_safe_operational_log(warnings.first, event_type: :marker_renewal_failed)
+      end
+
+      test "records deferred exhaustion exactly once" do
+        events = []
+
+        result = with_recorded_events(events) do
+          perform_refused(height: 956_006, attempt: BlockJob::MAX_DEFER_ATTEMPTS)
+        end
+
+        assert_equal "deferred_exhausted", result[:status]
+        assert_equal [
+          {
+            event_type: :deferred_exhausted,
+            severity: :warning,
+            audited_height: 956_006,
+            defer_attempt: BlockJob::MAX_DEFER_ATTEMPTS,
+            metadata: {}
+          }
+        ], events
+      end
+
+      test "deferred exhaustion result survives recorder failure" do
+        warnings = []
+
+        result = with_recorder_failure(RuntimeError.new("backtrace=hidden"), warnings: warnings) do
+          perform_refused(height: 956_007, attempt: BlockJob::MAX_DEFER_ATTEMPTS)
+        end
+
+        assert_equal "deferred_exhausted", result[:status]
+        assert_equal false, result[:scheduled_retry]
+        operational_warnings = warnings.grep(/operational_event_recording_failed/)
+        assert_equal 1, operational_warnings.size
+        assert_safe_operational_log(operational_warnings.first, event_type: :deferred_exhausted)
+      end
+
+      test "records initial enqueue marker cleanup failure exactly once" do
+        redis = FakeRedis.new
+        cleanup_error = Redis::CommandError.new("cleanup secret")
+        enqueue_error = Class.new(StandardError).new("enqueue secret")
+        redis.eval_error = cleanup_error
+        events = []
+
+        raised = assert_raises(enqueue_error.class) do
+          with_recorded_events(events) do
+            enqueue_with(redis: redis, height: 956_008, perform_error: enqueue_error)
+          end
+        end
+
+        assert_same enqueue_error, raised
+        assert_equal [
+          {
+            event_type: :marker_cleanup_failed,
+            severity: :error,
+            audited_height: 956_008,
+            error_class: "Redis::CommandError",
+            metadata: {}
+          }
+        ], events
+      end
+
+      test "cleanup recorder failure never masks the enqueue error or logs secrets" do
+        redis = FakeRedis.new
+        redis.eval_error = Redis::CommandError.new("cleanup secret")
+        enqueue_error = Class.new(StandardError).new("enqueue secret")
+        warnings = []
+
+        raised = assert_raises(enqueue_error.class) do
+          with_recorder_failure(RuntimeError.new("token=hidden"), warnings: warnings) do
+            enqueue_with(redis: redis, height: 956_009, perform_error: enqueue_error)
+          end
+        end
+
+        assert_same enqueue_error, raised
+        assert_equal 2, warnings.size
+        assert_safe_operational_log(
+          warnings.find { |message| message.include?("operational_event_recording_failed") },
+          event_type: :marker_cleanup_failed
+        )
+        warnings.each do |message|
+          refute_match(/token=hidden|cleanup secret|enqueue secret|redis_key|payload|backtrace/i, message)
+        end
+      end
+
+      test "records deferred marker cleanup failure with the planned attempt" do
+        redis = FakeRedis.new
+        redis.eval_error = Redis::CommandError.new("cleanup secret")
+        scheduling_error = Class.new(StandardError).new("schedule secret")
+        events = []
+
+        raised = assert_raises(scheduling_error.class) do
+          with_recorded_events(events) do
+            perform_refused(height: 956_010, attempt: 2, redis: redis, perform_error: scheduling_error)
+          end
+        end
+
+        assert_same scheduling_error, raised
+        assert_equal [
+          {
+            event_type: :marker_cleanup_failed,
+            severity: :error,
+            audited_height: 956_010,
+            defer_attempt: 3,
+            error_class: "Redis::CommandError",
+            metadata: {}
+          }
+        ], events
+      end
+
+      test "records terminal marker release failure and preserves the Redis error" do
+        redis = FakeRedis.new
+        cleanup_error = Redis::CommandError.new("release secret")
+        redis.eval_error = cleanup_error
+        events = []
+
+        raised = assert_raises(Redis::CommandError) do
+          with_recorded_events(events) do
+            with_decision(allowed: true) do
+              with_stubbed(Redis, :new, redis) do
+                with_stubbed(Layer1::AuditBlock, :call, { ok: true }) do
+                  BlockJob.new.perform(956_011, 0, "owned")
+                end
+              end
+            end
+          end
+        end
+
+        assert_same cleanup_error, raised
+        assert_equal [
+          {
+            event_type: :marker_cleanup_failed,
+            severity: :error,
+            audited_height: 956_011,
+            defer_attempt: nil,
+            error_class: "Redis::CommandError",
+            metadata: {}
+          }
+        ], events
+      end
+
+      test "does not record events on unrelated successful and exceptional paths" do
+        events = []
+        redis = FakeRedis.new
+
+        with_recorded_events(events) do
+          enqueue_with(redis: redis, height: 956_012)
+          with_decision(allowed: true) do
+            with_stubbed(Layer1::AuditBlock, :call, { ok: true }) do
+              BlockJob.new.perform(956_013)
+            end
+          end
+          perform_refused(height: 956_014)
+
+          assert_raises(RuntimeError) do
+            with_stubbed(System::PipelineController, :layer1_heavy_decision, ->(*) { raise "pipeline" }) do
+              BlockJob.new.perform(956_015)
+            end
+          end
+          assert_raises(RuntimeError) do
+            with_decision(allowed: true) do
+              with_stubbed(Layer1::AuditBlock, :call, ->(**) { raise "audit" }) do
+                BlockJob.new.perform(956_016)
+              end
+            end
+          end
+        end
+
+        assert_empty events
+      end
+
+      test "event attributes and logs never contain marker secrets" do
+        redis = FakeRedis.new
+        redis.mark(initial_key(956_017), "foreign-token")
+        events = []
+
+        assert_raises(BlockJob::InitialMarkerOwnershipLost) do
+          with_recorded_events(events) do
+            perform_refused(height: 956_017, token: "owned-token", redis: redis)
+          end
+        end
+
+        serialized = JSON.generate(events)
+        refute_match(/owned-token|foreign-token|redis_key|payload|backtrace|message/i, serialized)
+        assert_equal %i[audited_height error_class event_type metadata severity].sort,
+          events.first.keys.sort
+      end
+
       private
+
+      def with_recorded_events(events)
+        with_stubbed(
+          Layer1::Audit::OperationalEventRecorder,
+          :call,
+          lambda do |**attributes|
+            events << attributes
+            Layer1AuditOperationalEvent.new(attributes)
+          end
+        ) { yield }
+      end
+
+      def with_recorder_failure(error, warnings:)
+        with_stubbed(Rails.logger, :warn, ->(message) { warnings << message }) do
+          with_stubbed(Layer1::Audit::OperationalEventRecorder, :call, ->(**) { raise error }) do
+            yield
+          end
+        end
+      end
+
+      def assert_safe_operational_log(message, event_type:)
+        assert_includes message, "operational_event_recording_failed"
+        assert_includes message, "event_type=#{event_type}"
+        assert_includes message, "recorder_error_class="
+        refute_match(/token|redis_key|payload|backtrace|secret|message=/i, message)
+      end
 
       def enqueue_with(redis:, height:, calls: [], jid: "jid-1", perform_error: nil)
         with_enqueue_doubles(redis: redis, calls: calls, jid: jid, perform_error: perform_error) do
