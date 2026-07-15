@@ -1,0 +1,372 @@
+<%
+  pace =
+    (snapshot || {}).with_indifferent_access
+
+  presenter =
+    Layer1::PacePresenter.new(pace)
+
+  network =
+    (pace[:network] || {}).with_indifferent_access
+
+  ingestion =
+    (pace[:ingestion] || {}).with_indifferent_access
+
+  processing =
+    (pace[:processing] || {}).with_indifferent_access
+
+  components =
+    (pace[:components] || {}).with_indifferent_access
+
+  comparison =
+    (pace[:comparison] || {}).with_indifferent_access
+
+  recent_blocks =
+    Array(pace[:recent_blocks]).map(&:with_indifferent_access)
+
+  format_duration = lambda do |seconds|
+    presenter.format_duration(seconds)
+  end
+
+  format_percent = lambda do |value|
+    presenter.format_percent(value)
+  end
+
+  trend =
+    presenter.trend
+
+  trend_label =
+    presenter.trend_label
+
+  trend_classes =
+    presenter.trend_classes
+
+  network_seconds =
+    presenter.network_seconds
+
+  layer1_seconds =
+    presenter.layer1_seconds
+
+  processing_seconds =
+    presenter.processing_seconds
+
+  bar_width = lambda do |seconds|
+    presenter.bar_width(seconds)
+  end
+
+  component_values =
+    presenter.component_values
+
+  dominant_stage =
+    presenter.dominant_stage
+
+  component_width = lambda do |seconds|
+    presenter.component_width(seconds)
+  end
+
+  history_width = lambda do |seconds|
+    presenter.history_width(seconds)
+  end
+%>
+
+<section class="rounded-lg border border-slate-800 bg-slate-950/80 p-4 md:p-5">
+  <div class="flex flex-col gap-3 border-b border-slate-800 pb-4 md:flex-row md:items-start md:justify-between">
+    <div>
+      <p class="font-mono text-xs uppercase tracking-[0.18em] text-slate-500">
+        04 / Cadence et origine du retard
+      </p>
+
+      <h2 class="mt-2 text-lg font-semibold text-white">
+        Débit Bitcoin vs certification Layer1
+      </h2>
+
+      <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+        Comparaison entre la cadence réseau Bitcoin, l’ingestion observée par Tansa,
+        la cadence de certification Layer1 et sa durée interne de traitement.
+      </p>
+    </div>
+
+    <div class="rounded-md border px-3 py-2 text-center font-mono text-xs font-semibold uppercase tracking-wide <%= trend_classes %>">
+      <%= trend_label %>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+    <div class="rounded-md border border-slate-800 bg-slate-900/70 p-3">
+      <p class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+        Cadence Bitcoin
+      </p>
+      <p class="mt-1 font-mono text-lg font-semibold text-cyan-200">
+        <%= format_duration.call(network_seconds) %> / bloc
+      </p>
+      <p class="mt-1 text-xs text-slate-500">
+        médiane réseau, 30 derniers blocs
+      </p>
+    </div>
+
+    <div class="rounded-md border border-slate-800 bg-slate-900/70 p-3">
+      <p class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+        Certification Layer1
+      </p>
+      <p class="mt-1 font-mono text-lg font-semibold text-emerald-200">
+        <%= format_duration.call(layer1_seconds) %> / bloc
+      </p>
+      <p class="mt-1 text-xs text-slate-500">
+        médiane récente des certifications
+      </p>
+    </div>
+
+    <div class="rounded-md border border-slate-800 bg-slate-900/70 p-3">
+      <p class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+        <%= presenter.backlog_card_title %>
+      </p>
+      <p class="mt-1 font-mono text-lg font-semibold text-slate-100">
+        <%= presenter.backlog_rate_label %>
+      </p>
+      <p class="mt-1 text-xs text-slate-500">
+        <%= presenter.backlog_subtext %>
+      </p>
+    </div>
+
+    <div class="rounded-md border border-slate-800 bg-slate-900/70 p-3">
+      <p class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+        Tendance
+      </p>
+      <p class="mt-1 font-mono text-sm font-semibold text-slate-100">
+        <%= trend_label %>
+      </p>
+      <p class="mt-1 text-xs text-slate-500">
+        ratio <%= comparison[:pace_ratio].present? ? number_with_precision(comparison[:pace_ratio], precision: 2) : "—" %>
+      </p>
+    </div>
+  </div>
+
+  <p class="mt-4 rounded-md border border-slate-800 bg-slate-900/60 px-3 py-2 text-sm leading-6 text-slate-300">
+    <%= presenter.synthesis %>
+    <% if presenter.catchup_sentence.present? %>
+      <br>
+      <span class="text-slate-400">
+        <%= presenter.catchup_sentence %>
+      </span>
+    <% end %>
+  </p>
+
+  <div class="mt-5 space-y-3">
+    <div>
+      <div class="mb-1 flex items-center justify-between gap-3 text-xs text-slate-400">
+        <span>Bitcoin produit un bloc</span>
+        <span class="font-mono text-cyan-200"><%= format_duration.call(network_seconds) %></span>
+      </div>
+      <div class="h-2 rounded-full bg-slate-900">
+        <div class="h-2 rounded-full bg-cyan-400" style="width: <%= bar_width.call(network_seconds) %>%"></div>
+      </div>
+    </div>
+
+    <div>
+      <div class="mb-1 flex items-center justify-between gap-3 text-xs text-slate-400">
+        <span>Layer1 certifie un bloc</span>
+        <span class="font-mono text-emerald-200"><%= format_duration.call(layer1_seconds) %></span>
+      </div>
+      <div class="h-2 rounded-full bg-slate-900">
+        <div class="h-2 rounded-full bg-emerald-400" style="width: <%= bar_width.call(layer1_seconds) %>%"></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-5 grid gap-4 lg:grid-cols-2">
+    <div class="rounded-md border border-slate-800 bg-slate-900/50 p-4">
+      <h3 class="text-sm font-semibold text-white">
+        Cadence et durée interne Layer1
+      </h3>
+
+      <p class="mt-1 text-xs text-slate-500">
+        Moyenne des composants sur les 10 derniers blocs terminés.
+      </p>
+
+      <div class="mt-3 grid grid-cols-2 gap-3 rounded-md border border-slate-800 bg-slate-950/60 p-3">
+        <div>
+          <p class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+            Certification médiane
+          </p>
+          <p class="mt-1 font-mono text-sm text-emerald-200">
+            <%= format_duration.call(layer1_seconds) %>
+          </p>
+        </div>
+
+        <div>
+          <p class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+            Certification moyenne
+          </p>
+          <p class="mt-1 font-mono text-sm text-slate-200">
+            <%= format_duration.call(presenter.certification_average_seconds) %>
+          </p>
+        </div>
+      </div>
+
+      <p class="mt-3 text-xs text-slate-500">
+        Durée interne de traitement :
+        <span class="font-mono text-slate-200">
+          <%= format_duration.call(processing_seconds) %>
+        </span>
+        <% if presenter.processing_average_seconds.present? %>
+          <span class="text-slate-500">
+            (moyenne <%= format_duration.call(presenter.processing_average_seconds) %>)
+          </span>
+        <% end %>
+      </p>
+
+      <p class="mt-3 text-xs text-slate-500">
+        Goulot actuel :
+        <span class="font-mono uppercase text-amber-200">
+          <%= dominant_stage %>
+        </span>
+      </p>
+
+      <div class="mt-4 space-y-3">
+        <% component_values.each do |label, seconds| %>
+          <div>
+            <div class="mb-1 flex items-center justify-between gap-3 text-xs text-slate-400">
+              <span class="uppercase"><%= label == :db ? "DB" : label %></span>
+              <span class="font-mono text-slate-200"><%= presenter.component_label(label, seconds) %></span>
+            </div>
+            <div class="h-1.5 rounded-full bg-slate-950">
+              <div class="h-1.5 rounded-full bg-amber-400" style="width: <%= component_width.call(seconds) %>%"></div>
+            </div>
+          </div>
+        <% end %>
+      </div>
+
+      <p class="mt-3 text-xs text-slate-500">
+        Part du flush dans le temps total :
+        <span class="font-mono text-slate-300">
+          <%= format_percent.call(components[:flush_total_percent] || components[:flush_percent]) %>
+        </span>
+      </p>
+
+      <details class="mt-3 rounded-md border border-slate-800 bg-slate-950/50 p-3">
+        <summary class="cursor-pointer text-xs font-semibold text-slate-300 focus:outline-none focus:ring-2 focus:ring-cyan-400/60">
+          Détails techniques composants
+        </summary>
+
+        <p class="mt-2 text-xs text-slate-500">
+          Part du flush dans le temps instrumenté :
+          <span class="font-mono text-slate-300">
+            <%= format_percent.call(components[:flush_instrumented_percent]) %>
+          </span>
+        </p>
+      </details>
+    </div>
+
+    <div class="rounded-md border border-slate-800 bg-slate-900/50 p-4">
+      <h3 class="text-sm font-semibold text-white">
+        Mesures récentes
+      </h3>
+
+      <dl class="mt-3 grid grid-cols-2 gap-3 text-sm">
+        <div>
+          <dt class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+            Ingestion observée
+          </dt>
+          <dd class="mt-1 font-mono text-slate-200">
+            <%= format_duration.call(ingestion[:median_interval_seconds]) %>
+          </dd>
+        </div>
+
+        <div>
+          <dt class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+            Dernier bloc terminé
+          </dt>
+          <dd class="mt-1 font-mono text-slate-200">
+            <%= processing[:last_height] || "—" %>
+          </dd>
+        </div>
+
+        <div>
+          <dt class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+            Bloc en cours
+          </dt>
+          <dd class="mt-1 font-mono text-slate-200">
+            <%= processing[:current_height] || "—" %>
+          </dd>
+        </div>
+
+        <div>
+          <dt class="font-mono text-[11px] uppercase tracking-wide text-slate-500">
+            Temps écoulé
+          </dt>
+          <dd class="mt-1 font-mono text-slate-200">
+            <%= format_duration.call(processing[:current_elapsed_seconds]) %>
+          </dd>
+        </div>
+      </dl>
+    </div>
+  </div>
+
+  <details class="mt-5 rounded-md border border-slate-800 bg-slate-900/40 p-3">
+    <summary class="cursor-pointer text-sm font-semibold text-slate-200 focus:outline-none focus:ring-2 focus:ring-cyan-400">
+      Historique visuel récent — 10 derniers blocs terminés
+    </summary>
+
+    <p class="mt-3 text-sm leading-6 text-slate-400">
+      Le gain indique le temps repris par Layer1 entre deux blocs.
+      Le retard ajouté indique que la certification a duré plus longtemps
+      que l’intervalle Bitcoin.
+    </p>
+
+    <div class="mt-4 space-y-4">
+      <% if recent_blocks.any? %>
+        <% recent_blocks.each do |entry| %>
+          <% delta_label, delta_value = presenter.delta_label(entry[:delta_seconds]) %>
+          <div class="rounded-md border border-slate-800 bg-slate-950/60 p-3">
+            <div class="mb-2 flex items-center justify-between gap-3">
+              <p class="font-mono text-sm font-semibold text-slate-100">
+                Bloc <%= entry[:height] %>
+              </p>
+              <p class="font-mono text-xs <%= presenter.delta_classes(entry[:delta_seconds]) %>">
+                <%= delta_label %>
+                <% if delta_value.present? %>
+                  <span class="ml-1"><%= delta_value %></span>
+                <% end %>
+              </p>
+            </div>
+
+            <div class="space-y-2">
+              <div>
+                <div class="mb-1 flex justify-between text-xs text-slate-400">
+                  <span>Bitcoin</span>
+                  <span class="font-mono text-cyan-200"><%= format_duration.call(entry[:network_interval_seconds]) %></span>
+                </div>
+                <div class="h-1.5 rounded-full bg-slate-900">
+                  <div class="h-1.5 rounded-full bg-cyan-400" style="width: <%= history_width.call(entry[:network_interval_seconds]) %>%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="mb-1 flex justify-between text-xs text-slate-400">
+                  <span>Cadence de certification Layer1</span>
+                  <span class="font-mono text-emerald-200"><%= format_duration.call(presenter.certification_history_seconds(entry)) %></span>
+                </div>
+                <div class="h-1.5 rounded-full bg-slate-900">
+                  <div class="h-1.5 rounded-full bg-emerald-400" style="width: <%= history_width.call(presenter.certification_history_seconds(entry)) %>%"></div>
+                </div>
+              </div>
+
+              <div>
+                <div class="mb-1 flex justify-between text-xs text-slate-400">
+                  <span>Durée interne de traitement</span>
+                  <span class="font-mono text-amber-200"><%= format_duration.call(presenter.processing_history_seconds(entry)) %></span>
+                </div>
+                <div class="h-1.5 rounded-full bg-slate-900">
+                  <div class="h-1.5 rounded-full bg-amber-400" style="width: <%= history_width.call(presenter.processing_history_seconds(entry)) %>%"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        <% end %>
+      <% else %>
+        <p class="text-sm text-slate-500">
+          Données récentes insuffisantes.
+        </p>
+      <% end %>
+    </div>
+  </details>
+</section>
