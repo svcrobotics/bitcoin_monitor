@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "minitest/mock"
 
 module Clusters
   class AuditBlockTest < ActiveSupport::TestCase
@@ -59,7 +60,7 @@ module Clusters
       assert_equal [], result[:warnings]
     end
 
-    test "blocks unprocessed multi address transactions" do
+    test "blocks multi address transactions without provenance links" do
       height = 910_003
       cluster = create_cluster!
 
@@ -77,6 +78,91 @@ module Clusters
       refute result[:ok]
       assert_operator result[:missing_processed_multi_address_txs], :>, 0
       assert_issue result, "multi_address_txs_processed"
+    end
+
+    test "ignores a misleading historical processed marker" do
+      height = 910_008
+      cluster = create_cluster!
+
+      create_address!("audit-marker-a", cluster: cluster)
+      create_address!("audit-marker-b", cluster: cluster)
+      create_cluster_inputs!(
+        height: height,
+        txid: "audit-marker-tx",
+        addresses: %w[audit-marker-a audit-marker-b],
+        processed: false,
+        marker: Time.current
+      )
+
+      result = Clusters::AuditBlock.call(height: height)
+
+      refute result[:ok]
+      assert_equal 1, result[:missing_links]
+      assert_issue result, "missing_address_links"
+    end
+
+    test "accepts exact provenance when historical marker is nil" do
+      height = 910_009
+      cluster = create_cluster!
+
+      create_address!("audit-provenance-a", cluster: cluster)
+      create_address!("audit-provenance-b", cluster: cluster)
+      create_cluster_inputs!(
+        height: height,
+        txid: "audit-provenance-tx",
+        addresses: %w[audit-provenance-a audit-provenance-b],
+        processed: true,
+        marker: nil
+      )
+
+      result = Clusters::AuditBlock.call(height: height)
+
+      assert result[:ok]
+      assert_equal 1, result[:processed_txs]
+      assert_equal 2, result[:processed_inputs]
+      assert_equal 0, result[:missing_links]
+    end
+
+    test "blocks addresses assigned to inconsistent clusters" do
+      height = 910_010
+      first_cluster = create_cluster!
+      second_cluster = create_cluster!
+
+      create_address!("audit-split-a", cluster: first_cluster)
+      create_address!("audit-split-b", cluster: second_cluster)
+      create_cluster_inputs!(
+        height: height,
+        txid: "audit-split-tx",
+        addresses: %w[audit-split-a audit-split-b],
+        processed: true
+      )
+
+      result = Clusters::AuditBlock.call(height: height)
+
+      refute result[:ok]
+      assert_equal 1, result[:inconsistent_cluster_assignments]
+      assert_issue result, "inconsistent_cluster_assignments"
+    end
+
+    test "blocks an incomplete star of provenance links" do
+      height = 910_011
+      cluster = create_cluster!
+      addresses = %w[audit-star-a audit-star-b audit-star-c]
+
+      addresses.each { |address| create_address!(address, cluster: cluster) }
+      create_cluster_inputs!(
+        height: height,
+        txid: "audit-star-tx",
+        addresses: addresses,
+        processed: true
+      )
+      AddressLink.order(:id).last.delete
+
+      result = Clusters::AuditBlock.call(height: height)
+
+      refute result[:ok]
+      assert_equal 1, result[:missing_links]
+      assert_issue result, "missing_address_links"
     end
 
     test "blocks missing addresses" do
@@ -121,16 +207,8 @@ module Clusters
     test "blocks invalid cluster references" do
       height = 910_006
       cluster = create_cluster!
-      invalid_cluster_id = cluster.id + 100_000
-
       create_address!("audit-invalid-a", cluster: cluster)
-
-      ActiveRecord::Base.connection.disable_referential_integrity do
-        Address.create!(
-          address: "audit-invalid-b",
-          cluster_id: invalid_cluster_id
-        )
-      end
+      create_address!("audit-invalid-b", cluster: cluster)
 
       create_cluster_inputs!(
         height: height,
@@ -139,7 +217,23 @@ module Clusters
         processed: true
       )
 
-      result = Clusters::AuditBlock.call(height: height)
+      original_where = Cluster.method(:where)
+      missing_cluster_relation = Object.new
+      missing_cluster_relation.define_singleton_method(:pluck) { |_column| [] }
+
+      result =
+        Cluster.stub(
+          :where,
+          lambda do |conditions|
+            if conditions == { id: [cluster.id] }
+              missing_cluster_relation
+            else
+              original_where.call(conditions)
+            end
+          end
+        ) do
+          Clusters::AuditBlock.call(height: height)
+        end
 
       refute result[:ok]
       assert_operator result[:invalid_cluster_refs], :>, 0
@@ -168,6 +262,31 @@ module Clusters
       end
     end
 
+    test "audit performs only bounded reads of strict and Cluster tables" do
+      height = 910_012
+      cluster = create_cluster!
+
+      create_address!("audit-read-only-a", cluster: cluster)
+      create_address!("audit-read-only-b", cluster: cluster)
+      create_cluster_inputs!(
+        height: height,
+        txid: "audit-read-only-tx",
+        addresses: %w[audit-read-only-a audit-read-only-b],
+        processed: true
+      )
+
+      statements = capture_sql do
+        result = Clusters::AuditBlock.call(height: height)
+        assert result[:ok]
+      end
+
+      writes = statements.grep(/\A\s*(?:UPDATE|INSERT|DELETE)\b/i)
+      forbidden_reads = statements.grep(/\b(?:tx_outputs|utxo_outputs)\b/i)
+
+      assert_empty writes
+      assert_empty forbidden_reads
+    end
+
     private
 
     def create_cluster!
@@ -181,7 +300,7 @@ module Clusters
       )
     end
 
-    def create_cluster_inputs!(height:, txid:, addresses:, processed:)
+    def create_cluster_inputs!(height:, txid:, addresses:, processed:, marker: nil)
       addresses.each_with_index do |address, index|
         ClusterInput.create!(
           block_height: height - 1,
@@ -192,13 +311,44 @@ module Clusters
           spent: true,
           spent_txid: txid,
           spent_block_height: height,
-          cluster_processed_at: processed ? Time.current : nil
+          cluster_processed_at: marker
+        )
+      end
+
+      return unless processed
+
+      records = Address.where(address: addresses).order(:id).to_a
+      return if records.size < 2
+
+      pivot = records.first
+      records.drop(1).each do |other|
+        first_id, second_id = [pivot.id, other.id].sort
+        AddressLink.create!(
+          address_a_id: first_id,
+          address_b_id: second_id,
+          link_type: "multi_input",
+          txid: txid,
+          block_height: height
         )
       end
     end
 
     def assert_issue(result, check)
       assert_includes result[:issues].map { |issue| issue[:check] }, check
+    end
+
+    def capture_sql
+      statements = []
+      subscriber = lambda do |_name, _start, _finish, _id, payload|
+        sql = payload[:sql].to_s
+        statements << sql unless payload[:name] == "SCHEMA"
+      end
+
+      ActiveSupport::Notifications.subscribed(
+        subscriber,
+        "sql.active_record"
+      ) { yield }
+      statements
     end
   end
 end

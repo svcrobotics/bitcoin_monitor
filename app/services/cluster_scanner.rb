@@ -78,15 +78,8 @@ class ClusterScanner
       layer1_spending_txids_for_height(height)
     end
 
-    linked_txids = timed("AlreadyLinkedTxids") do
-      AddressLink
-        .where(txid: txids, link_type: "multi_input")
-        .pluck(:txid)
-        .to_set
-    end
-
     inputs_by_txid = timed("Layer1InputsBatch") do
-      layer1_inputs_for_txids(txids)
+      layer1_inputs_for_txids(txids, height: height)
     end
 
     address_cache = timed("AddressPreload") do
@@ -100,7 +93,6 @@ class ClusterScanner
         scan_layer1_transaction(
           txid,
           height,
-          linked_txids,
           input_rows: inputs_by_txid[txid] || [],
           address_cache: address_cache
         )
@@ -126,16 +118,11 @@ class ClusterScanner
     raise Error, "scan_block failed height=#{height}: #{e.class} - #{e.message}"
   end
 
-  def scan_layer1_transaction(txid, height, linked_txids, input_rows: nil, address_cache: nil)
+  def scan_layer1_transaction(txid, height, input_rows: nil, address_cache: nil)
     txid = txid.to_s
     return if txid.blank?
 
-    if linked_txids.include?(txid)
-      @stats[:already_linked_txs] += 1
-      return
-    end
-
-    input_rows ||= layer1_inputs_for_txid(txid)
+    input_rows ||= layer1_inputs_for_txid(txid, height: height)
     return if input_rows.size < 2
 
     @stats[:multi_input_candidates] += 1
@@ -171,15 +158,6 @@ class ClusterScanner
 
     merge_result = timed("ClusterMerger") do
       Clusters::ClusterMerger.call(address_records: address_records)
-    end
-
-    timed("ClusterProcessedMarker") do
-      ClusterInput
-        .where(spent_txid: txid)
-        .update_all(
-          cluster_processed_at: Time.current,
-          updated_at: Time.current
-        )
     end
 
     @stats[:clusters_created] += merge_result.created
@@ -265,9 +243,9 @@ class ClusterScanner
       .pluck(:spent_txid)
   end
 
-  def layer1_inputs_for_txid(txid)
+  def layer1_inputs_for_txid(txid, height:)
     ClusterInput
-      .where(spent_txid: txid)
+      .where(spent_txid: txid, spent_block_height: height)
       .where.not(address: nil)
       .where.not(amount_btc: nil)
       .pluck(:address, :amount_btc)
@@ -279,10 +257,10 @@ class ClusterScanner
       end
   end
 
-  def layer1_inputs_for_txids(txids)
+  def layer1_inputs_for_txids(txids, height:)
     rows =
       ClusterInput
-        .where(spent_txid: txids)
+        .where(spent_txid: txids, spent_block_height: height)
         .where.not(address: nil)
         .where.not(amount_btc: nil)
         .pluck(:spent_txid, :address, :amount_btc)
