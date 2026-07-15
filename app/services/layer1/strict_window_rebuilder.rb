@@ -130,7 +130,8 @@ module Layer1
         }
       end
 
-      measure_stage(stage_timings, height, "flush_buffers_until_empty") do
+      flush_metrics =
+        measure_stage(stage_timings, height, "flush_buffers_until_empty") do
         flush_buffers_until_empty!(height: height)
       end
 
@@ -245,6 +246,7 @@ module Layer1
           rpc_duration_ms: processor_result[:rpc_duration_ms],
           parse_duration_ms: processor_result[:parse_duration_ms],
           flush_duration_ms: stage_timings[:flush_buffers_until_empty],
+          flush_metrics: flush_metrics,
           block_verbosity: @block_verbosity,
           strict_prevout: @strict_prevout,
           strict_outputs: strict_outputs_count,
@@ -297,7 +299,8 @@ module Layer1
         strict_outputs: strict_outputs_count,
         cluster_inputs: cluster_inputs_count,
         duration_ms: duration_ms,
-        stage_timings: stage_timings
+        stage_timings: stage_timings,
+        flush_metrics: flush_metrics
       }
 
       @logger.info("[layer1_strict_rebuild] block_done #{result.inspect}")
@@ -375,6 +378,7 @@ module Layer1
 
     def flush_buffers_until_empty!(height:)
       flush_started_at = monotonic_ms
+      iterations = []
 
       100.times do |iteration|
         iteration_number = iteration + 1
@@ -400,6 +404,7 @@ module Layer1
           "spent_before=#{before_spent}"
         )
 
+        output_started_at = monotonic_ms
         out =
           measure_stage(
             {},
@@ -410,6 +415,7 @@ module Layer1
               .new(redis: @redis)
               .call
           end
+        output_duration_ms = monotonic_ms - output_started_at
 
         after_outputs = @redis.llen(OUTPUTS_KEY)
 
@@ -431,6 +437,7 @@ module Layer1
           "outputs_remaining=#{after_outputs}"
         )
 
+        spent_started_at = monotonic_ms
         spent =
           measure_stage(
             {},
@@ -442,6 +449,7 @@ module Layer1
               mode: :realtime
             )
           end
+        spent_duration_ms = monotonic_ms - spent_started_at
 
         outputs_remaining = @redis.llen(OUTPUTS_KEY)
         spent_remaining = @redis.llen(SPENT_KEY)
@@ -466,18 +474,158 @@ module Layer1
           "spent_remaining=#{spent_remaining}"
         )
 
+        iterations << {
+          iteration: iteration_number,
+          output: normalize_flush_result(
+            out,
+            measured_duration_ms: output_duration_ms
+          ),
+          spent: normalize_flush_result(
+            spent,
+            measured_duration_ms: spent_duration_ms
+          )
+        }
+
         break if outputs_remaining.zero? && spent_remaining.zero?
       end
 
       outputs_remaining = @redis.llen(OUTPUTS_KEY)
       spent_remaining = @redis.llen(SPENT_KEY)
 
-      return if outputs_remaining.zero? && spent_remaining.zero?
+      unless outputs_remaining.zero? && spent_remaining.zero?
+        raise(
+          "redis buffers not empty after flush " \
+          "outputs=#{outputs_remaining} spent=#{spent_remaining}"
+        )
+      end
 
-      raise(
-        "redis buffers not empty after flush " \
-        "outputs=#{outputs_remaining} spent=#{spent_remaining}"
-      )
+      outputs_metrics = aggregate_flush_iterations(iterations, :output)
+      spent_metrics = aggregate_flush_iterations(iterations, :spent)
+
+      {
+        duration_ms: monotonic_ms - flush_started_at,
+        iterations_count: iterations.size,
+        outputs_rows: outputs_metrics[:rows_flushed],
+        spent_rows: spent_metrics[:rows_flushed],
+        cluster_inputs_produced: spent_metrics[:cluster_inputs_produced],
+        utxos_deleted: spent_metrics[:utxos_deleted],
+        outputs: outputs_metrics,
+        spent: spent_metrics
+      }.compact
+    end
+
+    def normalize_flush_result(raw_result, measured_duration_ms:)
+      result = raw_result.to_h.deep_symbolize_keys
+      reported_duration_ms = numeric_metric(result[:duration_ms])
+      duration_ms = reported_duration_ms || numeric_metric(measured_duration_ms)
+      rows_flushed = numeric_metric(result[:flushed])
+      stage_timings = numeric_timing_hash(result[:stage_timings])
+      slice_timings = normalize_slice_timings(result[:slice_timings])
+      measured_stage_ms = Array(stage_timings&.values).sum
+
+      normalized = {
+        ok: ([true, false].include?(result[:ok]) ? result[:ok] : nil),
+        rows_flushed: rows_flushed,
+        duration_ms: duration_ms,
+        measured_duration_ms: numeric_metric(measured_duration_ms),
+        stage_timings: stage_timings,
+        slice_timings: slice_timings,
+        cluster_inputs_produced: numeric_metric(result[:cluster_inserted]),
+        utxos_deleted: numeric_metric(result[:utxo_deleted]),
+        missing_utxos: numeric_metric(result[:missing_utxo])
+      }
+
+      if rows_flushed&.positive? && duration_ms
+        normalized[:ms_per_row] = (duration_ms.to_f / rows_flushed).round(3)
+      end
+
+      if stage_timings && duration_ms
+        normalized[:unattributed_duration_ms] = [
+          duration_ms - measured_stage_ms,
+          0
+        ].max
+      end
+
+      normalized.compact
+    end
+
+    def aggregate_flush_iterations(iterations, key)
+      entries = iterations.map { |iteration| iteration.fetch(key) }
+      rows_flushed = sum_numeric_metrics(entries, :rows_flushed)
+      duration_ms = sum_numeric_metrics(entries, :duration_ms)
+      stage_timings = Hash.new(0)
+
+      entries.each do |entry|
+        (entry[:stage_timings] || {}).each do |stage, value|
+          stage_timings[stage.to_sym] += value
+        end
+      end
+
+      slice_timings = entries.flat_map { |entry| Array(entry[:slice_timings]) }
+
+      aggregated = {
+        calls: entries.size,
+        rows_flushed: rows_flushed,
+        duration_ms: duration_ms,
+        stage_timings: stage_timings.presence,
+        slice_timings: slice_timings.presence,
+        cluster_inputs_produced: sum_numeric_metrics(
+          entries,
+          :cluster_inputs_produced
+        ),
+        utxos_deleted: sum_numeric_metrics(entries, :utxos_deleted),
+        unattributed_duration_ms: sum_numeric_metrics(
+          entries,
+          :unattributed_duration_ms
+        )
+      }
+
+      if rows_flushed&.positive? && duration_ms
+        aggregated[:ms_per_row] = (duration_ms.to_f / rows_flushed).round(3)
+      end
+
+      aggregated.compact
+    end
+
+    def numeric_metric(value)
+      return value if value.is_a?(Integer)
+      return value.to_f if value.is_a?(Numeric)
+
+      nil
+    end
+
+    def numeric_timing_hash(value)
+      return nil unless value.respond_to?(:to_h)
+
+      timings = value.to_h.each_with_object({}) do |(stage, duration), result|
+        numeric_duration = numeric_metric(duration)
+        result[stage.to_sym] = numeric_duration if numeric_duration
+      end
+
+      timings.presence
+    end
+
+    def normalize_slice_timings(value)
+      return nil unless value.is_a?(Array)
+
+      slices = value.filter_map do |raw_slice|
+        next unless raw_slice.respond_to?(:to_h)
+
+        slice = raw_slice.to_h.deep_symbolize_keys
+        {
+          slice: numeric_metric(slice[:slice]),
+          rows: numeric_metric(slice[:rows]),
+          duration_ms: numeric_metric(slice[:duration_ms]),
+          timings: numeric_timing_hash(slice[:timings])
+        }.compact.presence
+      end
+
+      slices.presence
+    end
+
+    def sum_numeric_metrics(entries, key)
+      values = entries.filter_map { |entry| numeric_metric(entry[key]) }
+      values.sum if values.any?
     end
 
     def finalize_block!(height:, block_hash:, final_metrics:)
