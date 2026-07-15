@@ -17,11 +17,18 @@ module ActorProfiles
       )
       Address.create!(address: "versioned-#{SecureRandom.hex(8)}", cluster: @cluster)
       BlockBufferModel.create!(height: @height, block_hash: hash_for("layer1"), status: "processed")
+      @cluster_hash = hash_for("cluster")
       ClusterProcessedBlock.create!(
         height: @height,
-        block_hash: hash_for("cluster"),
+        block_hash: @cluster_hash,
         status: "processed",
         processed_at: Time.current
+      )
+      AddressSpendProjectionBlock.create!(
+        height: @height,
+        block_hash: @cluster_hash,
+        status: "completed",
+        completed_at: Time.current
       )
     end
 
@@ -166,6 +173,31 @@ module ActorProfiles
       assert JSON.generate(@result)
     end
 
+    test "requires the exact AddressSpend height and hash without accepting an ahead checkpoint" do
+      AddressSpendProjectionBlock.delete_all
+      error = assert_raises(ActorProfiles::DeferredSnapshotError) { build(version: 3) }
+      assert_equal "address_spend_projection_not_ready", error.reason
+
+      AddressSpendProjectionBlock.create!(
+        height: @height + 1,
+        block_hash: hash_for("ahead"),
+        status: "completed",
+        completed_at: Time.current
+      )
+      error = assert_raises(ActorProfiles::DeferredSnapshotError) { build(version: 3) }
+      assert_equal @height + 1, error.details[:projection_tip]
+
+      AddressSpendProjectionBlock.delete_all
+      AddressSpendProjectionBlock.create!(
+        height: @height,
+        block_hash: "divergent",
+        status: "completed",
+        completed_at: Time.current
+      )
+      error = assert_raises(ActorProfiles::DeferredSnapshotError) { build(version: 3) }
+      assert_equal false, error.details[:checkpoint_hash_matches]
+    end
+
     private
 
     def build(version:)
@@ -199,6 +231,8 @@ module ActorProfiles
       ActorProfile.delete_all
       ClusterActorProfileHandoff.delete_all
       ClusterInput.delete_all
+      AddressSpendStat.delete_all
+      AddressSpendProjectionBlock.delete_all
       UtxoOutput.delete_all
       Address.delete_all
       ClusterProcessedBlock.delete_all

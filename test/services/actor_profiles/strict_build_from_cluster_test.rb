@@ -23,11 +23,18 @@ module ActorProfiles
         processed_at: Time.current
       )
 
+      @cluster_hash = unique_hash("cluster")
       ClusterProcessedBlock.create!(
         height: @height,
-        block_hash: unique_hash("cluster"),
+        block_hash: @cluster_hash,
         status: "processed",
         processed_at: Time.current
+      )
+      AddressSpendProjectionBlock.create!(
+        height: @height,
+        block_hash: @cluster_hash,
+        status: "completed",
+        completed_at: Time.current
       )
     end
 
@@ -308,6 +315,8 @@ module ActorProfiles
     def cleanup_records
       ActorLabel.delete_all
       ActorProfile.delete_all
+      AddressSpendStat.delete_all
+      AddressSpendProjectionBlock.delete_all
       Layer1TxOutputProjectionBlock.delete_all
       ClusterInput.delete_all
       UtxoOutput.delete_all

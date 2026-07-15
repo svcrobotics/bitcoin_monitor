@@ -91,6 +91,21 @@ module StrictPipeline
         ),
 
         JobSpec.new(
+          name: "address_spend_projection",
+          queue: "actor_profile_strict",
+          klass: "AddressSpendStats::ProjectionJob",
+          kind: :active_job,
+          wait_seconds: 10,
+          args: [
+            {
+              limit: AddressSpendStats::ProjectionJob::DEFAULT_LIMIT,
+              max_runtime_seconds: AddressSpendStats::ProjectionJob::DEFAULT_MAX_RUNTIME_SECONDS
+            }
+          ],
+          allow_scheduled_successor_while_active: false
+        ),
+
+        JobSpec.new(
           name: "actor_profile",
           queue: "actor_profile_strict",
           klass: "Clusters::ActorProfileHandoffDispatchJob",
@@ -191,6 +206,13 @@ module StrictPipeline
       end
 
       if spec.name == "actor_profile"
+        if address_spend_work_available?
+          return result.merge(
+            skipped: true,
+            reason: "address_spend_projection_pending"
+          )
+        end
+
         unless actor_profile_work_available?
           return result.merge(
             skipped: true,
@@ -203,6 +225,15 @@ module StrictPipeline
             skipped: true,
             reason: "pipeline_controller_refused"
           )
+        end
+      end
+
+      if spec.name == "address_spend_projection"
+        unless address_spend_work_available?
+          return result.merge(skipped: true, reason: "durable_backlog_empty")
+        end
+        unless address_spend_pipeline_allowed?
+          return result.merge(skipped: true, reason: "pipeline_controller_refused")
         end
       end
 
@@ -392,6 +423,17 @@ module StrictPipeline
 
     def actor_profile_work_available?
       Clusters::ActorProfileHandoffDispatcher.work_available?
+    end
+
+    def address_spend_work_available?
+      AddressSpendStats::NextRecord.call.present?
+    end
+
+    def address_spend_pipeline_allowed?
+      decision = System::PipelineController.decision(:address_spend_projection)
+      decision.is_a?(Hash) && decision[:allowed] == true
+    rescue StandardError
+      false
     end
 
     def actor_profile_pipeline_allowed?

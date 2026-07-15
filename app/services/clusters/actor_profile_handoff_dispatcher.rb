@@ -20,13 +20,35 @@ module Clusters
 
     def self.claimable_scope(now:)
       retryable = ClusterActorProfileHandoff
+        .joins(address_spend_dependency_join)
         .where(status: %w[pending failed])
-        .where("attempts < ?", MAX_ATTEMPTS)
+        .where(
+          "cluster_actor_profile_handoffs.attempts < ?",
+          MAX_ATTEMPTS
+        )
       stale = ClusterActorProfileHandoff
+        .joins(address_spend_dependency_join)
         .where(status: "processing")
-        .where("attempts < ?", MAX_ATTEMPTS)
-        .where("claimed_at < ?", now - STALE_AFTER)
+        .where(
+          "cluster_actor_profile_handoffs.attempts < ?",
+          MAX_ATTEMPTS
+        )
+        .where(
+          "cluster_actor_profile_handoffs.claimed_at < ?",
+          now - STALE_AFTER
+        )
       retryable.or(stale)
+    end
+
+    def self.address_spend_dependency_join
+      <<~SQL.squish
+        INNER JOIN address_spend_projection_blocks
+          ON address_spend_projection_blocks.height =
+             cluster_actor_profile_handoffs.cluster_height
+         AND address_spend_projection_blocks.block_hash =
+             cluster_actor_profile_handoffs.block_hash
+         AND address_spend_projection_blocks.status = 'completed'
+      SQL
     end
 
     def initialize(limit:, now:, logger: Rails.logger)

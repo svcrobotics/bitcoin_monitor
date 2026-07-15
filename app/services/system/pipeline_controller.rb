@@ -5,7 +5,7 @@ module System
     LAYER1_STRICT_QUEUE = "layer1_strict"
     CLUSTER_STRICT_QUEUE = "cluster_strict"
     ADDRESS_SPEND_PROJECTION_QUEUE =
-      "address_spend_projection"
+      "actor_profile_strict"
     ACTOR_PROFILE_STRICT_QUEUE = "actor_profile_strict"
     ACTOR_BEHAVIOR_STRICT_QUEUE = "actor_behavior_strict"
     ACTOR_BEHAVIOR_HEAVY_QUEUE = "actor_behavior_heavy"

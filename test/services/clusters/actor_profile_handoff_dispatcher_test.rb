@@ -237,9 +237,33 @@ module Clusters
       assert_empty sql.grep(/redis|sidekiq/i)
     end
 
+    test "leaves a handoff pending until the exact AddressSpend checkpoint is certified" do
+      handoff = create_handoff!
+      AddressSpendProjectionBlock.delete_all
+
+      assert_equal false, ActorProfileHandoffDispatcher.work_available?
+      assert_equal 0, ActorProfileHandoffDispatcher.call[:claimed]
+      assert_equal "pending", handoff.reload.status
+
+      AddressSpendProjectionBlock.create!(
+        height: @height,
+        block_hash: @hash,
+        status: "completed",
+        completed_at: Time.current
+      )
+      with_actor_builder(->(**) { { status: "built", ok: true } }) do
+        assert_equal 1, ActorProfileHandoffDispatcher.call[:completed]
+      end
+    end
+
     private
 
     def create_handoff!(height: @height, block_hash: @hash, composition_version: 1)
+      AddressSpendProjectionBlock.find_or_create_by!(height: height) do |checkpoint|
+        checkpoint.block_hash = block_hash
+        checkpoint.status = "completed"
+        checkpoint.completed_at = Time.current
+      end
       ClusterActorProfileHandoff.create!(
         cluster_height: height,
         block_hash: block_hash,
@@ -281,6 +305,8 @@ module Clusters
       ActorLabel.delete_all
       ActorProfile.delete_all
       ClusterActorProfileHandoff.delete_all
+      AddressSpendProjectionBlock.delete_all
+      AddressSpendStat.delete_all
       Address.delete_all
       ClusterProcessedBlock.delete_all
       BlockBufferModel.delete_all

@@ -115,6 +115,8 @@ def build_profile
       )
     end
 
+    address_spend_checkpoint = certified_address_spend_checkpoint!(cluster_tip)
+
     if cluster.last_seen_height.to_i > cluster_tip
       raise ActorProfiles::DeferredSnapshotError.new(
         "Cluster is ahead of strict tip " \
@@ -278,6 +280,15 @@ def build_profile
 
         historical_enrichment_source:
           "layer1_tx_output_projection_blocks_projected_future",
+
+        address_spend_projection_height:
+          address_spend_checkpoint.height,
+
+        address_spend_projection_hash:
+          address_spend_checkpoint.block_hash,
+
+        address_spend_projection_version:
+          AddressSpendStat::PROJECTION_VERSION,
 
         snapshot_isolation:
           "repeatable_read",
@@ -473,6 +484,39 @@ def acquire_cluster_build_lock
       )
 
   value == true || value.to_s == "t"
+end
+
+def certified_address_spend_checkpoint!(required_height)
+  cluster_hash = ClusterProcessedBlock
+    .where(height: required_height, status: "processed")
+    .pick(:block_hash)
+  checkpoint = AddressSpendProjectionBlock.find_by(
+    height: required_height,
+    status: "completed"
+  )
+  projection_tip = AddressSpendProjectionBlock
+    .where(status: "completed")
+    .maximum(:height)
+    .to_i
+  next_height = AddressSpendStats::NextRecord.call&.height&.to_i
+
+  valid = checkpoint && cluster_hash.present? &&
+    checkpoint.block_hash == cluster_hash &&
+    projection_tip == required_height &&
+    (next_height.nil? || next_height > required_height)
+  return checkpoint if valid
+
+  raise ActorProfiles::DeferredSnapshotError.new(
+    "AddressSpend projection is not certified at the ActorProfile checkpoint",
+    cluster_id: @cluster_id,
+    reason: "address_spend_projection_not_ready",
+    details: {
+      required_height: required_height,
+      projection_tip: projection_tip,
+      next_record_height: next_height,
+      checkpoint_hash_matches: checkpoint&.block_hash == cluster_hash
+    }
+  )
 end
 
 def compute_source_stats(cluster)
