@@ -635,7 +635,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_15_134221) do
     t.jsonb "scan_result", default: {}, null: false
     t.jsonb "cleanup_result", default: {}, null: false
     t.jsonb "audit_result", default: {}, null: false
-    t.datetime "processed_at", null: false
+    t.datetime "processed_at"
     t.text "error_message"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
