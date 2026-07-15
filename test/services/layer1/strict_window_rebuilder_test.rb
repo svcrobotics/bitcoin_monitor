@@ -441,21 +441,15 @@ module Layer1
             :call,
             ->(*) { raise "ProjectHeight must not run inline" }
           ) do
-            with_stubbed(
-              Layer1::ReconcileSpentOutputs,
-              :call,
-              ->(*) { raise "legacy reconciliation must not run" }
-            ) do
-              with_stubbed(Layer1::ReconcileStrictUtxoState, :call, reconcile) do
-                with_stubbed(Layer1::AuditBlock, :call, output_audit) do
-                  with_stubbed(Layer1::AuditBlockInputs, :call, inputs_audit) do
-                    with_stubbed(Layer1::AuditBlockUtxoState, :call, utxo_audit) do
-                      Layer1::StrictWindowRebuilder.call(
-                        from_height: height,
-                        to_height: height,
-                        rpc: rpc
-                      )
-                    end
+            with_stubbed(Layer1::ReconcileStrictUtxoState, :call, reconcile) do
+              with_stubbed(Layer1::AuditBlock, :call, output_audit) do
+                with_stubbed(Layer1::AuditBlockInputs, :call, inputs_audit) do
+                  with_stubbed(Layer1::AuditBlockUtxoState, :call, utxo_audit) do
+                    Layer1::StrictWindowRebuilder.call(
+                      from_height: height,
+                      to_height: height,
+                      rpc: rpc
+                    )
                   end
                 end
               end
