@@ -112,6 +112,7 @@ class Btc::DashboardControllerTest < ActionDispatch::IntegrationTest
                           assert_select "h1", text: /BTC Dashboard/i
                           assert_select "p", text: /Lecture daily propre du marché Bitcoin/i
                           assert_select "p", text: /Vue chandeliers/i
+                          assert_select "#btc-live-price", text: /\$83,500/
                         end
                       end
                     end
@@ -126,7 +127,10 @@ class Btc::DashboardControllerTest < ActionDispatch::IntegrationTest
   end
 
   test "accepts explicit range market and timeframe params" do
-    Btc::DailyHistoryQuery.stub(:call, []) do
+    Btc::DailyHistoryQuery.stub(:call, ->(range:) {
+      assert_equal "7d", range
+      []
+    }) do
       Btc::SummaryQuery.stub(:call, {
         day: nil,
         close_usd: nil,
@@ -166,16 +170,21 @@ class Btc::DashboardControllerTest < ActionDispatch::IntegrationTest
             source_label: "—",
             updated_at_label: "—"
           }) do
-            Btc::ChartPresenter.stub(:call, []) do
-              Btc::CandlesQuery.stub(:call, []) do
-                Btc::CandlesStatusQuery.stub(:call, {
+            Btc::CandlesQuery.stub(:call, ->(market:, timeframe:, limit:) {
+              assert_equal ["btceur", "5m", 120], [market, timeframe, limit]
+              []
+            }) do
+              Btc::CandlesStatusQuery.stub(:call, ->(market:, timeframe:) {
+                assert_equal ["btceur", "5m"], [market, timeframe]
+                {
                   market: "btceur",
                   timeframe: "5m",
                   last_open_time: nil,
                   last_close_time: nil,
                   source: nil,
                   candles_count: 0
-                }) do
+                }
+              }) do
                   Btc::Health::FreshnessChecker.stub(:call, "offline") do
                     Btc::Health::CandlesFreshnessChecker.stub(:call, "offline") do
                       offline_ui = {
@@ -195,12 +204,13 @@ class Btc::DashboardControllerTest < ActionDispatch::IntegrationTest
                           assert_select "a", text: "7d"
                           assert_select "a", text: "BTC/EUR"
                           assert_select "a", text: "5m"
+                          assert_select "#btc-live-price", text: /—/
+                          assert_select "#btc-live-price", text: /\$0/, count: 0
                         end
                       end
                     end
                   end
                 end
-              end
             end
           end
         end

@@ -40,7 +40,7 @@
   </div>
   <%= turbo_stream_from "btc_dashboard" %>
   <%= render "btc/dashboard/live_price",
-    price: @chart_data.last[:y] %>
+    price: @chart_data.last&.dig(:y) %>
   <%= render "btc/dashboard/main_chart",
     range: @range,
     source_label: @summary_ui[:source_label],

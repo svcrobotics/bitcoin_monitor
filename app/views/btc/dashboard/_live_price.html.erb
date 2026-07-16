@@ -9,7 +9,7 @@
       </p>
 
       <p class="mt-2 text-4xl font-bold tracking-tight text-white">
-        <%= number_to_currency(price, unit: "$", precision: 0) %>
+        <%= price.nil? ? "—" : number_to_currency(price, unit: "$", precision: 0) %>
       </p>
 
       <p class="mt-2 text-sm text-gray-400">
