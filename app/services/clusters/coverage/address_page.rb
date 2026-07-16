@@ -63,8 +63,7 @@ module Clusters
           else
             Clusters::EnsureAddressClusters.call(
               addresses:
-                clusterable_addresses.map { |row| row[:address] },
-              mark_dirty: false
+                clusterable_addresses.map { |row| row[:address] }
             )
           end
 
@@ -175,7 +174,8 @@ module Clusters
         {
           ok: true,
           updated: 0,
-          clusters: 0
+          clusters: 0,
+          marked: 0
         }
       end
     end

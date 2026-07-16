@@ -4,6 +4,7 @@ require "test_helper"
 
 class ClusterActorProfileHandoffTest < ActiveSupport::TestCase
   setup do
+    ActorBehaviorBuildHandoff.delete_all
     ClusterActorProfileHandoff.delete_all
     Cluster.delete_all
     @cluster = Cluster.create!

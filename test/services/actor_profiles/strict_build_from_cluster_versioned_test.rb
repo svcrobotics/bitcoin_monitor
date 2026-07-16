@@ -352,6 +352,7 @@ module ActorProfiles
 
     def cleanup!
       ActorLabel.delete_all
+      ActorBehaviorBuildHandoff.delete_all
       ActorProfile.delete_all
       ActorProfileBuildAdmission.delete_all
       ClusterActorProfileHandoff.delete_all

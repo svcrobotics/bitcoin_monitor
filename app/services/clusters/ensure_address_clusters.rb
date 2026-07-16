@@ -13,23 +13,40 @@ module Clusters
     end
 
     def call
-      return { ok: true, updated: 0, marked: 0 } if @addresses.empty?
+      return result if @addresses.empty?
 
       Address
         .where(address: @addresses, cluster_id: nil)
         .find_each do |addr|
-          cluster = Cluster.create!
-          addr.update!(cluster_id: cluster.id, updated_at: Time.current)
+          ApplicationRecord.transaction do
+            addr.lock!
+            next if addr.cluster_id.present?
 
-          admission = ActorProfiles::Admission.register_latest(
-            cluster_ids: [cluster.id], reason: "missing_profile"
-          )
+            cluster = Cluster.create!
+            addr.update!(cluster: cluster)
+            cluster.recalculate_stats!
 
-          @updated += 1
-          @marked += admission[:created]
+            admission = ActorProfiles::Admission.register_latest(
+              cluster_ids: [cluster.id], reason: "missing_profile"
+            )
+
+            @updated += 1
+            @marked += admission[:created]
+          end
         end
 
-      { ok: true, updated: @updated, marked: @marked }
+      result
+    end
+
+    private
+
+    def result
+      {
+        ok: true,
+        updated: @updated,
+        clusters: @updated,
+        marked: @marked
+      }
     end
   end
 end
