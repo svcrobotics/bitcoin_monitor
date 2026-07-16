@@ -345,21 +345,21 @@ es:
       rights: "Todos los derechos reservados."  
 
   about:
-    title: "Acerca de Bitcoin Monitor"
+    title: "Acerca de Tansa"
 
     hero:
-      headline: "Acerca de Bitcoin Monitor"
+      headline: "Acerca de Tansa"
       subtitle: "Una plataforma internacional de análisis neutral y estructurado del mercado Bitcoin."
 
     mission:
       title: "Nuestra misión"
-      p1: "Bitcoin Monitor ofrece herramientas analíticas diseñadas para proporcionar una lectura clara, metódica y transparente del mercado."
+      p1: "Tansa ofrece herramientas analíticas diseñadas para proporcionar una lectura clara, metódica y transparente del mercado."
       p2: "La plataforma está pensada para traders, analistas e inversores a largo plazo que buscan estructura, disciplina y comprensión contextual."
       p3: "Priorizamos la coherencia metodológica, la neutralidad analítica y la integridad de los datos."
 
     data:
       title: "Transparencia de datos"
-      p1: "Bitcoin Monitor procesa exclusivamente datos públicos de blockchain y mercados."
+      p1: "Tansa procesa exclusivamente datos públicos de blockchain y mercados."
       bullets:
         b1: "Sin conexión a wallets de usuarios"
         b2: "No se solicitan claves privadas"
@@ -369,7 +369,7 @@ es:
 
     technology:
       title: "Tecnología e Inteligencia Artificial"
-      p1: "Bitcoin Monitor integra modelos de inteligencia artificial como herramientas analíticas avanzadas."
+      p1: "Tansa integra modelos de inteligencia artificial como herramientas analíticas avanzadas."
       p2: "La IA se utiliza para estructurar información, explorar escenarios y acelerar el análisis."
       p3: "La arquitectura, validación y toma de decisiones permanecen bajo supervisión humana."
 
@@ -378,4 +378,4 @@ es:
       p1: "Construir una infraestructura analítica independiente, escalable e internacional adaptada a un mercado en constante evolución."
       p2: "Ofrecer un entorno donde los datos son prioritarios, la metodología es explícita y el usuario mantiene el control."
 
-    disclaimer: "La información proporcionada por Bitcoin Monitor tiene fines educativos e informativos y no constituye asesoramiento financiero. Los activos digitales son volátiles y conllevan riesgos."
+    disclaimer: "La información proporcionada por Tansa tiene fines educativos e informativos y no constituye asesoramiento financiero. Los activos digitales son volátiles y conllevan riesgos."
