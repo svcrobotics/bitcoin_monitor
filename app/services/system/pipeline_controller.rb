@@ -486,6 +486,14 @@ module System
         actor_labels: actor_labels,
 
         strict_io: {
+          available:
+            strict_io_owner&.available? == true,
+          status:
+            strict_io_owner&.status ||
+              "unavailable",
+          reason:
+            strict_io_owner&.reason ||
+              "strict_io_lease_unavailable",
           owner: strict_io_owner&.owner,
           acquired_at: strict_io_owner&.acquired_at&.iso8601(6),
           expires_at: strict_io_owner&.expires_at&.iso8601(6)
@@ -1134,10 +1142,12 @@ module System
         ) == true
 
       when :strict_io_idle
-        current_snapshot.dig(:strict_io, :owner).blank?
+        current_snapshot.dig(:strict_io, :available) == true &&
+          current_snapshot.dig(:strict_io, :owner).blank?
 
       when :strict_io_not_layer1
-        current_snapshot.dig(:strict_io, :owner).to_s != "layer1"
+        current_snapshot.dig(:strict_io, :available) == true &&
+          current_snapshot.dig(:strict_io, :owner).to_s != "layer1"
 
       when :layer1_checkpoint_available
         current_snapshot.dig(:layer1, :checkpoint_available) == true

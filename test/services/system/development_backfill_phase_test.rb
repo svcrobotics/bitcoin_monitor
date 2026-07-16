@@ -173,6 +173,9 @@ module System
                             with_singleton_method(PipelineController, :actor_labels_snapshot, ->(*) { {} }) do
                               result = PipelineController.snapshot
                               assert_equal "downstream_catchup", result.dig(:development_backfill, :phase)
+                              assert_equal false, result.dig(:strict_io, :available)
+                              assert_equal "unavailable", result.dig(:strict_io, :status)
+                              assert_equal "strict_io_lease_unavailable", result.dig(:strict_io, :reason)
                             end
                           end
                         end
