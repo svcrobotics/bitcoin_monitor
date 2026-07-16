@@ -14,7 +14,9 @@ module AddressSpendStats
 
     teardown do
       original = @original_decision
-      System::PipelineController.define_singleton_method(:decision) { |*args| original.call(*args) }
+      System::PipelineController.define_singleton_method(:decision) do |*args, **kwargs, &block|
+        original.call(*args, **kwargs, &block)
+      end
     end
 
     test "uses the isolated projection queue" do
