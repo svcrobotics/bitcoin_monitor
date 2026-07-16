@@ -14,7 +14,7 @@ module Blockchain
       def initialize(
         rpc: BitcoinRpc.new,
         logger: Rails.logger,
-        tx_processor: TxProcessor.new,
+        tx_processor: nil,
         flush_after_block: false,
         fast_layer1: ENV.fetch("LAYER1_FAST_PATH", "true") == "true",
         block_verbosity: Integer(ENV.fetch("LAYER1_BLOCK_VERBOSITY", "2")),
@@ -121,7 +121,7 @@ module Blockchain
                 prevout_missing: utxo_result[:prevout_missing]
               }
             else
-              @tx_processor = TxProcessor.new(
+              @tx_processor ||= TxProcessor.new(
                 prevout_cache: prevout_cache,
                 write_utxos: false
               )
