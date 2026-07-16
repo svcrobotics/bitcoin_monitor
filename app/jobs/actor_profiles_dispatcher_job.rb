@@ -8,35 +8,29 @@ class ActorProfilesDispatcherJob < ApplicationJob
   KEY = ActorProfiles::DirtyMarker::KEY
 
   def perform(batch_size: BATCH_SIZE)
-    redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
-
-    cluster_ids = redis.spop(KEY, batch_size)
-    cluster_ids = Array(cluster_ids).map(&:to_i).uniq.select(&:positive?)
-
-    return { enqueued: 0 } if cluster_ids.empty?
-
-    cluster_ids.each do |cluster_id|
-      queue = heavy_cluster?(cluster_id) ? :p3_actor_profile_heavy : :p3_actor_profile_light
-
-      ActorProfilesComputeJob
-        .set(queue: queue)
-        .perform_later(cluster_id)
+    unless ENV["ACTOR_PROFILE_REDIS_RECOVERY_ENABLED"] == "1"
+      return { ok: true, status: "skipped", reason: "legacy_recovery_disabled" }
     end
 
+    redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
+
+    cluster_ids = redis.srandmember(KEY, batch_size)
+    cluster_ids = Array(cluster_ids).map(&:to_i).uniq.select(&:positive?)
+
+    return { ok: true, imported: 0, remaining: redis.scard(KEY) } if cluster_ids.empty?
+
+    admission = ActorProfiles::Admission.register_latest(
+      cluster_ids: cluster_ids,
+      reason: "recovery"
+    )
+    registered = admission.fetch(:registered_cluster_ids)
+    redis.srem(KEY, registered) if registered.any?
+
     {
-      enqueued: cluster_ids.size,
+      ok: true,
+      status: "imported",
+      imported: registered.size,
       remaining: redis.scard(KEY)
     }
-  end
-
-  private
-
-  def heavy_cluster?(cluster_id)
-    address_count = Address.where(cluster_id: cluster_id).limit(20_001).count
-
-    address_count > ENV.fetch("ACTOR_PROFILE_HEAVY_ADDRESS_COUNT", 20_000).to_i
-  rescue => e
-    Rails.logger.warn("[actor_profiles_dispatcher] heavy_cluster_check_failed cluster_id=#{cluster_id} error=#{e.class}: #{e.message}")
-    false
   end
 end

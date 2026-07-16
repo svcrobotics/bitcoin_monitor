@@ -82,14 +82,6 @@ if Sidekiq.server?
       "description" => "Detect Cluster V3 signals"
     },
 
-    "actor_profiles_dispatcher" => {
-      "cron" => "*/1 * * * *",
-      "class" => "ActorProfilesDispatcherJob",
-      "queue" => "p3_actor_profile_light",
-      "active_job" => true,
-      "description" => "Dispatch dirty actor profile clusters every minute"
-    },
-    
     "system_snapshots_refresh" => {
       "class" => "SystemSnapshotsRefreshJob",
       "cron" => "*/5 * * * *",

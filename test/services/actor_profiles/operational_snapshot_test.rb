@@ -168,11 +168,12 @@ module ActorProfiles
     end
 
     def create_handoff(cluster, height:, block_hash: nil, version: 1)
-      ClusterActorProfileHandoff.create!(
+      ActorProfileBuildAdmission.create!(
         cluster: cluster,
-        cluster_height: height,
-        block_hash: block_hash || "cluster-#{height}",
-        composition_version: version
+        source_height: height,
+        source_hash: block_hash || "cluster-#{height}",
+        cluster_composition_version: version,
+        reason: "address_spend"
       )
     end
 

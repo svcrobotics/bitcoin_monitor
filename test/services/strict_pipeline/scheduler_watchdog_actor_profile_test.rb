@@ -12,8 +12,8 @@ module StrictPipeline
     test "uses the durable outbox job and dedicated queue" do
       spec = actor_profile_spec
       assert_equal "actor_profile_strict", spec.queue
-      assert_equal "Clusters::ActorProfileHandoffDispatchJob", spec.klass
-      assert_equal [{ limit: Clusters::ActorProfileHandoffDispatchJob::DEFAULT_LIMIT }], spec.args
+      assert_equal "ActorProfiles::BuildDispatchJob", spec.klass
+      assert_equal [{ limit: ActorProfiles::BuildDispatchJob::DEFAULT_LIMIT }], spec.args
       assert JSON.generate(spec.args)
     end
 
@@ -22,9 +22,9 @@ module StrictPipeline
       relation = Object.new
       relation.define_singleton_method(:perform_later) { |arguments| enqueued << arguments }
       with_empty_state do
-        Clusters::ActorProfileHandoffDispatcher.stub(:work_available?, true) do
+        ActorProfiles::BuildDispatcher.stub(:work_available?, true) do
           System::PipelineController.stub(:decision, { allowed: true }) do
-            Clusters::ActorProfileHandoffDispatchJob.stub(:set, ->(wait:) {
+            ActorProfiles::BuildDispatchJob.stub(:set, ->(wait:) {
               assert_equal 15.seconds, wait
               relation
             }) do
@@ -33,7 +33,7 @@ module StrictPipeline
           end
         end
       end
-      assert_equal [{ limit: Clusters::ActorProfileHandoffDispatchJob::DEFAULT_LIMIT }], enqueued
+      assert_equal [{ limit: ActorProfiles::BuildDispatchJob::DEFAULT_LIMIT }], enqueued
     end
 
     test "does not enqueue without durable work or when Gate refuses" do
@@ -41,9 +41,9 @@ module StrictPipeline
        [true, { allowed: false }, "pipeline_controller_refused"],
        [true, ->(*) { raise "gate failed" }, "pipeline_controller_refused"]].each do |work, decision, reason|
         with_empty_state do
-          Clusters::ActorProfileHandoffDispatcher.stub(:work_available?, work) do
+          ActorProfiles::BuildDispatcher.stub(:work_available?, work) do
             System::PipelineController.stub(:decision, decision) do
-              Clusters::ActorProfileHandoffDispatchJob.stub(:set, ->(**) { flunk "must not enqueue" }) do
+              ActorProfiles::BuildDispatchJob.stub(:set, ->(**) { flunk "must not enqueue" }) do
                 result = @watchdog.send(:check_job, actor_profile_spec)
                 assert_equal false, result[:repaired]
                 assert_equal reason, result[:reason]

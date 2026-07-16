@@ -108,12 +108,12 @@ module StrictPipeline
         JobSpec.new(
           name: "actor_profile",
           queue: "actor_profile_strict",
-          klass: "Clusters::ActorProfileHandoffDispatchJob",
+          klass: "ActorProfiles::BuildDispatchJob",
           kind: :active_job,
           wait_seconds: 15,
           args: [
             {
-              limit: Clusters::ActorProfileHandoffDispatchJob::DEFAULT_LIMIT
+              limit: ActorProfiles::BuildDispatchJob::DEFAULT_LIMIT
             }
           ],
           allow_scheduled_successor_while_active:
@@ -422,7 +422,7 @@ module StrictPipeline
     end
 
     def actor_profile_work_available?
-      Clusters::ActorProfileHandoffDispatcher.work_available?
+      ActorProfiles::BuildDispatcher.work_available?
     end
 
     def address_spend_work_available?

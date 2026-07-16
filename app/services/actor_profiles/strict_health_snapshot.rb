@@ -6,7 +6,7 @@ module ActorProfiles
   class StrictHealthSnapshot
     QUEUE_NAME = "actor_profile_strict"
     PROFILE_VERSION = StrictBuildFromCluster::PROFILE_VERSION
-    STALE_AFTER = Clusters::ActorProfileHandoffDispatcher::STALE_AFTER
+    STALE_AFTER = BuildDispatcher::STALE_AFTER
 
     def self.call(now: Time.current, sidekiq_runtime: nil, pipeline_decision: nil)
       new(
@@ -66,7 +66,7 @@ module ActorProfiles
     def database_snapshot
       connection = ApplicationRecord.connection
       profile_row = connection.select_one(profile_aggregate_sql)
-      handoff_rows = ClusterActorProfileHandoff.group(:status).count
+      handoff_rows = ActorProfileBuildAdmission.group(:status).count
       cluster_tip = ClusterProcessedBlock.where(status: "processed").maximum(:height)
       address_spend_tip = AddressSpendProjectionBlock.completed.maximum(:height)
       total_clusters = profile_row.fetch("total_clusters").to_i
@@ -144,16 +144,16 @@ module ActorProfiles
     end
 
     def stale_handoff_count
-      ClusterActorProfileHandoff.where(status: "processing")
+      ActorProfileBuildAdmission.where(status: "processing")
         .where("claimed_at IS NULL OR claimed_at < ?", @now - STALE_AFTER).count
     end
 
     def admissible_handoff_count
-      Clusters::ActorProfileHandoffDispatcher.claimable_scope(now: @now).count
+      BuildDispatcher.claimable_scope(now: @now).count
     end
 
     def oldest_handoff_age
-      created = ClusterActorProfileHandoff.where(status: %w[pending processing failed]).minimum(:created_at)
+      created = ActorProfileBuildAdmission.where(status: %w[pending processing failed]).minimum(:created_at)
       created ? [(@now - created).to_f, 0.0].max : nil
     end
 

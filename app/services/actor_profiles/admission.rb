@@ -2,6 +2,7 @@
 
 module ActorProfiles
   class Admission
+    HANDOFF_STALE_AFTER = 15.minutes
     def self.register(cluster_id:, composition_version:, source_height:, source_hash:, reason:)
       new(cluster_id:, composition_version:, source_height:, source_hash:, reason:).register
     end
@@ -36,6 +37,10 @@ module ActorProfiles
           rows, unique_by: :idx_actor_profile_admissions_identity, returning: %w[id]
         ).rows.size
       end
+      ClusterActorProfileHandoff.where(cluster_height: height, block_hash: hash)
+        .where.not(status: "completed")
+        .update_all(status: "completed", completed_at: Time.current,
+          last_error_class: nil, updated_at: Time.current)
       { ok: true, source_height: height, source_hash: hash,
         selected: rows.size, created: inserted, already_registered: rows.size - inserted }
     end
@@ -57,7 +62,55 @@ module ActorProfiles
         rows, unique_by: :idx_actor_profile_admissions_identity, returning: %w[id]
       ).rows.size
       { ok: true, selected: rows.size, created: inserted,
-        already_registered: rows.size - inserted }
+        already_registered: rows.size - inserted,
+        registered_cluster_ids: rows.map { |row| row.fetch(:cluster_id) } }
+    end
+
+    def self.cluster_handoff_work_available?(now: Time.current)
+      cluster_handoff_scope(now: now).exists?
+    end
+
+    def self.import_cluster_handoffs(limit:, now: Time.current)
+      imported = 0
+      ApplicationRecord.transaction(requires_new: true) do
+        handoffs = cluster_handoff_scope(now: now)
+          .order("cluster_actor_profile_handoffs.cluster_height",
+            "cluster_actor_profile_handoffs.cluster_id", "cluster_actor_profile_handoffs.id")
+          .limit([[Integer(limit), 1].max, 100].min)
+          .lock("FOR UPDATE SKIP LOCKED")
+          .to_a
+        rows = handoffs.map do |handoff|
+          { cluster_id: handoff.cluster_id,
+            cluster_composition_version: handoff.composition_version,
+            source_height: handoff.cluster_height,
+            source_hash: handoff.block_hash,
+            reason: "cluster_composition", status: "pending", attempts: 0,
+            created_at: now, updated_at: now }
+        end
+        ActorProfileBuildAdmission.insert_all(
+          rows, unique_by: :idx_actor_profile_admissions_identity
+        ) if rows.any?
+        if handoffs.any?
+          ClusterActorProfileHandoff.where(id: handoffs.map(&:id)).update_all(
+            status: "completed", completed_at: now, last_error_class: nil, updated_at: now
+          )
+        end
+        imported = handoffs.size
+      end
+      { ok: true, imported: imported }
+    end
+
+    def self.cluster_handoff_scope(now:)
+      ready = ClusterActorProfileHandoff.joins(<<~SQL.squish)
+        INNER JOIN address_spend_projection_blocks
+          ON address_spend_projection_blocks.height = cluster_actor_profile_handoffs.cluster_height
+         AND address_spend_projection_blocks.block_hash = cluster_actor_profile_handoffs.block_hash
+         AND address_spend_projection_blocks.status = 'completed'
+      SQL
+      retryable = ready.where(status: %w[pending failed])
+      stale = ready.where(status: "processing")
+        .where("cluster_actor_profile_handoffs.claimed_at < ?", now - HANDOFF_STALE_AFTER)
+      retryable.or(stale)
     end
 
     def self.validate_source!(height, hash)
