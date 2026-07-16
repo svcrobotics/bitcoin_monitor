@@ -2290,83 +2290,27 @@ module System
       source =
         ActorProfiles::OperationalSnapshot.read
 
-      progress =
-        source[:progress] || {}
-
-      certification =
-        source[:certification] || {}
-
+      profiles = source[:profiles] || {}
+      handoffs = source[:handoffs] || {}
       automation =
         source[:automation] || {}
-
-      epoch_active =
-        certification[:epoch_active] == true
-
-      epoch_height =
-        certification[
-          :certification_epoch_height
-        ].to_i
-
-      pending =
-        if progress.key?(
-          :pending_profiles_since_epoch
-        )
-          progress[
-            :pending_profiles_since_epoch
-          ].to_i
-        else
-          progress[
-            :pending_profiles
-          ].to_i
-        end
-
-      queue_size =
-        automation[:queue_size].to_i
-
-      worker_busy =
-        automation[
-          :busy_workers
-        ].to_i.positive?
-
-      lock_present =
-        automation[
-          :lock_ttl
-        ].to_i.positive?
-
-      processing =
-        worker_busy ||
-        lock_present
-
-      caught_up =
-        epoch_active &&
-        pending.zero? &&
-        !processing
+      pending = handoffs[:admissible].to_i
+      queue_size = automation[:queue_size].to_i
+      worker_busy = automation[:busy_workers].to_i.positive?
+      processing = worker_busy || handoffs[:processing].to_i.positive?
+      checkpoint_height = profiles[:latest_height].to_i
+      caught_up = pending.zero? && !processing && handoffs[:failed].to_i.zero?
 
       {
-        epoch_active:
-          epoch_active,
-
-        certification_epoch_height:
-          epoch_active ?
-            epoch_height :
-            nil,
-
-        checkpoint_height:
-          epoch_active ?
-            epoch_height :
-            0,
-
-        checkpoint_available:
-          epoch_active &&
-          epoch_height.positive?,
+        epoch_active: source[:available] == true,
+        certification_epoch_height: checkpoint_height.positive? ? checkpoint_height : nil,
+        checkpoint_height: checkpoint_height,
+        checkpoint_available: source[:available] == true,
 
         caught_up_to_cluster:
           caught_up,
 
-        pending_work:
-          epoch_active ?
-            pending :
-            0,
+        pending_work: pending,
 
         processing:
           processing,
@@ -2377,9 +2321,7 @@ module System
         strict_worker_busy:
           worker_busy,
 
-        strict_active:
-          queue_size.positive? ||
-          processing
+        strict_active: queue_size.positive? || processing
       }
     rescue StandardError
       {
