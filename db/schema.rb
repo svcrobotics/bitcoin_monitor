@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_16_130000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_16_131000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
@@ -121,14 +121,20 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_130000) do
     t.jsonb "scores", default: {}, null: false
     t.jsonb "evidence", default: {}, null: false
     t.datetime "computed_at", null: false
+    t.string "source_hash"
+    t.string "certification_scope"
+    t.datetime "certified_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["actor_profile_id"], name: "index_actor_behavior_snapshots_on_actor_profile_id"
+    t.index ["certified_at"], name: "index_actor_behavior_snapshots_on_certified_at"
     t.index ["cluster_id", "profile_height", "cluster_composition_version"], name: "idx_actor_behavior_snapshot_checkpoint"
     t.index ["cluster_id"], name: "index_actor_behavior_snapshots_on_cluster_id", unique: true
+    t.index ["cluster_id", "cluster_composition_version", "profile_version", "profile_height", "source_hash"], name: "idx_actor_behavior_snapshots_strict_identity"
     t.index ["profile_fingerprint"], name: "index_actor_behavior_snapshots_on_profile_fingerprint"
     t.index ["profile_height"], name: "index_actor_behavior_snapshots_on_profile_height"
     t.index ["status"], name: "index_actor_behavior_snapshots_on_status"
+    t.check_constraint "status::text <> 'certified'::text OR source_hash IS NOT NULL AND source_hash::text <> ''::text AND certification_scope::text = 'strict'::text AND certified_at IS NOT NULL", name: "actor_behavior_snapshots_certified_provenance", validate: false
   end
 
   create_table "actor_labels", force: :cascade do |t|
