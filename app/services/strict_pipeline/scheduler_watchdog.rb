@@ -118,6 +118,21 @@ module StrictPipeline
           ],
           allow_scheduled_successor_while_active:
             true
+        ),
+
+        JobSpec.new(
+          name: "actor_behavior",
+          queue: "actor_behavior_strict",
+          klass: "ActorBehaviors::BuildDispatchJob",
+          kind: :active_job,
+          wait_seconds: 20,
+          args: [
+            {
+              limit: ActorBehaviors::BuildDispatchJob::DEFAULT_LIMIT
+            }
+          ],
+          allow_scheduled_successor_while_active:
+            true
         )
       ]
     end
@@ -233,6 +248,15 @@ module StrictPipeline
           return result.merge(skipped: true, reason: "durable_backlog_empty")
         end
         unless address_spend_pipeline_allowed?
+          return result.merge(skipped: true, reason: "pipeline_controller_refused")
+        end
+      end
+
+      if spec.name == "actor_behavior"
+        unless actor_behavior_work_available?
+          return result.merge(skipped: true, reason: "durable_backlog_empty")
+        end
+        unless actor_behavior_pipeline_allowed?
           return result.merge(skipped: true, reason: "pipeline_controller_refused")
         end
       end
@@ -438,6 +462,17 @@ module StrictPipeline
 
     def actor_profile_pipeline_allowed?
       decision = System::PipelineController.decision(:actor_profile)
+      decision.is_a?(Hash) && decision[:allowed] == true
+    rescue StandardError
+      false
+    end
+
+    def actor_behavior_work_available?
+      ActorBehaviors::BuildDispatcher.work_available?
+    end
+
+    def actor_behavior_pipeline_allowed?
+      decision = System::PipelineController.decision(:actor_behavior)
       decision.is_a?(Hash) && decision[:allowed] == true
     rescue StandardError
       false
