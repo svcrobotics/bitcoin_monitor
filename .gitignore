@@ -42,3 +42,14 @@ venv-ledger/
 bitcoin_monitor.zip
 *.tar.gz
 *.zip
+
+# --- Local reconstruction artifacts ---
+
+/.codex_backups/
+/.codex/
+*.bak
+*.bak_*
+*.before*
+/actor_behavior_step*.patch
+/patch_cluster_scanner_height_scope.py
+/e
