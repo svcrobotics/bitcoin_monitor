@@ -754,209 +754,20 @@ module System
       current_snapshot ||=
         snapshot
 
-      control =
-        ActorBehaviors::Heavy::
-          ControlSnapshot.call(
-            current_snapshot:
-              current_snapshot
-          )
-
-      strict_behavior =
-        actor_behavior_decision(
-          current_snapshot:
-            current_snapshot
-        )
-
-      strict_behavior_control =
-        strict_behavior[
-          :actor_behavior
-        ] || {}
-
-      actor_labels =
-        current_snapshot[
-          :actor_labels
-        ] || {}
-
-      failed = []
-
-      unless current_snapshot.dig(
-        :bitcoin_core,
-        :available
-      ) == true
-        failed <<
-          :bitcoin_core_available
-      end
-
-      if current_snapshot.dig(
-        :strict_io,
-        :owner
-      ).present?
-        failed <<
-          :strict_io_idle
-      end
-
-      unless current_snapshot.dig(
-        :layer1,
-        :checkpoint_available
-      ) == true
-        failed <<
-          :layer1_checkpoint_available
-      end
-
-      unless current_snapshot.dig(
-        :layer1,
-        :idle
-      ) == true
-        failed <<
-          :layer1_stable
-      end
-
-      if current_snapshot.dig(
-        :layer1,
-        :catching_up
-      ) == true
-        failed <<
-          :layer1_not_catching_up
-      end
-
-      unless current_snapshot.dig(
-        :cluster,
-        :checkpoint_available
-      ) == true
-        failed <<
-          :cluster_checkpoint_available
-      end
-
-      unless current_snapshot.dig(
-        :cluster,
-        :idle
-      ) == true &&
-             current_snapshot.dig(
-               :cluster,
-               :caught_up_to_layer1
-             ) == true
-        failed <<
-          :cluster_stable
-      end
-
-      actor_profile =
-        current_snapshot[
-          :actor_profile
-        ] || {}
-
-      unless
-        actor_profile[
-          :checkpoint_available
-        ] == true &&
-        actor_profile[
-          :processing
-        ] != true &&
-        actor_profile[
-          :strict_queue_size
-        ].to_i.zero? &&
-        actor_profile[
-          :strict_worker_busy
-        ] != true &&
-        actor_profile[
-          :pending_work
-        ].to_i.zero? &&
-        actor_profile[
-          :caught_up_to_cluster
-        ] == true
-        failed <<
-          :actor_profile_stable
-      end
-
-      if
-        strict_behavior_control[
-          :work_available
-        ] == true ||
-        strict_behavior_control[
-          :batch_running
-        ] == true ||
-        strict_behavior_control[
-          :stale_running_run
-        ] == true
-        failed <<
-          :actor_behavior_strict_priority
-      end
-
-      if
-        actor_labels[
-          :processing
-        ] == true ||
-        actor_labels[
-          :strict_queue_size
-        ].to_i.positive? ||
-        actor_labels[
-          :strict_worker_busy
-        ] == true ||
-        actor_labels[
-          :lock_present
-        ] == true
-        failed <<
-          :actor_labels_strict_active
-      end
-
-      failed.uniq!
-
-      state,
-        reason =
-          if control[
-               :auto_enabled
-             ] != true
-            [
-              :disabled,
-              :actor_behavior_heavy_auto_disabled
-            ]
-          elsif control[
-                  :labels_enabled
-                ] != true
-            [
-              :blocked,
-              :actor_behavior_heavy_labels_disabled
-            ]
-          elsif failed.any?
-            [
-              :blocked,
-              failed.first
-            ]
-          elsif control[
-                  :cooldown_active
-                ] == true
-            [
-              :idle,
-              :actor_behavior_heavy_cooldown
-            ]
-          elsif control[
-                  :work_available
-                ] != true
-            [
-              :idle,
-              :no_actor_behavior_heavy_work
-            ]
-          else
-            [
-              :run,
-              :actor_behavior_heavy_work_available
-            ]
-          end
-
-      allowed =
-        %i[
-          idle
-          run
-        ].include?(
-          state
-        )
+      unavailable = {
+        available: false,
+        work_available: false,
+        reason:
+          :actor_behavior_heavy_unavailable,
+        blockers: [
+          :actor_behavior_heavy_unavailable
+        ]
+      }
 
       resolved_snapshot =
         current_snapshot.merge(
-          actor_behavior:
-            strict_behavior_control,
-
           actor_behavior_heavy:
-            control
+            unavailable
         )
 
       {
@@ -964,24 +775,16 @@ module System
           :actor_behavior_heavy,
 
         allowed:
-          allowed,
+          false,
 
         state:
-          state,
+          :unavailable,
 
         reason:
-          reason,
+          :actor_behavior_heavy_unavailable,
 
         retry_in:
-          if state == :blocked
-            60.seconds
-          elsif control[
-                  :cooldown_active
-                ] == true
-            control[
-              :cooldown_remaining_seconds
-            ].to_i.seconds
-          end,
+          nil,
 
         priority:
           priority(
@@ -997,8 +800,9 @@ module System
         constraints:
           [],
 
-        failed_constraints:
-          failed,
+        failed_constraints: [
+          :actor_behavior_heavy_unavailable
+        ],
 
         realtime:
           false,
@@ -1015,10 +819,7 @@ module System
           ),
 
         actor_behavior_heavy:
-          control.merge(
-            blockers:
-              failed
-          ),
+          unavailable,
 
         snapshot:
           resolved_snapshot
