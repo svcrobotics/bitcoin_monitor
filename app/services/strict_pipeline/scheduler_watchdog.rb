@@ -133,6 +133,16 @@ module StrictPipeline
           ],
           allow_scheduled_successor_while_active:
             true
+        ),
+
+        JobSpec.new(
+          name: "actor_labels",
+          queue: "actor_labels_strict",
+          klass: "ActorLabels::BuildDispatchJob",
+          kind: :active_job,
+          wait_seconds: 25,
+          args: [{ limit: ActorLabels::BuildDispatchJob::DEFAULT_LIMIT }],
+          allow_scheduled_successor_while_active: true
         )
       ]
     end
@@ -259,6 +269,14 @@ module StrictPipeline
         unless actor_behavior_pipeline_allowed?
           return result.merge(skipped: true, reason: "pipeline_controller_refused")
         end
+      end
+
+      if spec.name == "actor_labels"
+        return result.merge(skipped: true, reason: "durable_backlog_empty") unless
+          ActorLabels::BuildDispatcher.work_available?
+        decision = System::PipelineController.decision(:actor_labels)
+        return result.merge(skipped: true, reason: "pipeline_controller_refused") unless
+          decision.is_a?(Hash) && decision[:allowed] == true
       end
 
       repair(spec)

@@ -11,6 +11,7 @@ sidekiq_layer1_audit: TANSA_PIPELINE_MODE=development_backfill TANSA_BACKFILL_AL
 
 sidekiq_actor_profile_strict: LAYER1_STRICT_ONLY=1 nice -n 18 bundle exec sidekiq -c 1 -q actor_profile_strict
 sidekiq_actor_behavior_strict: LAYER1_STRICT_ONLY=1 nice -n 19 bundle exec sidekiq -c 1 -q actor_behavior_strict
+sidekiq_actor_labels_strict: LAYER1_STRICT_ONLY=1 nice -n 19 bundle exec sidekiq -c 1 -q actor_labels_strict
 
 #sidekiq_layer1: bundle exec sidekiq -c 1 -q process -q ingest -q realtime -q btc_realtime
 
