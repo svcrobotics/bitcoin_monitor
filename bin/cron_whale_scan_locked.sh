@@ -19,7 +19,7 @@ if flock -n "$LOCK" -c "
 "; then
   echo \"[whale_scan] done  $(ts) rc=0\" >> \"$LOG\"
 else
-  echo \"[whale_scan] skip  $(ts) rc=1 (locked)\" >> \"$LOG\"
+  echo "[whale_scan] skip  $(ts) rc=1 (locked)" >> "$LOG"
   if [ -f \"$INFO\" ]; then
     echo \"[whale_scan] lock_owner $(ts) $(cat "$INFO")\" >> \"$LOG\"
   else
