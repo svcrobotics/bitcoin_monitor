@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_15_190000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_16_120000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
@@ -198,6 +198,32 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_15_190000) do
     t.index ["updated_at"], name: "index_actor_profiles_on_updated_at"
     t.check_constraint "certification_epoch_height IS NULL OR certification_epoch_height > 0", name: "actor_profiles_positive_certification_epoch"
     t.check_constraint "certification_scope IS NULL OR certification_scope::text <> ''::text", name: "actor_profiles_certification_scope_present"
+  end
+
+  create_table "actor_profile_build_admissions", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "cluster_composition_version", null: false
+    t.bigint "source_height", null: false
+    t.string "source_hash", null: false
+    t.string "reason", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "claimed_at", precision: 6
+    t.datetime "completed_at", precision: 6
+    t.string "last_error_class"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_id", "cluster_composition_version", "source_height", "source_hash"], name: "idx_actor_profile_admissions_identity", unique: true
+    t.index ["cluster_id"], name: "index_actor_profile_build_admissions_on_cluster_id"
+    t.index ["status", "source_height", "cluster_id", "id"], name: "idx_actor_profile_admissions_claim_order"
+    t.check_constraint "attempts >= 0", name: "actor_profile_admissions_attempts_check"
+    t.check_constraint "status <> 'processing'::text OR claimed_at IS NOT NULL", name: "actor_profile_admissions_claim_check"
+    t.check_constraint "status = 'completed'::text AND completed_at IS NOT NULL OR status <> 'completed'::text AND completed_at IS NULL", name: "actor_profile_admissions_completion_check"
+    t.check_constraint "cluster_composition_version >= 1", name: "actor_profile_admissions_composition_version_check"
+    t.check_constraint "reason::text <> ''::text", name: "actor_profile_admissions_reason_check"
+    t.check_constraint "source_hash::text <> ''::text", name: "actor_profile_admissions_source_hash_check"
+    t.check_constraint "source_height >= 0", name: "actor_profile_admissions_source_height_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_profile_admissions_status_check"
   end
 
   create_table "address_flow_stats", force: :cascade do |t|
@@ -1645,6 +1671,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_15_190000) do
   add_foreign_key "actor_labels", "clusters", on_delete: :cascade
   add_foreign_key "actor_metrics", "clusters", on_delete: :cascade
   add_foreign_key "actor_profiles", "clusters"
+  add_foreign_key "actor_profile_build_admissions", "clusters"
   add_foreign_key "address_links", "addresses", column: "address_a_id"
   add_foreign_key "address_links", "addresses", column: "address_b_id"
   add_foreign_key "addresses", "clusters"
