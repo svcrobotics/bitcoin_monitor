@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_16_140000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
@@ -148,7 +148,11 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_140000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.bigint "actor_profile_id"
+    t.bigint "actor_behavior_snapshot_id"
+    t.string "rule_version"
+    t.datetime "certified_at"
     t.index ["actor_profile_id"], name: "index_actor_labels_on_actor_profile_id"
+    t.index ["actor_behavior_snapshot_id"], name: "index_actor_labels_on_actor_behavior_snapshot_id"
     t.index ["cluster_id", "label", "source"], name: "index_actor_labels_on_cluster_id_and_label_and_source", unique: true
     t.index ["cluster_id"], name: "index_actor_labels_on_cluster_id"
     t.index ["confidence"], name: "index_actor_labels_on_confidence"
@@ -184,6 +188,33 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_140000) do
     t.check_constraint "source_hash::text <> ''::text", name: "actor_label_handoffs_source_hash_present"
     t.check_constraint "source_height >= 0", name: "actor_label_handoffs_height_nonnegative"
     t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_label_handoffs_status_valid"
+  end
+
+  create_table "actor_label_evaluations", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "actor_behavior_snapshot_id", null: false
+    t.bigint "cluster_composition_version", null: false
+    t.string "profile_version", null: false
+    t.bigint "source_height", null: false
+    t.string "source_hash", null: false
+    t.string "behavior_version", null: false
+    t.string "rule_version", null: false
+    t.string "status", null: false
+    t.string "certification_scope", null: false
+    t.jsonb "rule_results", default: {}, null: false
+    t.jsonb "active_rules", default: [], null: false
+    t.jsonb "deferred_rules", default: [], null: false
+    t.datetime "certified_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_behavior_snapshot_id"], name: "index_actor_label_evaluations_on_actor_behavior_snapshot_id"
+    t.index ["certified_at"], name: "index_actor_label_evaluations_on_certified_at"
+    t.index ["cluster_id", "cluster_composition_version", "profile_version", "source_height", "source_hash", "behavior_version", "actor_behavior_snapshot_id", "rule_version"], name: "idx_actor_label_evaluations_identity", unique: true
+    t.index ["cluster_id"], name: "index_actor_label_evaluations_on_cluster_id"
+    t.check_constraint "cluster_composition_version >= 1", name: "actor_label_evaluations_composition_positive"
+    t.check_constraint "jsonb_typeof(rule_results) = 'object'::text", name: "actor_label_evaluations_results_object"
+    t.check_constraint "source_height >= 0", name: "actor_label_evaluations_height_nonnegative"
+    t.check_constraint "status::text = 'certified'::text AND certification_scope::text = 'strict'::text", name: "actor_label_evaluations_strict_certification"
   end
 
   create_table "actor_metrics", force: :cascade do |t|
@@ -1737,6 +1768,9 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_140000) do
   add_foreign_key "actor_labels", "clusters", on_delete: :cascade
   add_foreign_key "actor_label_handoffs", "actor_behavior_snapshots"
   add_foreign_key "actor_label_handoffs", "clusters"
+  add_foreign_key "actor_label_evaluations", "actor_behavior_snapshots"
+  add_foreign_key "actor_label_evaluations", "clusters"
+  add_foreign_key "actor_labels", "actor_behavior_snapshots"
   add_foreign_key "actor_metrics", "clusters", on_delete: :cascade
   add_foreign_key "actor_profiles", "clusters"
   add_foreign_key "actor_profile_build_admissions", "clusters"
