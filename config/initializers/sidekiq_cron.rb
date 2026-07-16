@@ -100,12 +100,6 @@ if Sidekiq.server?
       "queue" => "low"
     },
 
-    "actor_labels_refresh" => {
-      "class" => "ActorLabelsRefreshJob",
-      "cron" => "*/10 * * * *",
-      "queue" => "actor_labels"
-    },
-
     "layer1_balance" => {
       "class" => "Layer1BalanceJob",
       "cron" => "*/1 * * * *",
