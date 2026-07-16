@@ -30,18 +30,30 @@ SAT_COLUMNS =
     satoshis
   ].freeze
 
-def self.call(cluster_id:, composition_version: UNSPECIFIED_VERSION)
+def self.call(cluster_id:, composition_version: UNSPECIFIED_VERSION,
+  source_height: nil, source_hash: nil)
   new(
     cluster_id: cluster_id,
-    composition_version: composition_version
+    composition_version: composition_version,
+    source_height: source_height,
+    source_hash: source_hash
   ).call
 end
 
-def initialize(cluster_id:, composition_version: UNSPECIFIED_VERSION)
+def initialize(cluster_id:, composition_version: UNSPECIFIED_VERSION,
+  source_height: nil, source_hash: nil)
   @cluster_id = normalize_positive_integer(cluster_id, :cluster_id)
   @legacy = composition_version.equal?(UNSPECIFIED_VERSION)
   @composition_version =
     normalize_positive_integer(composition_version, :composition_version) unless @legacy
+  if @legacy
+    raise ArgumentError, "legacy build does not accept source provenance" if
+      source_height.present? || source_hash.present?
+  else
+    @source_height = normalize_nonnegative_integer(source_height, :source_height)
+    @source_hash = source_hash.to_s
+    raise ArgumentError, "source_hash must be present" if @source_hash.empty?
+  end
 end
 
 def call
@@ -82,17 +94,8 @@ def build_profile
     cluster_composition_version =
       cluster.composition_version.to_i
 
-    requested_version =
-      @legacy ? cluster_composition_version : @composition_version
+    requested_version = @legacy ? cluster_composition_version : @composition_version
     profile = ActorProfile.lock.find_by(cluster_id: cluster.id)
-
-    version_result = version_result_for(
-      cluster: cluster,
-      profile: profile,
-      requested_version: requested_version,
-      cluster_composition_version: cluster_composition_version
-    )
-    return version_result if version_result
 
     cluster_tip = current_cluster_tip
     layer1_tip = current_layer1_tip
@@ -115,7 +118,29 @@ def build_profile
       )
     end
 
-    address_spend_checkpoint = certified_address_spend_checkpoint!(cluster_tip)
+    requested_height = @legacy ? cluster_tip : @source_height
+    requested_hash = @legacy ? current_cluster_hash(cluster_tip) : @source_hash
+
+    version_result = version_result_for(
+      cluster: cluster, profile: profile, requested_version: requested_version,
+      cluster_composition_version: cluster_composition_version,
+      requested_height: requested_height, requested_hash: requested_hash,
+      current_height: cluster_tip
+    )
+    return version_result if version_result
+
+    unless requested_height == cluster_tip && requested_hash == current_cluster_hash(cluster_tip)
+      return terminal_version_result(
+        status: "refused", reason: "source_version_not_current", cluster: cluster,
+        profile: profile, requested_version: requested_version,
+        cluster_composition_version: cluster_composition_version,
+        requested_height: requested_height, requested_hash: requested_hash
+      )
+    end
+
+    address_spend_checkpoint = certified_address_spend_checkpoint!(
+      requested_height, requested_hash
+    )
 
     if cluster.last_seen_height.to_i > cluster_tip
       raise ActorProfiles::DeferredSnapshotError.new(
@@ -189,8 +214,7 @@ def build_profile
 
       # Hauteur du snapshot strict utilisé
       # pour toutes les métriques.
-      last_computed_height:
-        cluster_tip,
+      last_computed_height: requested_height,
       cluster_composition_version:
         cluster_composition_version,
 
@@ -200,8 +224,7 @@ def build_profile
       certified_at:
         Time.current,
 
-      certification_epoch_height:
-        cluster_tip,
+      certification_epoch_height: requested_height,
 
       certification_scope:
         "strict",
@@ -389,7 +412,8 @@ def build_profile
   end
 end
 
-def version_result_for(cluster:, profile:, requested_version:, cluster_composition_version:)
+def version_result_for(cluster:, profile:, requested_version:, cluster_composition_version:,
+  requested_height:, requested_hash:, current_height:)
   if requested_version > cluster_composition_version
     return terminal_version_result(
       status: "refused",
@@ -397,25 +421,40 @@ def version_result_for(cluster:, profile:, requested_version:, cluster_compositi
       cluster: cluster,
       profile: profile,
       requested_version: requested_version,
-      cluster_composition_version: cluster_composition_version
+      cluster_composition_version: cluster_composition_version,
+      requested_height: requested_height, requested_hash: requested_hash
     )
   end
 
   if requested_version < cluster_composition_version
-    newer_handoff = ClusterActorProfileHandoff.where(cluster_id: cluster.id)
-      .where("composition_version > ?", requested_version)
+    newer_handoff = ActorProfileBuildAdmission.where(cluster_id: cluster.id)
+      .where("cluster_composition_version > ? OR source_height > ?",
+        requested_version, requested_height)
       .exists?
     return terminal_version_result(
       status: newer_handoff ? "superseded" : "refused",
-      reason: newer_handoff ? "newer_durable_handoff" : "newer_handoff_missing",
+      reason: newer_handoff ? "newer_durable_admission" : "newer_admission_missing",
       cluster: cluster,
       profile: profile,
       requested_version: requested_version,
-      cluster_composition_version: cluster_composition_version
+      cluster_composition_version: cluster_composition_version,
+      requested_height: requested_height, requested_hash: requested_hash
     )
   end
 
-  return unless profile_complete_for?(profile, requested_version)
+  if requested_height < current_height
+    newer_admission = ActorProfileBuildAdmission.where(cluster_id: cluster.id)
+      .where("source_height > ?", requested_height).exists?
+    return terminal_version_result(
+      status: newer_admission ? "superseded" : "refused",
+      reason: newer_admission ? "newer_durable_admission" : "newer_admission_missing",
+      cluster: cluster, profile: profile, requested_version: requested_version,
+      cluster_composition_version: cluster_composition_version,
+      requested_height: requested_height, requested_hash: requested_hash
+    )
+  end
+
+  return unless profile_complete_for?(profile, requested_version, requested_height, requested_hash)
 
   terminal_version_result(
     status: "already_current",
@@ -423,13 +462,16 @@ def version_result_for(cluster:, profile:, requested_version:, cluster_compositi
     cluster: cluster,
     profile: profile,
     requested_version: requested_version,
-    cluster_composition_version: cluster_composition_version
+    cluster_composition_version: cluster_composition_version,
+    requested_height: requested_height, requested_hash: requested_hash
   )
 end
 
-def profile_complete_for?(profile, requested_version)
+def profile_complete_for?(profile, requested_version, requested_height, requested_hash)
   profile&.persisted? &&
     profile.cluster_composition_version.to_i == requested_version &&
+    profile.last_computed_height.to_i == requested_height &&
+    profile.metadata.to_h["address_spend_projection_hash"] == requested_hash &&
     profile.traits.to_h["profile_version"] == PROFILE_VERSION &&
     profile.metadata.to_h["strict"] == true &&
     profile.last_computed_height.present? &&
@@ -440,7 +482,7 @@ def profile_complete_for?(profile, requested_version)
 end
 
 def terminal_version_result(status:, reason:, cluster:, profile:, requested_version:,
-  cluster_composition_version:)
+  cluster_composition_version:, requested_height:, requested_hash:)
   {
     ok: status != "refused",
     status: status,
@@ -449,9 +491,15 @@ def terminal_version_result(status:, reason:, cluster:, profile:, requested_vers
     cluster_id: cluster.id,
     requested_composition_version: requested_version,
     cluster_composition_version: cluster_composition_version,
+    requested_source_height: requested_height,
+    requested_source_hash: requested_hash,
     actor_profile_composition_version: profile&.cluster_composition_version,
     profile_id: profile&.id
   }
+end
+
+def current_cluster_hash(height)
+  ClusterProcessedBlock.where(height: height, status: "processed").pick(:block_hash).to_s
 end
 
 def with_versioned_session_lock
@@ -485,6 +533,14 @@ rescue ArgumentError, TypeError
   raise ArgumentError, "#{name} must be a positive integer"
 end
 
+def normalize_nonnegative_integer(value, name)
+  integer = value.is_a?(String) ? Integer(value, 10) : Integer(value)
+  raise ArgumentError if integer.negative?
+  integer
+rescue ArgumentError, TypeError
+  raise ArgumentError, "#{name} must be a nonnegative integer"
+end
+
 def acquire_cluster_build_lock
   value =
     ActiveRecord::Base
@@ -498,7 +554,7 @@ def acquire_cluster_build_lock
   value == true || value.to_s == "t"
 end
 
-def certified_address_spend_checkpoint!(required_height)
+def certified_address_spend_checkpoint!(required_height, required_hash)
   cluster_hash = ClusterProcessedBlock
     .where(height: required_height, status: "processed")
     .pick(:block_hash)
@@ -513,7 +569,7 @@ def certified_address_spend_checkpoint!(required_height)
   next_height = AddressSpendStats::NextRecord.call&.height&.to_i
 
   valid = checkpoint && cluster_hash.present? &&
-    checkpoint.block_hash == cluster_hash &&
+    checkpoint.block_hash == cluster_hash && checkpoint.block_hash == required_hash &&
     projection_tip == required_height &&
     (next_height.nil? || next_height > required_height)
   return checkpoint if valid

@@ -38,8 +38,8 @@ module Clusters
       first = create_handoff!
       statuses = %w[built already_current]
       calls = []
-      actor = lambda do |cluster_id:, composition_version:|
-        calls << [cluster_id, composition_version]
+      actor = lambda do |cluster_id:, composition_version:, source_height:, source_hash:|
+        calls << [cluster_id, composition_version, source_height, source_hash]
         { status: statuses.shift, ok: true }
       end
 
@@ -51,7 +51,8 @@ module Clusters
 
       assert_equal [first.id, second.id],
         ClusterActorProfileHandoff.order(:cluster_height, :cluster_id, :id).pluck(:id)
-      assert_equal [[@cluster.id, 1], [@cluster.id, 1]], calls
+      assert_equal [[@cluster.id, 1, first.cluster_height, first.block_hash],
+        [@cluster.id, 1, second.cluster_height, second.block_hash]], calls
       assert_equal %w[completed completed],
         ClusterActorProfileHandoff.order(:cluster_height).pluck(:status)
       assert_equal [1, 1], ClusterActorProfileHandoff.order(:cluster_height).pluck(:attempts)

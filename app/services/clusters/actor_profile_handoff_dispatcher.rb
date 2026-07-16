@@ -91,7 +91,9 @@ module Clusters
       validate_certification!(handoff)
       actor_result = ActorProfiles::StrictBuildFromCluster.call(
         cluster_id: handoff.cluster_id,
-        composition_version: handoff.composition_version
+        composition_version: handoff.composition_version,
+        source_height: handoff.cluster_height,
+        source_hash: handoff.block_hash
       )
 
       case actor_result.fetch(:status)

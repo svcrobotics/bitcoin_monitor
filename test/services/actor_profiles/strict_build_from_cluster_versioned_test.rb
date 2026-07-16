@@ -114,15 +114,15 @@ module ActorProfiles
       assert_nil ActorProfile.find_by(cluster_id: @cluster.id)
     end
 
-    test "supersedes an old version only when a newer durable handoff exists" do
+    test "supersedes an old version only when a newer durable admission exists" do
       without_handoff = build(version: 2)
-      create_handoff!(composition_version: 3)
+      create_admission!(composition_version: 3)
       with_handoff = build(version: 2)
 
       assert_equal "refused", without_handoff[:status]
-      assert_equal "newer_handoff_missing", without_handoff[:reason]
+      assert_equal "newer_admission_missing", without_handoff[:reason]
       assert_equal "superseded", with_handoff[:status]
-      assert_equal "newer_durable_handoff", with_handoff[:reason]
+      assert_equal "newer_durable_admission", with_handoff[:reason]
       assert_nil ActorProfile.find_by(cluster_id: @cluster.id)
     end
 
@@ -246,6 +246,50 @@ module ActorProfiles
       assert JSON.generate(@result)
     end
 
+    test "a newer certified fact version rebuilds an unchanged composition" do
+      first = build(version: 3)
+      first_certified_at = ActorProfile.find(first[:profile_id]).certified_at
+      newer_height = @height + 1
+      newer_hash = hash_for("newer-source")
+      BlockBufferModel.create!(height: newer_height, block_hash: newer_hash, status: "processed")
+      ClusterProcessedBlock.create!(height: newer_height, block_hash: newer_hash,
+        status: "processed", processed_at: Time.current)
+      AddressSpendProjectionBlock.create!(height: newer_height, block_hash: newer_hash,
+        status: "completed", completed_at: Time.current)
+      ActorProfileBuildAdmission.create!(cluster: @cluster, cluster_composition_version: 3,
+        source_height: newer_height, source_hash: newer_hash, reason: "address_spend")
+
+      travel 1.second do
+        second = StrictBuildFromCluster.call(cluster_id: @cluster.id, composition_version: 3,
+          source_height: newer_height, source_hash: newer_hash)
+        profile = ActorProfile.find(second[:profile_id])
+        assert_equal "built", second[:status]
+        assert_equal newer_height, profile.last_computed_height
+        assert_equal newer_hash, profile.metadata["address_spend_projection_hash"]
+        assert_operator profile.certified_at, :>, first_certified_at
+      end
+    end
+
+    test "an old source is superseded only by a durable newer admission" do
+      newer_height = @height + 1
+      newer_hash = hash_for("durable-newer")
+      BlockBufferModel.create!(height: newer_height, block_hash: newer_hash, status: "processed")
+      ClusterProcessedBlock.create!(height: newer_height, block_hash: newer_hash,
+        status: "processed", processed_at: Time.current)
+      AddressSpendProjectionBlock.create!(height: newer_height, block_hash: newer_hash,
+        status: "completed", completed_at: Time.current)
+
+      refused = build(version: 3)
+      ActorProfileBuildAdmission.create!(cluster: @cluster, cluster_composition_version: 3,
+        source_height: newer_height, source_hash: newer_hash, reason: "address_spend")
+      superseded = build(version: 3)
+
+      assert_equal "refused", refused[:status]
+      assert_equal "newer_admission_missing", refused[:reason]
+      assert_equal "superseded", superseded[:status]
+      assert_equal "newer_durable_admission", superseded[:reason]
+    end
+
     test "requires the exact AddressSpend height and hash without accepting an ahead checkpoint" do
       AddressSpendProjectionBlock.delete_all
       error = assert_raises(ActorProfiles::DeferredSnapshotError) { build(version: 3) }
@@ -274,7 +318,14 @@ module ActorProfiles
     private
 
     def build(version:)
-      StrictBuildFromCluster.call(cluster_id: @cluster.id, composition_version: version)
+      StrictBuildFromCluster.call(cluster_id: @cluster.id, composition_version: version,
+        source_height: @height, source_hash: @cluster_hash)
+    end
+
+    def create_admission!(composition_version:)
+      ActorProfileBuildAdmission.create!(cluster: @cluster,
+        cluster_composition_version: composition_version, source_height: @height,
+        source_hash: @cluster_hash, reason: "cluster_composition")
     end
 
     def create_handoff!(composition_version:)
@@ -302,6 +353,7 @@ module ActorProfiles
     def cleanup!
       ActorLabel.delete_all
       ActorProfile.delete_all
+      ActorProfileBuildAdmission.delete_all
       ClusterActorProfileHandoff.delete_all
       ClusterInput.delete_all
       AddressSpendStat.delete_all
