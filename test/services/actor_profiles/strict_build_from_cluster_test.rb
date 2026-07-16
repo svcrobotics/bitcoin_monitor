@@ -253,7 +253,115 @@ module ActorProfiles
       assert_equal BigDecimal("1.00"), @cluster.reload.actor_profile.balance_btc
     end
 
+    test "certifies the profile and ActorBehavior handoff atomically" do
+      result = ActorProfiles::StrictBuildFromCluster.call(
+        cluster_id: @cluster.id,
+        composition_version: @cluster.composition_version,
+        source_height: @height,
+        source_hash: @cluster_hash
+      )
+
+      profile = ActorProfile.find(result.fetch(:profile_id))
+      handoff = ActorBehaviorBuildHandoff.find(result.fetch(:actor_behavior_handoff_id))
+
+      assert_equal profile.id, handoff.actor_profile_id
+      assert_equal @cluster.id, handoff.cluster_id
+      assert_equal @cluster.composition_version, handoff.cluster_composition_version
+      assert_equal "strict_v3_core", handoff.profile_version
+      assert_equal @height, handoff.source_height
+      assert_equal @cluster_hash, handoff.source_hash
+      assert_equal "pending", handoff.status
+    end
+
+    test "profile and handoff remain invisible to a second connection until commit" do
+      registered = Queue.new
+      release = Queue.new
+      original = ActorBehaviors::HandoffRegistration.method(:call)
+      pausing_registration = lambda do |**arguments|
+        result = original.call(**arguments)
+        registered << true
+        release.pop
+        result
+      end
+
+      builder = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection do
+          with_singleton_method(
+            ActorBehaviors::HandoffRegistration,
+            :call,
+            pausing_registration
+          ) do
+            ActorProfiles::StrictBuildFromCluster.call(
+              cluster_id: @cluster.id,
+              composition_version: @cluster.composition_version,
+              source_height: @height,
+              source_hash: @cluster_hash
+            )
+          end
+        end
+      end
+
+      registered.pop
+      ActiveRecord::Base.connection_pool.with_connection do
+        assert_equal 0, ActorProfile.where(cluster_id: @cluster.id).count
+        assert_equal 0, ActorBehaviorBuildHandoff.where(cluster_id: @cluster.id).count
+      end
+      release << true
+      result = builder.value
+
+      assert ActorProfile.exists?(result.fetch(:profile_id))
+      assert ActorBehaviorBuildHandoff.exists?(result.fetch(:actor_behavior_handoff_id))
+    ensure
+      release << true if defined?(release) && release.empty?
+      builder&.join
+    end
+
+    test "already current repairs the handoff without duplicating it" do
+      arguments = {
+        cluster_id: @cluster.id,
+        composition_version: @cluster.composition_version,
+        source_height: @height,
+        source_hash: @cluster_hash
+      }
+      first = ActorProfiles::StrictBuildFromCluster.call(**arguments)
+      ActorBehaviorBuildHandoff.delete(first.fetch(:actor_behavior_handoff_id))
+
+      second = ActorProfiles::StrictBuildFromCluster.call(**arguments)
+
+      assert_equal "already_current", second[:status]
+      assert_equal 1, ActorBehaviorBuildHandoff.where(cluster_id: @cluster.id).count
+    end
+
+    test "handoff insertion failure rolls back profile certification" do
+      failure = ->(**) { raise ActiveRecord::StatementInvalid, "handoff unavailable" }
+
+      assert_raises(ActiveRecord::StatementInvalid) do
+        with_singleton_method(ActorBehaviors::HandoffRegistration, :call, failure) do
+          ActorProfiles::StrictBuildFromCluster.call(
+            cluster_id: @cluster.id,
+            composition_version: @cluster.composition_version,
+            source_height: @height,
+            source_hash: @cluster_hash
+          )
+        end
+      end
+
+      assert_nil ActorProfile.find_by(cluster_id: @cluster.id)
+      assert_equal 0, ActorBehaviorBuildHandoff.where(cluster_id: @cluster.id).count
+    end
+
     private
+
+    def with_singleton_method(target, method_name, replacement)
+      singleton = target.singleton_class
+      original = :"#{method_name}_without_actor_behavior_handoff_test"
+      singleton.alias_method(original, method_name)
+      singleton.define_method(method_name, &replacement)
+      yield
+    ensure
+      singleton.alias_method(method_name, original)
+      singleton.remove_method(original)
+    end
 
     def build_cluster(first_seen_height:, last_seen_height:)
       Cluster.create!(
@@ -314,6 +422,7 @@ module ActorProfiles
 
     def cleanup_records
       ActorLabel.delete_all
+      ActorBehaviorBuildHandoff.delete_all
       ActorProfile.delete_all
       AddressSpendStat.delete_all
       AddressSpendProjectionBlock.delete_all

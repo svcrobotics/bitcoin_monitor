@@ -127,7 +127,20 @@ def build_profile
       requested_height: requested_height, requested_hash: requested_hash,
       current_height: cluster_tip
     )
-    return version_result if version_result
+    if version_result
+      if version_result[:status] == "already_current"
+        handoff = register_actor_behavior_handoff!(
+          profile: profile,
+          requested_version: requested_version,
+          requested_height: requested_height,
+          requested_hash: requested_hash
+        )
+        version_result = version_result.merge(
+          actor_behavior_handoff_id: handoff.fetch(:handoff_id)
+        )
+      end
+      return version_result
+    end
 
     unless requested_height == cluster_tip && requested_hash == current_cluster_hash(cluster_tip)
       return terminal_version_result(
@@ -356,6 +369,13 @@ def build_profile
 
     profile.save!
 
+    handoff = register_actor_behavior_handoff!(
+      profile: profile,
+      requested_version: requested_version,
+      requested_height: requested_height,
+      requested_hash: requested_hash
+    )
+
     {
       ok: true,
       status: "built",
@@ -406,10 +426,24 @@ def build_profile
       last_computed_height:
         profile.last_computed_height,
 
+      actor_behavior_handoff_id:
+        handoff.fetch(:handoff_id),
+
       runtime_ms:
         elapsed_ms(started_at)
     }
   end
+end
+
+def register_actor_behavior_handoff!(profile:, requested_version:, requested_height:,
+  requested_hash:)
+  ActorBehaviors::HandoffRegistration.call(
+    actor_profile: profile,
+    composition_version: requested_version,
+    profile_version: PROFILE_VERSION,
+    source_height: requested_height,
+    source_hash: requested_hash
+  )
 end
 
 def version_result_for(cluster:, profile:, requested_version:, cluster_composition_version:,

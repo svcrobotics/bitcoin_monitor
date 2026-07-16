@@ -10,11 +10,38 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_16_120000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_16_130000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
   enable_extension "vector"
+
+  create_table "actor_behavior_build_handoffs", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "actor_profile_id", null: false
+    t.bigint "cluster_composition_version", null: false
+    t.string "profile_version", null: false
+    t.integer "source_height", null: false
+    t.string "source_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "claimed_at"
+    t.datetime "completed_at"
+    t.string "last_error_class"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_profile_id"], name: "index_actor_behavior_build_handoffs_on_actor_profile_id"
+    t.index ["claimed_at"], name: "index_actor_behavior_build_handoffs_on_claimed_at"
+    t.index ["cluster_id", "cluster_composition_version", "profile_version", "source_height", "source_hash"], name: "idx_actor_behavior_handoffs_identity", unique: true
+    t.index ["cluster_id"], name: "index_actor_behavior_build_handoffs_on_cluster_id"
+    t.index ["status", "source_height", "cluster_id", "id"], name: "idx_actor_behavior_handoffs_claim"
+    t.check_constraint "attempts >= 0", name: "actor_behavior_handoffs_attempts_nonnegative"
+    t.check_constraint "cluster_composition_version >= 1", name: "actor_behavior_handoffs_positive_composition"
+    t.check_constraint "profile_version::text <> ''::text", name: "actor_behavior_handoffs_profile_version_present"
+    t.check_constraint "source_hash::text <> ''::text", name: "actor_behavior_handoffs_source_hash_present"
+    t.check_constraint "source_height >= 0", name: "actor_behavior_handoffs_nonnegative_height"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_behavior_handoffs_status_valid"
+  end
 
   create_table "actor_behavior_heavy_snapshots", force: :cascade do |t|
     t.bigint "cluster_id", null: false
@@ -1662,6 +1689,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_120000) do
     t.index ["txid", "address", "direction"], name: "index_whale_core_flow_events_on_txid_and_address_and_direction", unique: true
   end
 
+  add_foreign_key "actor_behavior_build_handoffs", "actor_profiles"
+  add_foreign_key "actor_behavior_build_handoffs", "clusters"
   add_foreign_key "actor_behavior_heavy_snapshots", "actor_behavior_snapshots"
   add_foreign_key "actor_behavior_heavy_snapshots", "actor_profiles"
   add_foreign_key "actor_behavior_heavy_snapshots", "clusters"
