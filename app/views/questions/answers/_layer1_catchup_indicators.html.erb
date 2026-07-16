@@ -1,0 +1,73 @@
+<%
+  data = (progress || {}).with_indifferent_access
+  status = data[:status].to_s
+
+  labels = {
+    "catching_up" => "Rattrapage en cours",
+    "falling_behind" => "Retard en augmentation",
+    "stable" => "Progression stable",
+    "target_reached" => "Objectif atteint",
+    "downstream_catchup" => "Modules aval en rattrapage",
+    "measuring" => "Mesure en cours",
+    "unavailable" => "Progression indisponible"
+  }
+
+  safe_status = labels.key?(status) ? status : "unavailable"
+  label = labels.fetch(safe_status)
+
+  numeric = lambda do |value|
+    value if value.is_a?(Numeric) && value.finite?
+  end
+
+  current_lag = numeric.call(data[:current_lag])
+  baseline_lag = numeric.call(data[:baseline_lag])
+  blocks_to_target = numeric.call(data[:blocks_to_target])
+  observed_rate = numeric.call(data[:observed_change_per_hour])
+  estimate_hours = numeric.call(data[:estimated_catchup_hours])
+%>
+
+<section
+  class="mb-5 rounded-lg border border-slate-800 bg-slate-950/70 p-4"
+  data-layer1-catchup-status="<%= safe_status %>">
+  <div class="flex flex-wrap items-center justify-between gap-3">
+    <div>
+      <p class="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
+        Progression Layer1
+      </p>
+      <h2 class="mt-1 text-sm font-semibold text-slate-100"><%= label %></h2>
+    </div>
+
+    <span class="rounded border border-slate-700 px-2 py-1 font-mono text-xs text-slate-300">
+      Phase&nbsp;: <%= data[:phase].present? ? data[:phase] : "—" %>
+    </span>
+  </div>
+
+  <% if safe_status == "unavailable" %>
+    <p class="mt-3 text-sm text-slate-400">
+      Les mesures de progression ne sont pas disponibles actuellement.
+    </p>
+  <% else %>
+    <dl class="mt-4 grid gap-3 text-sm sm:grid-cols-2 lg:grid-cols-5">
+      <div>
+        <dt class="text-slate-500">Lag actuel</dt>
+        <dd class="mt-1 font-mono text-slate-100"><%= current_lag.nil? ? "—" : current_lag %></dd>
+      </div>
+      <div>
+        <dt class="text-slate-500">Lag initial</dt>
+        <dd class="mt-1 font-mono text-slate-100"><%= baseline_lag.nil? ? "—" : baseline_lag %></dd>
+      </div>
+      <div>
+        <dt class="text-slate-500">Blocs vers l’objectif</dt>
+        <dd class="mt-1 font-mono text-slate-100"><%= blocks_to_target.nil? ? "—" : blocks_to_target %></dd>
+      </div>
+      <div>
+        <dt class="text-slate-500">Variation observée</dt>
+        <dd class="mt-1 font-mono text-slate-100"><%= observed_rate.nil? ? "—" : "#{observed_rate} bloc/h" %></dd>
+      </div>
+      <div>
+        <dt class="text-slate-500">Estimation</dt>
+        <dd class="mt-1 font-mono text-slate-100"><%= estimate_hours.nil? ? "—" : "#{estimate_hours} h" %></dd>
+      </div>
+    </dl>
+  <% end %>
+</section>

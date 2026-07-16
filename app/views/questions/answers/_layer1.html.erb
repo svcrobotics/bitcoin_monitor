@@ -13,6 +13,7 @@
   cursors = dashboard[:cursors] || {}
 
   lag = sync[:lag].to_i
+  catchup_progress = Layer1::CatchupProgressSnapshot.call(current_lag: sync[:lag])
   buffers_total = buffers[:outputs].to_i + buffers[:spent].to_i
   audit_total = proof[:total_checks].to_i
   audit_passed = proof[:passed_checks].to_i
@@ -211,6 +212,9 @@
   </header>
 
   <div class="my-5 border-t border-slate-800"></div>
+
+  <%= render "questions/answers/layer1_catchup_indicators",
+    progress: catchup_progress %>
 
   <section class="space-y-3">
     <h2 class="text-sm font-semibold text-slate-200">
