@@ -21,10 +21,12 @@ module Clusters
           cluster = Cluster.create!
           addr.update!(cluster_id: cluster.id, updated_at: Time.current)
 
-          ActorProfiles::DirtyMarker.mark(cluster.id)
+          admission = ActorProfiles::Admission.register_latest(
+            cluster_ids: [cluster.id], reason: "missing_profile"
+          )
 
           @updated += 1
-          @marked += 1
+          @marked += admission[:created]
         end
 
       { ok: true, updated: @updated, marked: @marked }

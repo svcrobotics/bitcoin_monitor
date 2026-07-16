@@ -303,6 +303,7 @@ module Clusters
     end
 
     def cleanup!
+      ActorProfileBuildAdmission.delete_all
       ActorLabel.delete_all
       ActorProfile.delete_all
       ClusterActorProfileHandoff.delete_all

@@ -134,6 +134,13 @@ module AddressSpendStats
               idempotent: false
             )
         end
+
+        admission_result = ActorProfiles::Admission.register_source(
+          source_height: height,
+          source_hash: source_block.block_hash,
+          reason: "address_spend"
+        )
+        result = result.merge(actor_profile_admissions: admission_result)
       end
 
       result

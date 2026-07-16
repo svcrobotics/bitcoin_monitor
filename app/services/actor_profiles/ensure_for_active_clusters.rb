@@ -27,10 +27,10 @@ module ActorProfiles
       with_profile = ActorProfile.where(cluster_id: cluster_ids).pluck(:cluster_id)
       missing = cluster_ids - with_profile
 
-      missing.each do |cluster_id|
-        ActorProfiles::DirtyMarker.mark(cluster_id)
-        @marked += 1
-      end
+      admission = ActorProfiles::Admission.register_latest(
+        cluster_ids: missing, reason: "missing_profile"
+      )
+      @marked = admission[:created]
 
       {
         ok: true,
