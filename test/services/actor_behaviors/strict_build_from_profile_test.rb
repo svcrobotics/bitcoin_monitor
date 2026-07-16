@@ -208,6 +208,7 @@ module ActorBehaviors
     end
 
     def cleanup
+      ActorLabelHandoff.delete_all
       ActorBehaviorSnapshot.delete_all
       ActorBehaviorBuildHandoff.delete_all
       ActorProfile.delete_all

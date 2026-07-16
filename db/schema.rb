@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_16_131000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_16_140000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
@@ -153,6 +153,37 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_131000) do
     t.index ["cluster_id"], name: "index_actor_labels_on_cluster_id"
     t.index ["confidence"], name: "index_actor_labels_on_confidence"
     t.index ["label"], name: "index_actor_labels_on_label"
+  end
+
+  create_table "actor_label_handoffs", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "actor_behavior_snapshot_id", null: false
+    t.bigint "cluster_composition_version", null: false
+    t.string "profile_version", null: false
+    t.bigint "source_height", null: false
+    t.string "source_hash", null: false
+    t.string "behavior_version", null: false
+    t.string "rule_version", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "claimed_at"
+    t.datetime "completed_at"
+    t.string "last_error_class"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_behavior_snapshot_id"], name: "index_actor_label_handoffs_on_actor_behavior_snapshot_id"
+    t.index ["claimed_at"], name: "index_actor_label_handoffs_on_claimed_at"
+    t.index ["cluster_id", "cluster_composition_version", "profile_version", "source_height", "source_hash", "behavior_version", "actor_behavior_snapshot_id", "rule_version"], name: "idx_actor_label_handoffs_identity", unique: true
+    t.index ["cluster_id"], name: "index_actor_label_handoffs_on_cluster_id"
+    t.index ["status", "source_height", "cluster_id", "id"], name: "idx_actor_label_handoffs_claim"
+    t.check_constraint "attempts >= 0", name: "actor_label_handoffs_attempts_nonnegative"
+    t.check_constraint "behavior_version::text <> ''::text", name: "actor_label_handoffs_behavior_version_present"
+    t.check_constraint "cluster_composition_version >= 1", name: "actor_label_handoffs_composition_positive"
+    t.check_constraint "profile_version::text <> ''::text", name: "actor_label_handoffs_profile_version_present"
+    t.check_constraint "rule_version::text <> ''::text", name: "actor_label_handoffs_rule_version_present"
+    t.check_constraint "source_hash::text <> ''::text", name: "actor_label_handoffs_source_hash_present"
+    t.check_constraint "source_height >= 0", name: "actor_label_handoffs_height_nonnegative"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_label_handoffs_status_valid"
   end
 
   create_table "actor_metrics", force: :cascade do |t|
@@ -1704,6 +1735,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_131000) do
   add_foreign_key "actor_behavior_snapshots", "actor_profiles", on_delete: :cascade
   add_foreign_key "actor_behavior_snapshots", "clusters", on_delete: :cascade
   add_foreign_key "actor_labels", "clusters", on_delete: :cascade
+  add_foreign_key "actor_label_handoffs", "actor_behavior_snapshots"
+  add_foreign_key "actor_label_handoffs", "clusters"
   add_foreign_key "actor_metrics", "clusters", on_delete: :cascade
   add_foreign_key "actor_profiles", "clusters"
   add_foreign_key "actor_profile_build_admissions", "clusters"

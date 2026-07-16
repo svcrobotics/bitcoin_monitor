@@ -6,6 +6,8 @@ module ActorLabels
   class StrictRuleSetV2
     SOURCE = "actor_labels_strict_v3_core"
     RULE_VERSION = "actor_labels_strict_v3_core_1"
+    ACTIVE_RULES = %w[whale_like whale_candidate].freeze
+    DEFERRED_RULES = %w[accumulator_like distributor_like etf_candidate].freeze
     PROFILE_VERSION = "strict_v3_core"
     FRESHNESS_BASIS = "actor_profile_certified_scope_v3_core"
 

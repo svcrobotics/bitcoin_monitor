@@ -46,13 +46,17 @@ module ActorBehaviors
         return version_result if version_result
 
         snapshot = ActorBehaviorSnapshot.lock.find_or_initialize_by(cluster_id: @cluster_id)
-        return already_current(snapshot) if current?(snapshot, profile)
+        if current?(snapshot, profile)
+          handoff = ActorLabels::HandoffRegistration.call(snapshot: snapshot)
+          return already_current(snapshot).merge(actor_label_handoff_id: handoff[:handoff_id])
+        end
 
         payload = build_payload(profile)
         snapshot.assign_attributes(payload)
         persist_snapshot!(snapshot)
+        handoff = ActorLabels::HandoffRegistration.call(snapshot: snapshot)
 
-        result("built", snapshot)
+        result("built", snapshot).merge(actor_label_handoff_id: handoff[:handoff_id])
       end
     end
 
