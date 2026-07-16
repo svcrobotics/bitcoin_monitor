@@ -164,5 +164,12 @@ if Sidekiq.server?
     # Les laisser ici provoque des backlogs Sidekiq massifs.
   }
 
+  legacy_cluster_input_orchestrator_enabled =
+    %w[1 true yes on].include?(
+      ENV["TANSA_LEGACY_CLUSTER_INPUT_ORCHESTRATOR_ENABLED"].to_s
+    )
+
+  schedule.delete("cluster_input_orchestrator") unless legacy_cluster_input_orchestrator_enabled
+
   Sidekiq::Cron::Job.load_from_hash!(schedule)
 end
