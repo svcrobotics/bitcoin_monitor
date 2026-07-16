@@ -197,6 +197,15 @@ def build_profile
       dirty:
         false,
 
+      certified_at:
+        Time.current,
+
+      certification_epoch_height:
+        cluster_tip,
+
+      certification_scope:
+        "strict",
+
       priority:
         scores[:priority],
 
@@ -424,6 +433,9 @@ def profile_complete_for?(profile, requested_version)
     profile.traits.to_h["profile_version"] == PROFILE_VERSION &&
     profile.metadata.to_h["strict"] == true &&
     profile.last_computed_height.present? &&
+    profile.certification_epoch_height.to_i == profile.last_computed_height.to_i &&
+    profile.certification_scope == "strict" &&
+    profile.certified_at.present? &&
     !profile.dirty?
 end
 

@@ -38,6 +38,7 @@ module ActorProfiles
 
     test "builds exactly the requested locked composition and then is already current" do
       first = build(version: 3)
+      first_certified_at = ActorProfile.find(first[:profile_id]).certified_at
       second = build(version: 3)
 
       assert_equal "built", first[:status]
@@ -46,8 +47,47 @@ module ActorProfiles
       assert_equal "already_current", second[:status]
       assert_equal first[:profile_id], second[:profile_id]
       assert_equal 1, ActorProfile.where(cluster_id: @cluster.id).count
+      assert first_certified_at.present?
+      assert_equal first_certified_at,
+        ActorProfile.find(first[:profile_id]).certified_at
       assert JSON.generate(first)
       assert JSON.generate(second)
+    end
+
+    test "a newer composition receives a later certification timestamp" do
+      travel_to(Time.utc(2026, 7, 16, 10, 0, 0)) do
+        first = build(version: 3)
+        @first_certified_at = ActorProfile.find(first[:profile_id]).certified_at
+      end
+
+      Cluster.where(id: @cluster.id).update_all(composition_version: 4)
+
+      travel_to(Time.utc(2026, 7, 16, 10, 1, 0)) do
+        second = build(version: 4)
+        profile = ActorProfile.find(second[:profile_id])
+
+        assert_equal "built", second[:status]
+        assert_operator profile.certified_at, :>, @first_certified_at
+        assert_equal 4, profile.cluster_composition_version
+      end
+    end
+
+    test "an incomplete same-version profile is rebuilt and certified" do
+      profile = ActorProfile.create!(
+        cluster: @cluster,
+        cluster_composition_version: 3,
+        last_computed_height: @height,
+        dirty: true,
+        traits: { profile_version: StrictBuildFromCluster::PROFILE_VERSION },
+        metadata: { strict: true }
+      )
+
+      result = build(version: 3)
+      profile.reload
+
+      assert_equal "built", result[:status]
+      assert_not profile.dirty?
+      assert profile.certified_at.present?
     end
 
     test "strictly validates identifiers and requested versions" do
@@ -152,6 +192,39 @@ module ActorProfiles
       assert_equal "score failure", error.message
       assert_nil ActorProfile.find_by(cluster_id: @cluster.id)
     ensure
+      StrictBuildFromCluster.define_method(:compute_scores, original) if original
+    end
+
+    test "a second connection sees certification only after the build commits" do
+      reached_scores = Queue.new
+      release_scores = Queue.new
+      original = StrictBuildFromCluster.instance_method(:compute_scores)
+      StrictBuildFromCluster.define_method(:compute_scores) do |stats|
+        scores = original.bind_call(self, stats)
+        reached_scores << true
+        release_scores.pop
+        scores
+      end
+
+      thread = Thread.new do
+        ActiveRecord::Base.connection_pool.with_connection { build(version: 3) }
+      end
+      reached_scores.pop
+
+      ApplicationRecord.uncached do
+        assert_nil ActorProfile.find_by(cluster_id: @cluster.id)
+      end
+
+      release_scores << true
+      result = thread.value
+
+      profile = ActorProfile.find(result[:profile_id])
+      assert profile.certified_at.present?
+      assert_equal true, profile.metadata["strict"]
+      assert_not profile.dirty?
+    ensure
+      release_scores << true if release_scores&.empty?
+      thread&.join
       StrictBuildFromCluster.define_method(:compute_scores, original) if original
     end
 

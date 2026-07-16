@@ -183,6 +183,12 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_15_190000) do
     t.boolean "dirty", default: false, null: false
     t.string "priority"
     t.bigint "cluster_composition_version"
+    t.integer "certification_epoch_height"
+    t.string "certification_scope"
+    t.datetime "certified_at"
+    t.index ["certification_epoch_height", "dirty"], name: "index_actor_profiles_on_epoch_and_dirty"
+    t.index ["certification_scope", "certification_epoch_height"], name: "index_actor_profiles_on_scope_and_epoch"
+    t.index ["certified_at"], name: "index_actor_profiles_on_certified_at"
     t.index ["classification"], name: "index_actor_profiles_on_classification"
     t.index ["cluster_id"], name: "index_actor_profiles_on_cluster_id"
     t.index ["cluster_id"], name: "index_actor_profiles_on_cluster_id_unique", unique: true
@@ -190,6 +196,8 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_15_190000) do
     t.index ["last_computed_height"], name: "index_actor_profiles_on_last_computed_height"
     t.index ["priority"], name: "index_actor_profiles_on_priority"
     t.index ["updated_at"], name: "index_actor_profiles_on_updated_at"
+    t.check_constraint "certification_epoch_height IS NULL OR certification_epoch_height > 0", name: "actor_profiles_positive_certification_epoch"
+    t.check_constraint "certification_scope IS NULL OR certification_scope::text <> ''::text", name: "actor_profiles_certification_scope_present"
   end
 
   create_table "address_flow_stats", force: :cascade do |t|
