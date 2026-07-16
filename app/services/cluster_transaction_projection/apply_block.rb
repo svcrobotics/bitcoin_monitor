@@ -8,12 +8,14 @@ module ClusterTransactionProjection
 
     def initialize(
       cluster_id:,
+      expected_composition_version:,
       block_height:,
       block_hash:,
       received_txids: [],
       spent_txids: []
     )
       @cluster_id = cluster_id.to_i
+      @expected_composition_version = Integer(expected_composition_version)
       @block_height = block_height.to_i
       @block_hash = block_hash.to_s
       @received_txids =
@@ -87,6 +89,7 @@ module ClusterTransactionProjection
 
     attr_reader(
       :cluster_id,
+      :expected_composition_version,
       :block_height,
       :block_hash,
       :received_txids,
@@ -122,9 +125,18 @@ module ClusterTransactionProjection
         Cluster.lock.find(generation.cluster_id)
 
       if cluster.composition_version.to_i < 1 ||
+         expected_composition_version < 1 ||
          generation.composition_version.to_i < 1
         return refused(
           :invalid_composition_revision,
+          generation: generation
+        )
+      end
+
+      unless cluster.composition_version.to_i ==
+             expected_composition_version
+        return refused(
+          :expected_composition_mismatch,
           generation: generation
         )
       end
