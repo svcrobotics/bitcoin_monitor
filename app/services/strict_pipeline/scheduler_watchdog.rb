@@ -91,6 +91,20 @@ module StrictPipeline
         ),
 
         JobSpec.new(
+          name: "cluster_transaction_projection",
+          queue: "cluster_strict",
+          klass: "ClusterTransactionProjection::IncrementalDispatchJob",
+          kind: :active_job,
+          wait_seconds: 12,
+          args: [
+            {
+              limit: ClusterTransactionProjection::IncrementalDispatchJob::DEFAULT_LIMIT
+            }
+          ],
+          allow_scheduled_successor_while_active: false
+        ),
+
+        JobSpec.new(
           name: "address_spend_projection",
           queue: "actor_profile_strict",
           klass: "AddressSpendStats::ProjectionJob",
@@ -228,6 +242,29 @@ module StrictPipeline
           skipped: true,
           reason: "pipeline_controller_refused"
         )
+      end
+
+      if spec.name == "cluster_transaction_projection"
+        if cluster_strict_work_available?
+          return result.merge(
+            skipped: true,
+            reason: "cluster_strict_work_pending"
+          )
+        end
+
+        unless cluster_pipeline_allowed?
+          return result.merge(
+            skipped: true,
+            reason: "pipeline_controller_refused"
+          )
+        end
+
+        unless cluster_transaction_projection_work_available?
+          return result.merge(
+            skipped: true,
+            reason: "durable_backlog_empty"
+          )
+        end
       end
 
       if spec.name == "actor_profile"
@@ -461,6 +498,14 @@ module StrictPipeline
       decision.is_a?(Hash) && decision[:allowed] == true
     rescue StandardError
       false
+    end
+
+    def cluster_strict_work_available?
+      Clusters::StrictTipSyncer.work_available?
+    end
+
+    def cluster_transaction_projection_work_available?
+      ClusterTransactionProjection::IncrementalDispatcher.work_available?
     end
 
     def actor_profile_work_available?
