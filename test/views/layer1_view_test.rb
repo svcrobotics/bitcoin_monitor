@@ -158,7 +158,9 @@ class Layer1ViewTest < ActionView::TestCase
       BlockBufferModel
       Sidekiq::Queue
       Sidekiq::ProcessSet
-      Redis
+      Sidekiq.redis
+      Redis.current
+      Redis.new
       BitcoinRpc
     ]
 
