@@ -3,7 +3,7 @@
 module ActorBehaviors
   class SnapshotStateScope
     def self.certified_profiles
-      ActorProfiles::CertifiedScope.call
+      new.certified_profiles
     end
 
     def self.missing_profiles
@@ -16,6 +16,11 @@ module ActorBehaviors
 
     def self.stale_profiles
       new.stale_profiles
+    end
+
+    def certified_profiles
+      @certified_profiles ||=
+        ActorProfiles::CertifiedScope.call
     end
 
     def missing_profiles
@@ -75,10 +80,6 @@ module ActorBehaviors
     end
 
     private
-
-    def certified_profiles
-      self.class.certified_profiles
-    end
 
     def missing_join_sql
       "LEFT JOIN actor_behavior_snapshots " \

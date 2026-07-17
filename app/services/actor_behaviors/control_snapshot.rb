@@ -23,6 +23,8 @@ module ActorBehaviors
 
     def initialize(now:)
       @now = now
+      @snapshot_state_scope =
+        ActorBehaviors::SnapshotStateScope.new
     end
 
     def call
@@ -126,6 +128,8 @@ module ActorBehaviors
 
     private
 
+    attr_reader :snapshot_state_scope
+
     def local_auto_enabled?
       ActiveModel::Type::Boolean
         .new
@@ -164,19 +168,19 @@ module ActorBehaviors
     end
 
     def certified_profiles_available?
-      ActorBehaviors::SnapshotStateScope
+      snapshot_state_scope
         .certified_profiles
         .exists?
     end
 
     def missing_work_available?
-      ActorBehaviors::SnapshotStateScope
+      snapshot_state_scope
         .missing_profiles
         .exists?
     end
 
     def stale_work_available?
-      ActorBehaviors::SnapshotStateScope
+      snapshot_state_scope
         .stale_profiles
         .exists?
     end
