@@ -62,11 +62,14 @@ module ActorLabels
           .limit(DISPLAY_LIMIT)
           .to_a
 
+      published_scope =
+        ActorLabels::
+          CurrentHeavyExchangeLabelScope
+          .call
+
       published_cluster_ids =
-        ActorLabel
+        published_scope
           .where(
-            source: SOURCE,
-            label: LABEL,
             cluster_id:
               records.map(&:cluster_id)
           )
@@ -89,10 +92,7 @@ module ActorLabels
           rejected.count,
 
         labels_published:
-          ActorLabel.where(
-            source: SOURCE,
-            label: LABEL
-          ).count,
+          published_scope.count,
 
         minimum_sweep_share_percent:
           80.0,

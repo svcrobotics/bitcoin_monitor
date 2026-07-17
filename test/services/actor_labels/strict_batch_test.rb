@@ -160,6 +160,19 @@ module ActorLabels
           cluster
       )
 
+      epoch =
+        ActorProfileCertificationEpoch.find_or_create_by!(
+          profile_version:
+            ActorProfiles::StrictBuildFromCluster::PROFILE_VERSION
+        ) do |record|
+          record.start_height = 90
+          record.activated_at = Time.current
+          record.source =
+            ActorProfileCertificationEpoch::
+              SOURCE_CLUSTER_STRICT_CHECKPOINT
+          record.metadata = {}
+        end
+
       profile =
         ActorProfile.create!(
           cluster: cluster,
@@ -177,6 +190,13 @@ module ActorLabels
           dirty: false,
           last_computed_height: 100,
           cluster_composition_version: 1,
+          certification_epoch_height:
+            epoch.start_height,
+          certification_scope:
+            ActorProfile::
+              CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH,
+          certified_at:
+            Time.current,
 
           traits: {
             "profile_version" =>

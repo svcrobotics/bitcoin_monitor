@@ -36,6 +36,7 @@ class ActorLabelsViewTest < ActionView::TestCase
       "Service Flow",
       "ETF Flow",
       "exchange_infrastructure_candidate",
+      "candidat(s) d’infrastructure exchange",
       "whale_like",
       "service_infrastructure",
       "etf_like",
@@ -52,6 +53,10 @@ class ActorLabelsViewTest < ActionView::TestCase
 
     refute_includes rendered, "Entrées disponibles"
     refute_includes rendered, "Retard de la source"
+    refute_includes(
+      rendered,
+      "infrastructure(s) exchange confirmée(s)"
+    )
   end
 
   private

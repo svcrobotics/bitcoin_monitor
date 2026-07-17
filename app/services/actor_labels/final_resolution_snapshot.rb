@@ -253,14 +253,9 @@ module ActorLabels
         begin
           values =
             if provided_heavy_exchange_cluster_ids.nil?
-              ActorLabel
-                .where(
-                  source:
-                    HEAVY_SOURCE,
-
-                  label:
-                    HEAVY_EXCHANGE_LABEL
-                )
+              ActorLabels::
+                CurrentHeavyExchangeLabelScope
+                .call
                 .pluck(
                   :cluster_id
                 )

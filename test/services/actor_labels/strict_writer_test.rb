@@ -257,6 +257,12 @@ module ActorLabels
           }
         )
 
+      profile_fingerprint =
+        SecureRandom.hex(32)
+
+      certified_at =
+        Time.current
+
       ActorBehaviorSnapshot.create!(
         cluster: cluster,
         actor_profile: profile,
@@ -271,7 +277,16 @@ module ActorLabels
           1,
 
         profile_fingerprint:
-          SecureRandom.hex(32),
+          profile_fingerprint,
+
+        source_hash:
+          profile_fingerprint,
+
+        certification_scope:
+          "strict",
+
+        certified_at:
+          certified_at,
 
         behavior_version:
           "strict_v2",
@@ -322,7 +337,7 @@ module ActorLabels
         },
 
         computed_at:
-          Time.current
+          certified_at
       )
     end
   end
