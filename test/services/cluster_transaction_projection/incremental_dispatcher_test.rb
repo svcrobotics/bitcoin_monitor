@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "minitest/mock"
 
 module ClusterTransactionProjection
   class IncrementalDispatcherTest < ActiveSupport::TestCase
@@ -201,6 +202,37 @@ module ClusterTransactionProjection
       assert_equal 1, error.result.projected
       assert_equal @base_height, generation.reload.checkpoint_height
       assert_equal @next_height, second[:generation].reload.checkpoint_height
+    end
+
+    test "PostgreSQL probe reports only safe incremental work" do
+      assert IncrementalDispatcher.work_available?
+
+      IncrementalDispatcher.call(limit: 1)
+
+      refute IncrementalDispatcher.work_available?
+    end
+
+    test "PostgreSQL probe excludes a changed composition" do
+      cluster.update!(composition_version: 2)
+
+      refute IncrementalDispatcher.work_available?
+    end
+
+    test "PostgreSQL probe fails closed with an observable reason" do
+      warnings = []
+      logger = Object.new
+      logger.define_singleton_method(:warn) { |payload| warnings << payload }
+
+      Rails.stub(:logger, logger) do
+        ApplicationRecord.connection.stub(:select_value, ->(*) { raise ActiveRecord::ConnectionNotEstablished }) do
+          refute IncrementalDispatcher.work_available?
+        end
+      end
+
+      assert_equal 1, warnings.size
+      assert_equal "incremental_ctp_probe_unavailable", warnings.sole[:event]
+      assert_equal "postgresql_probe_failed", warnings.sole[:reason]
+      assert_equal "ActiveRecord::ConnectionNotEstablished", warnings.sole[:error_class]
     end
 
     test "contains no Redis Sidekiq or backfill dependency" do

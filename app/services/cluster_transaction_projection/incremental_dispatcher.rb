@@ -22,6 +22,17 @@ module ClusterTransactionProjection
       new(limit: limit).call
     end
 
+    def self.work_available?
+      new(limit: 1).send(:safe_candidate_available?)
+    rescue StandardError => error
+      Rails.logger.warn(
+        event: "incremental_ctp_probe_unavailable",
+        reason: "postgresql_probe_failed",
+        error_class: error.class.name
+      )
+      false
+    end
+
     def initialize(limit: DEFAULT_LIMIT)
       @limit = Integer(limit)
       raise ArgumentError, "limit must be positive" unless @limit.positive?
@@ -80,6 +91,55 @@ module ClusterTransactionProjection
         .where.not(processed_at: nil)
         .where("audit_result @> ?::jsonb", { ok: true }.to_json)
         .maximum(:height)
+    end
+
+    def safe_candidate_available?
+      sql = <<~SQL.squish
+        SELECT EXISTS (
+          SELECT 1
+          FROM cluster_transaction_projection_generations generations
+          JOIN clusters
+            ON clusters.id = generations.cluster_id
+           AND clusters.composition_version = generations.composition_version
+          JOIN cluster_processed_blocks current_checkpoints
+            ON current_checkpoints.height = generations.checkpoint_height
+           AND current_checkpoints.block_hash = generations.checkpoint_hash
+           AND current_checkpoints.status = 'processed'
+           AND current_checkpoints.processed_at IS NOT NULL
+           AND current_checkpoints.audit_result @> '{"ok": true}'::jsonb
+          JOIN cluster_transaction_projection_blocks projected_blocks
+            ON projected_blocks.block_height = generations.checkpoint_height
+           AND projected_blocks.block_hash = generations.checkpoint_hash
+           AND projected_blocks.status = 'projected'
+          JOIN cluster_processed_blocks next_checkpoints
+            ON next_checkpoints.height = generations.checkpoint_height + 1
+           AND next_checkpoints.status = 'processed'
+           AND next_checkpoints.processed_at IS NOT NULL
+           AND next_checkpoints.audit_result @> '{"ok": true}'::jsonb
+           AND next_checkpoints.block_hash IS NOT NULL
+           AND next_checkpoints.block_hash <> ''
+          WHERE generations.status = 'certified'
+            AND (
+              SELECT COUNT(*)
+              FROM block_buffers layer1_blocks
+              WHERE layer1_blocks.height = next_checkpoints.height
+                AND layer1_blocks.block_hash = next_checkpoints.block_hash
+                AND layer1_blocks.status = 'processed'
+                AND layer1_blocks.is_orphan = FALSE
+                AND layer1_blocks.processed_at IS NOT NULL
+                AND layer1_blocks.strict_metrics @> '{
+                  "outputs_audit_ok": true,
+                  "inputs_audit_ok": true,
+                  "utxo_audit_ok": true
+                }'::jsonb
+            ) = 1
+          LIMIT 1
+        )
+      SQL
+
+      ActiveModel::Type::Boolean.new.cast(
+        ApplicationRecord.connection.select_value(sql)
+      )
     end
 
     def process_candidate(generation_id)
