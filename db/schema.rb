@@ -10,11 +10,38 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
   enable_extension "vector"
+
+  create_table "actor_behavior_build_handoffs", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "actor_profile_id", null: false
+    t.bigint "cluster_composition_version", null: false
+    t.string "profile_version", null: false
+    t.integer "source_height", null: false
+    t.string "source_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "claimed_at"
+    t.datetime "completed_at"
+    t.string "last_error_class"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_profile_id"], name: "index_actor_behavior_build_handoffs_on_actor_profile_id"
+    t.index ["claimed_at"], name: "index_actor_behavior_build_handoffs_on_claimed_at"
+    t.index ["cluster_id", "cluster_composition_version", "profile_version", "source_height", "source_hash"], name: "idx_actor_behavior_handoffs_identity", unique: true
+    t.index ["cluster_id"], name: "index_actor_behavior_build_handoffs_on_cluster_id"
+    t.index ["status", "source_height", "cluster_id", "id"], name: "idx_actor_behavior_handoffs_claim"
+    t.check_constraint "attempts >= 0", name: "actor_behavior_handoffs_attempts_nonnegative"
+    t.check_constraint "cluster_composition_version >= 1", name: "actor_behavior_handoffs_positive_composition"
+    t.check_constraint "profile_version::text <> ''::text", name: "actor_behavior_handoffs_profile_version_present"
+    t.check_constraint "source_hash::text <> ''::text", name: "actor_behavior_handoffs_source_hash_present"
+    t.check_constraint "source_height >= 0", name: "actor_behavior_handoffs_nonnegative_height"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_behavior_handoffs_status_valid"
+  end
 
   create_table "actor_behavior_heavy_snapshots", force: :cascade do |t|
     t.bigint "cluster_id", null: false
@@ -96,12 +123,77 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
     t.datetime "computed_at", null: false
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.string "source_hash"
+    t.string "certification_scope"
+    t.datetime "certified_at"
     t.index ["actor_profile_id"], name: "index_actor_behavior_snapshots_on_actor_profile_id"
+    t.index ["certified_at"], name: "index_actor_behavior_snapshots_on_certified_at"
+    t.index ["cluster_id", "cluster_composition_version", "profile_version", "profile_height", "source_hash"], name: "idx_actor_behavior_snapshots_strict_identity"
     t.index ["cluster_id", "profile_height", "cluster_composition_version"], name: "idx_actor_behavior_snapshot_checkpoint"
     t.index ["cluster_id"], name: "index_actor_behavior_snapshots_on_cluster_id", unique: true
     t.index ["profile_fingerprint"], name: "index_actor_behavior_snapshots_on_profile_fingerprint"
     t.index ["profile_height"], name: "index_actor_behavior_snapshots_on_profile_height"
     t.index ["status"], name: "index_actor_behavior_snapshots_on_status"
+  end
+
+  add_check_constraint "actor_behavior_snapshots", "status::text <> 'certified'::text OR source_hash IS NOT NULL AND source_hash::text <> ''::text AND certification_scope::text = 'strict'::text AND certified_at IS NOT NULL", name: "actor_behavior_snapshots_certified_provenance", validate: false
+
+  create_table "actor_label_evaluations", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "actor_behavior_snapshot_id", null: false
+    t.bigint "cluster_composition_version", null: false
+    t.string "profile_version", null: false
+    t.bigint "source_height", null: false
+    t.string "source_hash", null: false
+    t.string "behavior_version", null: false
+    t.string "rule_version", null: false
+    t.string "status", null: false
+    t.string "certification_scope", null: false
+    t.jsonb "rule_results", default: {}, null: false
+    t.jsonb "active_rules", default: [], null: false
+    t.jsonb "deferred_rules", default: [], null: false
+    t.datetime "certified_at", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_behavior_snapshot_id"], name: "index_actor_label_evaluations_on_actor_behavior_snapshot_id"
+    t.index ["certified_at"], name: "index_actor_label_evaluations_on_certified_at"
+    t.index ["cluster_id", "cluster_composition_version", "profile_version", "source_height", "source_hash", "behavior_version", "actor_behavior_snapshot_id", "rule_version"], name: "idx_actor_label_evaluations_identity", unique: true
+    t.index ["cluster_id"], name: "index_actor_label_evaluations_on_cluster_id"
+    t.check_constraint "cluster_composition_version >= 1", name: "actor_label_evaluations_composition_positive"
+    t.check_constraint "jsonb_typeof(rule_results) = 'object'::text", name: "actor_label_evaluations_results_object"
+    t.check_constraint "source_height >= 0", name: "actor_label_evaluations_height_nonnegative"
+    t.check_constraint "status::text = 'certified'::text AND certification_scope::text = 'strict'::text", name: "actor_label_evaluations_strict_certification"
+  end
+
+  create_table "actor_label_handoffs", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "actor_behavior_snapshot_id", null: false
+    t.bigint "cluster_composition_version", null: false
+    t.string "profile_version", null: false
+    t.bigint "source_height", null: false
+    t.string "source_hash", null: false
+    t.string "behavior_version", null: false
+    t.string "rule_version", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "claimed_at"
+    t.datetime "completed_at"
+    t.string "last_error_class"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["actor_behavior_snapshot_id"], name: "index_actor_label_handoffs_on_actor_behavior_snapshot_id"
+    t.index ["claimed_at"], name: "index_actor_label_handoffs_on_claimed_at"
+    t.index ["cluster_id", "cluster_composition_version", "profile_version", "source_height", "source_hash", "behavior_version", "actor_behavior_snapshot_id", "rule_version"], name: "idx_actor_label_handoffs_identity", unique: true
+    t.index ["cluster_id"], name: "index_actor_label_handoffs_on_cluster_id"
+    t.index ["status", "source_height", "cluster_id", "id"], name: "idx_actor_label_handoffs_claim"
+    t.check_constraint "attempts >= 0", name: "actor_label_handoffs_attempts_nonnegative"
+    t.check_constraint "behavior_version::text <> ''::text", name: "actor_label_handoffs_behavior_version_present"
+    t.check_constraint "cluster_composition_version >= 1", name: "actor_label_handoffs_composition_positive"
+    t.check_constraint "profile_version::text <> ''::text", name: "actor_label_handoffs_profile_version_present"
+    t.check_constraint "rule_version::text <> ''::text", name: "actor_label_handoffs_rule_version_present"
+    t.check_constraint "source_hash::text <> ''::text", name: "actor_label_handoffs_source_hash_present"
+    t.check_constraint "source_height >= 0", name: "actor_label_handoffs_height_nonnegative"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_label_handoffs_status_valid"
   end
 
   create_table "actor_labels", force: :cascade do |t|
@@ -115,6 +207,10 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.bigint "actor_profile_id"
+    t.bigint "actor_behavior_snapshot_id"
+    t.string "rule_version"
+    t.datetime "certified_at"
+    t.index ["actor_behavior_snapshot_id"], name: "index_actor_labels_on_actor_behavior_snapshot_id"
     t.index ["actor_profile_id"], name: "index_actor_labels_on_actor_profile_id"
     t.index ["cluster_id", "label", "source"], name: "index_actor_labels_on_cluster_id_and_label_and_source", unique: true
     t.index ["cluster_id"], name: "index_actor_labels_on_cluster_id"
@@ -141,6 +237,32 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
     t.index ["exchange_score"], name: "index_actor_metrics_on_exchange_score"
     t.index ["service_score"], name: "index_actor_metrics_on_service_score"
     t.index ["whale_score"], name: "index_actor_metrics_on_whale_score"
+  end
+
+  create_table "actor_profile_build_admissions", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "cluster_composition_version", null: false
+    t.bigint "source_height", null: false
+    t.string "source_hash", null: false
+    t.string "reason", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.datetime "claimed_at"
+    t.datetime "completed_at"
+    t.string "last_error_class"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_id", "cluster_composition_version", "source_height", "source_hash"], name: "idx_actor_profile_admissions_identity", unique: true
+    t.index ["cluster_id"], name: "index_actor_profile_build_admissions_on_cluster_id"
+    t.index ["status", "source_height", "cluster_id", "id"], name: "idx_actor_profile_admissions_claim_order"
+    t.check_constraint "attempts >= 0", name: "actor_profile_admissions_attempts_check"
+    t.check_constraint "cluster_composition_version >= 1", name: "actor_profile_admissions_composition_version_check"
+    t.check_constraint "reason::text <> ''::text", name: "actor_profile_admissions_reason_check"
+    t.check_constraint "source_hash::text <> ''::text", name: "actor_profile_admissions_source_hash_check"
+    t.check_constraint "source_height >= 0", name: "actor_profile_admissions_source_height_check"
+    t.check_constraint "status::text <> 'processing'::text OR claimed_at IS NOT NULL", name: "actor_profile_admissions_claim_check"
+    t.check_constraint "status::text = 'completed'::text AND completed_at IS NOT NULL OR status::text <> 'completed'::text AND completed_at IS NULL", name: "actor_profile_admissions_completion_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_profile_admissions_status_check"
   end
 
   create_table "actor_profile_certification_epochs", force: :cascade do |t|
@@ -256,7 +378,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
     t.check_constraint "address_count >= 0", name: "address_spend_projection_blocks_address_count_check"
     t.check_constraint "height >= 0", name: "address_spend_projection_blocks_height_check"
     t.check_constraint "input_count >= 0", name: "address_spend_projection_blocks_input_count_check"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'processing'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text])", name: "address_spend_projection_blocks_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "address_spend_projection_blocks_status_check"
     t.check_constraint "total_sent_sats >= 0", name: "address_spend_projection_blocks_total_sent_sats_check"
   end
 
@@ -302,7 +424,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
     t.check_constraint "spent_address_count >= 0", name: "address_utxo_projection_blocks_spent_address_count_check"
     t.check_constraint "spent_output_count >= 0", name: "address_utxo_projection_blocks_spent_output_count_check"
     t.check_constraint "status::text <> 'completed'::text OR completed_at IS NOT NULL", name: "address_utxo_projection_blocks_completed_at_check"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'processing'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text, 'stale'::character varying::text])", name: "address_utxo_projection_blocks_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying, 'stale'::character varying]::text[])", name: "address_utxo_projection_blocks_status_check"
     t.check_constraint "total_received_sats >= 0", name: "address_utxo_projection_blocks_total_received_sats_check"
     t.check_constraint "total_spent_sats >= 0", name: "address_utxo_projection_blocks_total_spent_sats_check"
   end
@@ -558,6 +680,30 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["cluster_id"], name: "index_cluster_activity_states_on_cluster_id"
+  end
+
+  create_table "cluster_actor_profile_handoffs", force: :cascade do |t|
+    t.bigint "cluster_height", null: false
+    t.string "block_hash", null: false
+    t.bigint "cluster_id", null: false
+    t.bigint "composition_version", null: false
+    t.string "status", default: "pending", null: false
+    t.integer "attempts", default: 0, null: false
+    t.string "last_error_class"
+    t.datetime "claimed_at"
+    t.datetime "completed_at"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["cluster_height", "block_hash", "cluster_id", "composition_version"], name: "idx_cluster_actor_handoffs_certification_version", unique: true
+    t.index ["cluster_height", "block_hash"], name: "idx_cluster_actor_handoffs_height_hash"
+    t.index ["cluster_id"], name: "index_cluster_actor_profile_handoffs_on_cluster_id"
+    t.index ["status", "cluster_height", "cluster_id"], name: "idx_cluster_actor_handoffs_claim_order"
+    t.check_constraint "attempts >= 0", name: "cluster_actor_handoffs_attempts_check"
+    t.check_constraint "cluster_height >= 0", name: "cluster_actor_handoffs_height_check"
+    t.check_constraint "composition_version >= 1", name: "cluster_actor_handoffs_version_check"
+    t.check_constraint "status::text <> 'processing'::text OR claimed_at IS NOT NULL", name: "cluster_actor_handoffs_claim_check"
+    t.check_constraint "status::text = 'completed'::text AND completed_at IS NOT NULL OR status::text <> 'completed'::text AND completed_at IS NULL", name: "cluster_actor_handoffs_completion_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "cluster_actor_handoffs_status_check"
   end
 
   create_table "cluster_composition_revision_repair_checkpoints", force: :cascade do |t|
@@ -1228,6 +1374,23 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
     t.datetime "updated_at", null: false
   end
 
+  create_table "layer1_audit_operational_events", force: :cascade do |t|
+    t.string "event_type", null: false
+    t.string "severity", null: false
+    t.bigint "audited_height"
+    t.integer "defer_attempt"
+    t.string "sidekiq_jid"
+    t.string "error_class"
+    t.datetime "occurred_at", null: false
+    t.jsonb "metadata", default: {}, null: false
+    t.index ["audited_height", "occurred_at"], name: "idx_layer1_audit_events_height_occurred_at"
+    t.index ["event_type", "occurred_at"], name: "idx_layer1_audit_events_type_occurred_at"
+    t.index ["occurred_at"], name: "idx_layer1_audit_events_occurred_at"
+    t.check_constraint "audited_height IS NULL OR audited_height >= 0", name: "layer1_audit_events_height_check"
+    t.check_constraint "defer_attempt IS NULL OR defer_attempt >= 0", name: "layer1_audit_events_attempt_check"
+    t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "layer1_audit_events_metadata_object_check"
+  end
+
   create_table "layer1_audit_runs", force: :cascade do |t|
     t.integer "audited_height"
     t.string "block_hash"
@@ -1744,14 +1907,22 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
     t.index ["txid", "address", "direction"], name: "index_whale_core_flow_events_on_txid_and_address_and_direction", unique: true
   end
 
+  add_foreign_key "actor_behavior_build_handoffs", "actor_profiles"
+  add_foreign_key "actor_behavior_build_handoffs", "clusters"
   add_foreign_key "actor_behavior_heavy_snapshots", "actor_behavior_snapshots"
   add_foreign_key "actor_behavior_heavy_snapshots", "actor_profiles"
   add_foreign_key "actor_behavior_heavy_snapshots", "clusters"
   add_foreign_key "actor_behavior_heavy_snapshots", "clusters", column: "downstream_cluster_id"
   add_foreign_key "actor_behavior_snapshots", "actor_profiles", on_delete: :cascade
   add_foreign_key "actor_behavior_snapshots", "clusters", on_delete: :cascade
+  add_foreign_key "actor_label_evaluations", "actor_behavior_snapshots"
+  add_foreign_key "actor_label_evaluations", "clusters"
+  add_foreign_key "actor_label_handoffs", "actor_behavior_snapshots"
+  add_foreign_key "actor_label_handoffs", "clusters"
+  add_foreign_key "actor_labels", "actor_behavior_snapshots"
   add_foreign_key "actor_labels", "clusters", on_delete: :cascade
   add_foreign_key "actor_metrics", "clusters", on_delete: :cascade
+  add_foreign_key "actor_profile_build_admissions", "clusters"
   add_foreign_key "actor_profiles", "clusters"
   add_foreign_key "address_links", "addresses", column: "address_a_id"
   add_foreign_key "address_links", "addresses", column: "address_b_id"
@@ -1760,6 +1931,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
   add_foreign_key "brc20_events", "brc20_tokens"
   add_foreign_key "brc20_token_daily_stats", "brc20_tokens"
   add_foreign_key "cluster_activity_states", "clusters"
+  add_foreign_key "cluster_actor_profile_handoffs", "clusters"
   add_foreign_key "cluster_metrics", "clusters"
   add_foreign_key "cluster_profiles", "clusters"
   add_foreign_key "cluster_signals", "clusters"
