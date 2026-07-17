@@ -6,64 +6,80 @@
 
   <% answer_classes = "mt-4 prose prose-invert max-w-none prose-p:text-slate-200 prose-li:text-slate-200 prose-strong:text-white prose-strong:font-semibold prose-ol:space-y-3 prose-ul:space-y-2 prose-li:leading-7 prose-headings:text-white text-sm leading-7" %>
 
-  <% if context[:module] == "actor_labels_health" %>
-    <div class="mt-6 space-y-4">
-      <%= render "questions/answers/actor_labels", snapshot: context %>
 
-      <div class="rounded-2xl border border-pink-400/20 bg-black/20 p-5">
-        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-pink-300">
-          Analyse IA Actor Labels
-        </div>
+  <% if context[:module] == "actor_behaviors_health" %>
+    <div class="mt-6">
+      <%= turbo_frame_tag "live_answer_actor_behaviors",
+        src: questions_live_answer_path(module_name: "actor_behaviors"),
+        loading: :eager,
+        data: {
+          controller: "auto-refresh",
+          auto_refresh_interval_value: 60000,
+          auto_refresh_url_value: questions_live_answer_path(module_name: "actor_behaviors")
+        } do %>
 
-        <div class="<%= answer_classes %>">
-          <%= formatted_answer %>
-        </div>
-      </div>
+        <%= render "questions/answers/actor_behaviors",
+          snapshot: context %>
+      <% end %>
+    </div>
+
+  <% elsif context[:module] == "actor_labels_health" %>
+    <div class="mt-6">
+      <%= turbo_frame_tag "actor_labels_live",
+        src: "/questions/live/actor-labels-strict",
+        loading: :eager,
+        data: {
+          controller: "auto-refresh",
+          auto_refresh_interval_value: 10000,
+          auto_refresh_url_value: "/questions/live/actor-labels-strict"
+        } do %>
+
+        <%= render "questions/answers/actor_labels",
+          snapshot: context[:raw_snapshot] || context %>
+      <% end %>
     </div>
 
   <% elsif context[:module] == "actor_profiles_health" %>
-    <div class="mt-6 space-y-4">
-      <%= render "questions/answers/actor_profiles", snapshot: context %>
+    <div class="mt-6">
+      <%= turbo_frame_tag "live_answer_actor_profiles",
+        src: questions_live_answer_path(module_name: "actor_profiles"),
+        loading: :eager,
+        data: {
+          controller: "auto-refresh",
+          auto_refresh_interval_value: 10000,
+          auto_refresh_url_value: questions_live_answer_path(module_name: "actor_profiles")
+        } do %>
 
-      <div class="rounded-2xl border border-purple-400/20 bg-black/20 p-5">
-        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-purple-300">
-          Analyse IA Actor Profiles
-        </div>
-
-        <div class="<%= answer_classes %>">
-          <%= formatted_answer %>
-        </div>
-      </div>
+        <%= render "questions/answers/actor_profiles",
+          snapshot: context[:raw_snapshot] || context %>
+      <% end %>
     </div>
 
   <% elsif context[:module] == "cluster_health" %>
-    <div class="mt-6 space-y-4">
-      <%= render "questions/answers/cluster", snapshot: context %>
+    <div class="mt-6">
+      <%= turbo_frame_tag "live_answer_cluster",
+        src: questions_live_answer_path(module_name: "cluster"),
+        loading: :eager do %>
 
-      <div class="rounded-2xl border border-violet-400/20 bg-black/20 p-5">
-        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
-          Analyse IA Cluster
-        </div>
-
-        <div class="<%= answer_classes %>">
-          <%= formatted_answer %>
-        </div>
-      </div>
+        <%= render "questions/answers/cluster",
+          snapshot: context[:raw_snapshot] || context %>
+      <% end %>
     </div>
 
   <% elsif context[:module] == "layer1_health" %>
-    <div class="mt-6 space-y-4">
-      <%= render "questions/answers/layer1", snapshot: context[:raw_snapshot] || context %>
+    <div class="mt-6">
+      <%= turbo_frame_tag "live_answer_layer1",
+        src: questions_live_answer_path(module_name: "layer1"),
+        loading: :eager,
+        data: {
+          controller: "auto-refresh",
+          auto_refresh_interval_value: 120000,
+          auto_refresh_url_value: questions_live_answer_path(module_name: "layer1")
+        } do %>
 
-      <div class="rounded-2xl border border-cyan-400/20 bg-black/20 p-5">
-        <div class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
-          Analyse IA Layer 1
-        </div>
-
-        <div class="<%= answer_classes %>">
-          <%= formatted_answer %>
-        </div>
-      </div>
+        <%= render "questions/answers/layer1",
+          snapshot: context[:raw_snapshot] || context %>
+      <% end %>
     </div>
 
   <% else %>

@@ -3,25 +3,31 @@
 module Codebase
   class Searcher
     DEFAULT_LIMIT = 8
-    CANDIDATE_LIMIT = 30
+    CANDIDATE_LIMIT = 40
 
     BOOST_PATHS = [
-      "app/services/blockchain/",
-      "app/jobs/blockchain/",
       "app/services/layer1/",
       "app/jobs/layer1/",
-      "app/services/realtime/",
-      "app/jobs/realtime/",
       "app/services/clusters/",
-      "app/jobs/clusters/"
+      "app/jobs/clusters/",
+      "app/services/actor_profiles/",
+      "app/jobs/actor_profiles/",
+      "app/services/actor_labels/",
+      "app/jobs/actor_labels/",
+      "app/services/intelligence/",
+      "app/controllers/ai/",
+      "app/controllers/questions/",
+      "app/controllers/tansa_heartbeat_controller.rb",
+      "app/views/questions/answers/",
+      "app/javascript/controllers/system_heartbeat_controller.js"
     ].freeze
 
     PENALTY_PATHS = [
-      "app/views/",
+      "app/views/layouts/",
+      "app/views/shared/",
       "app/helpers/",
-      "app/javascript/",
-      "app/services/intelligence/",
-      "app/views/intelligence/"
+      "app/assets/",
+      "app/javascript/channels/"
     ].freeze
 
     def self.call(query, limit: DEFAULT_LIMIT)
@@ -35,6 +41,8 @@ module Codebase
     end
 
     def call
+      return [] if CodeChunk.count.zero?
+
       query_embedding = Ai::Embedding.call(@query)
 
       candidates =
@@ -64,7 +72,7 @@ module Codebase
       end
 
       PENALTY_PATHS.each do |prefix|
-        score -= 6 if path.start_with?(prefix)
+        score -= 4 if path.start_with?(prefix)
       end
 
       extracted_terms.each do |term|
@@ -73,14 +81,15 @@ module Codebase
       end
 
       if architecture_question?
-        score += 4 if path.include?("blockchain/")
-        score += 3 if path.include?("processing")
-        score += 3 if path.include?("ingest")
-        score += 3 if path.include?("flushers")
-        score += 2 if path.include?("utxo")
-        score += 2 if path.include?("cluster")
-        score -= 5 if path.include?("intelligence/")
-        score -= 5 if path.include?("views/")
+        score += 5 if path.include?("layer1/")
+        score += 5 if path.include?("clusters/")
+        score += 5 if path.include?("actor_profiles/")
+        score += 4 if path.include?("strict")
+        score += 4 if path.include?("health")
+        score += 3 if path.include?("audit")
+        score += 3 if path.include?("pipeline")
+        score += 3 if path.include?("heartbeat")
+        score += 2 if path.include?("questions/answers")
       end
 
       score
@@ -88,12 +97,19 @@ module Codebase
 
     def extracted_terms
       terms = @normalized.scan(/[a-z0-9_]+/)
-      terms += ["layer1", "layer1", "blockchain"] if @normalized.include?("layer1")
+
+      terms += ["layer1", "strict", "blockchain"] if @normalized.include?("layer1")
+      terms += ["cluster", "clusters", "address"] if @normalized.include?("cluster")
+      terms += ["actor_profiles", "actor", "profile", "profiles"] if @normalized.match?(/actor ?profile|actorprofile|profil/)
+      terms += ["actor_labels", "label", "labels"] if @normalized.match?(/actor ?label|actorlabel|label/)
+      terms += ["heartbeat", "topbar"] if @normalized.match?(/topbar|heartbeat|live/)
+      terms += ["question", "answer", "dashboard"] if @normalized.match?(/question|réponse|reponse|dashboard/)
+
       terms.uniq
     end
 
     def architecture_question?
-      @normalized.match?(/pipeline|architecture|fonctionne|parcours|traitement|complet|de bout en bout/)
+      @normalized.match?(/pipeline|architecture|fonctionne|parcours|traitement|complet|de bout en bout|à quoi|a quoi|sert|module|capacité|capacite/)
     end
   end
 end

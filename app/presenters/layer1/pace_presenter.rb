@@ -144,40 +144,9 @@ module Layer1
     end
 
     def layer1_seconds
-      certification[:median_10_seconds] ||
-        certification[:median_30_seconds] ||
-        certification[:last_interval_seconds]
-    end
-
-    def certification_average_seconds
-      certification[:average_10_seconds] ||
-        certification[:average_30_seconds]
-    end
-
-    def processing_seconds
-      processing[:median_10_seconds] ||
-        processing[:median_30_seconds] ||
+      processing[:median_30_seconds] ||
+        processing[:median_10_seconds] ||
         processing[:last_duration_seconds]
-    end
-
-    def processing_average_seconds
-      processing[:average_10_seconds] ||
-        processing[:average_30_seconds]
-    end
-
-    def layer1_blocks_per_hour
-      return certification[:blocks_per_hour] if certification[:blocks_per_hour].present?
-      return nil if layer1_seconds.blank? || layer1_seconds.to_f <= 0
-
-      3600.0 / layer1_seconds.to_f
-    end
-
-    def certification_history_seconds(entry)
-      entry.with_indifferent_access[:certification_interval_seconds]
-    end
-
-    def processing_history_seconds(entry)
-      entry.with_indifferent_access[:processing_duration_seconds]
     end
 
     def max_bar_seconds
@@ -342,10 +311,6 @@ module Layer1
       @processing ||= (snapshot[:processing] || {}).with_indifferent_access
     end
 
-    def certification
-      @certification ||= (snapshot[:certification] || {}).with_indifferent_access
-    end
-
     def components
       @components ||= (snapshot[:components] || {}).with_indifferent_access
     end
@@ -364,7 +329,6 @@ module Layer1
           .flat_map do |entry|
             [
               entry[:network_interval_seconds],
-              entry[:certification_interval_seconds],
               entry[:processing_duration_seconds]
             ]
           end

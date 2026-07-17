@@ -25,8 +25,6 @@ module ClusterTransactionProjection
     def call
       generation = nil
 
-      validate_fact_heights!
-
       ApplicationRecord.transaction do
         generation =
           ClusterTransactionProjectionGeneration.create!(
@@ -76,24 +74,6 @@ module ClusterTransactionProjection
       return if rows.empty?
 
       ClusterTransactionFact.insert_all!(rows)
-    end
-
-    def validate_fact_heights!
-      facts.each do |fact|
-        %i[received_height spent_height].each do |field|
-          value = fact[field]
-          next if value.nil?
-
-          height = Integer(value)
-          if height.negative? || height > checkpoint_height
-            raise ArgumentError,
-              "#{field} must belong to the certified checkpoint window"
-          end
-        rescue ArgumentError, TypeError
-          raise ArgumentError,
-            "#{field} must belong to the certified checkpoint window"
-        end
-      end
     end
   end
 end

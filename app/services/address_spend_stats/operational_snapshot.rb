@@ -3,7 +3,7 @@
 module AddressSpendStats
   class OperationalSnapshot
     QUEUE_NAME =
-      "actor_profile_strict"
+      "address_spend_projection"
 
     RECENT_CHECKPOINTS_LIMIT = 5
 

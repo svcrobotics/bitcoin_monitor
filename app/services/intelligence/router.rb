@@ -39,6 +39,12 @@ module Intelligence
       "profil acteur", "profils acteurs"
     ].freeze
 
+    ACTOR_BEHAVIORS_KEYWORDS = [
+      "actorbehavior", "actorbehaviors",
+      "actor behavior", "actor behaviors",
+      "comportement acteur", "comportements acteurs"
+    ].freeze
+
     ACTOR_LABELS_KEYWORDS = [
       "actorlabel", "actorlabels", "actor label", "actor labels",
       "labels acteurs", "label acteur"
@@ -57,6 +63,9 @@ module Intelligence
       "retard", "latence", "latency", "exchange runtime", "pipeline"
     ].freeze
 
+    OLLAMA_COMMAND_PREFIX =
+      /\Aollama(?:\s+|$)/i
+
     def self.call(question)
       new(question).call
     end
@@ -67,12 +76,26 @@ module Intelligence
     end
 
     def call
-      if codebase_question?
+      if ollama_command?
+        {
+          intent: :ollama_anomaly,
+          provider: :local,
+          source: :system_anomalies,
+          context: System::AnomalySnapshot.call
+        }
+      elsif codebase_question?
         {
           intent: :codebase,
           provider: :openai,
           source: :code_chunks,
           context: nil
+        }
+      elsif actor_behaviors_question?
+        {
+          intent: :actor_behaviors_health,
+          provider: :local,
+          source: :actor_behaviors_health,
+          context: Intelligence::ContextBuilder.actor_behaviors_health
         }
       elsif actor_labels_question?
         {
@@ -128,6 +151,10 @@ module Intelligence
 
     private
 
+    def ollama_command?
+      @raw_question.match?(OLLAMA_COMMAND_PREFIX)
+    end
+
     def codebase_question?
       return true if @raw_question.match?(/[A-Z][A-Za-z0-9_]*::[A-Z]/)
 
@@ -163,6 +190,12 @@ module Intelligence
 
     def actor_profiles_question?
       ACTOR_PROFILES_KEYWORDS.any? { |keyword| @question.include?(keyword) }
+    end
+
+    def actor_behaviors_question?
+      ACTOR_BEHAVIORS_KEYWORDS.any? do |keyword|
+        @question.include?(keyword)
+      end
     end
 
     def actor_labels_question?

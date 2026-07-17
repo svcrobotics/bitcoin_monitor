@@ -4,12 +4,41 @@ require "digest"
 module Codebase
   class Indexer
     INCLUDE_PATTERNS = [
-      "app/**/*.rb",
-      "app/**/*.erb",
-      "app/**/*.js",
+      "app/services/layer1/**/*.rb",
+      "app/jobs/layer1/**/*.rb",
+
+      "app/services/clusters/**/*.rb",
+      "app/jobs/clusters/**/*.rb",
+
+      "app/services/actor_profiles/**/*.rb",
+      "app/jobs/actor_profiles/**/*.rb",
+
+      "app/services/actor_labels/**/*.rb",
+      "app/jobs/actor_labels/**/*.rb",
+
+      "app/services/intelligence/**/*.rb",
+      "app/services/ai/**/*.rb",
+      "app/services/codebase/**/*.rb",
+
+      "app/controllers/ai/**/*.rb",
+      "app/controllers/questions/**/*.rb",
+      "app/controllers/tansa_heartbeat_controller.rb",
+
+      "app/views/questions/answers/**/*.erb",
+      "app/views/ai/**/*.erb",
+      "app/views/shared/_topbar.html.erb",
+
+      "app/javascript/controllers/system_heartbeat_controller.js",
+      "app/javascript/controllers/auto_refresh_controller.js",
+
+      "app/models/code_chunk.rb",
+      "app/models/block_buffer_model.rb",
+      "app/models/cluster_processed_block.rb",
+      "app/models/actor_profile.rb",
+
       "config/routes.rb",
       "db/schema.rb",
-      "lib/**/*.rb"
+      "lib/tasks/codebase.rake"
     ].freeze
 
     EXCLUDE_PATTERNS = [
@@ -19,7 +48,8 @@ module Codebase
       "node_modules/",
       ".git/",
       "vendor/",
-      "coverage/"
+      "coverage/",
+      "public/assets/"
     ].freeze
 
     MAX_LINES = 120
@@ -33,7 +63,9 @@ module Codebase
         index_file(path)
       end
 
-      { ok: true, chunks: CodeChunk.count }
+      prune_removed_files!
+
+      { ok: true, chunks: CodeChunk.count, files: files.size }
     end
 
     private
@@ -41,7 +73,9 @@ module Codebase
     def files
       INCLUDE_PATTERNS.flat_map { |pattern| Dir.glob(pattern) }
                       .uniq
+                      .select { |path| File.file?(path) }
                       .reject { |path| EXCLUDE_PATTERNS.any? { |excluded| path.include?(excluded) } }
+                      .sort
     end
 
     def index_file(path)
@@ -50,7 +84,7 @@ module Codebase
 
       chunks.each_with_index do |chunk, index|
         next if chunk.strip.blank?
-        
+
         hash = Digest::SHA256.hexdigest("#{path}:#{index}:#{chunk}")
 
         existing = CodeChunk.find_by(path: path, chunk_index: index)
@@ -77,6 +111,7 @@ module Codebase
           record.content_hash = hash
           record.embedding = embedding
           next if embedding.blank?
+
           unless record.save
             puts
             puts "SAVE FAILED"
@@ -90,6 +125,11 @@ module Codebase
           end
         end
       end
+    end
+
+    def prune_removed_files!
+      indexed_paths = files
+      CodeChunk.where.not(path: indexed_paths).delete_all
     end
   end
 end

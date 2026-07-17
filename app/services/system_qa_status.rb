@@ -41,15 +41,7 @@ class SystemQaStatus
           status: :green,
           coverage: "Adresse non observée, sans signaux, cluster incomplet",
           command: "bundle exec rspec spec/requests/address_lookup_edge_cases_spec.rb"
-        ),
-        Item.new(
-          key: "system_page",
-          label: "/system",
-          status: :orange,
-          coverage: "Validation visuelle OK, pas encore de request specs",
-          command: nil
-        )
-      ]
+        ),      ]
     },
     {
       key: "cluster_ops",

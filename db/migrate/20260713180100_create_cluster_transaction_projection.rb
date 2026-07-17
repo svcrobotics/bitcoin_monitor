@@ -5,7 +5,7 @@ class CreateClusterTransactionProjection < ActiveRecord::Migration[8.0]
     %w[pending building certified failed stale replaced].freeze
 
   BLOCK_STATUSES =
-    %w[pending processing completed failed stale].freeze
+    %w[pending processing projected failed stale].freeze
 
   def change
     create_table :cluster_transaction_projection_generations do |t|
@@ -50,10 +50,10 @@ class CreateClusterTransactionProjection < ActiveRecord::Migration[8.0]
 
     add_index(
       :cluster_transaction_projection_generations,
-      [:cluster_id, :composition_version],
+      :cluster_id,
       unique: true,
       where: "status = 'certified'",
-      name: "idx_ctp_generations_one_certified_revision"
+      name: "idx_ctp_generations_one_certified_cluster"
     )
 
     add_check_constraint(
@@ -188,8 +188,8 @@ class CreateClusterTransactionProjection < ActiveRecord::Migration[8.0]
 
     add_check_constraint(
       :cluster_transaction_projection_blocks,
-      "status <> 'completed' OR completed_at IS NOT NULL",
-      name: "ctp_blocks_completed_at_check"
+      "status <> 'projected' OR completed_at IS NOT NULL",
+      name: "ctp_blocks_projected_at_check"
     )
   end
 

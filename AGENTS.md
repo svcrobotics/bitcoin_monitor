@@ -263,3 +263,19 @@ Le resume doit inclure :
 - risques restants.
 
 Quand l'utilisateur demande un format specifique de resume, respecter ce format.
+
+## Autorisations base de données
+
+Codex peut accéder sans confirmation à la base PostgreSQL de développement
+pour lire les données, exécuter EXPLAIN, consulter pg_stat_activity et lancer
+les tests.
+
+Interdictions sans instruction explicite de l’utilisateur :
+
+- DROP DATABASE, DROP TABLE ou TRUNCATE ;
+- suppression massive de données ;
+- migration de la base development ;
+- redémarrage de PostgreSQL ou Bitcoin Core ;
+- modification des paramètres PostgreSQL globaux ;
+- accès ou modification d’une base de production ;
+- commit ou push Git.

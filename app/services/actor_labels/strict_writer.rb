@@ -2,32 +2,31 @@
 
 module ActorLabels
   class StrictWriter
-    RULE_SET = ActorLabels::StrictRuleSetV2
+    RULE_SET = ActorLabels::StrictRuleSet
     SOURCE = RULE_SET::SOURCE
 
-    def self.call(profile:, cluster_tip:, dry_run: true)
+    def self.call(snapshot:, dry_run: true)
       new(
-        profile: profile,
-        cluster_tip: cluster_tip,
+        snapshot: snapshot,
         dry_run: dry_run
       ).call
     end
 
-    def initialize(profile:, cluster_tip:, dry_run:)
-      @profile = profile
-      @cluster_tip = cluster_tip.to_i
+    def initialize(snapshot:, dry_run:)
+      @snapshot = snapshot
       @dry_run = dry_run
     end
 
     def call
       result =
         RULE_SET.call(
-          profile: profile,
-          cluster_tip: cluster_tip
+          snapshot: snapshot
         )
 
+      return ineligible_result(result) unless result[:eligible]
+
       expected_labels =
-        result[:eligible] ? Array(result[:labels]) : []
+        Array(result[:labels])
 
       expected_names =
         expected_labels.map do |label|
@@ -36,7 +35,7 @@ module ActorLabels
 
       existing_scope =
         ActorLabel.where(
-          actor_profile_id: profile.id,
+          cluster_id: snapshot.cluster_id,
           source: SOURCE
         )
 
@@ -56,51 +55,118 @@ module ActorLabels
       deleted_labels = []
 
       unless dry_run
-        deleted_labels =
-          expected_deleted_labels
+        ActorLabel.transaction do
+          deleted_labels =
+            expected_deleted_labels
 
-        obsolete_scope.delete_all
+          obsolete_scope.delete_all
 
-        written_labels =
-          expected_labels.map do |label_data|
-            write_label(
-              label_data: label_data,
-              rule_result: result
-            )
-          end
+          written_labels =
+            expected_labels.map do |label_data|
+              write_label(
+                label_data: label_data,
+                rule_result: result
+              )
+            end
+        end
       end
 
       {
         ok: true,
         dry_run: dry_run,
-        actor_profile_id: profile.id,
-        cluster_id: profile.cluster_id,
-        eligible: result[:eligible],
-        reason: result[:reason],
-        profile_lag: result[:profile_lag],
-        expected_labels: expected_names,
+        eligible: true,
+        reason: nil,
+
+        actor_behavior_snapshot_id:
+          snapshot.id,
+
+        actor_profile_id:
+          snapshot.actor_profile_id,
+
+        cluster_id:
+          snapshot.cluster_id,
+
+        expected_labels:
+          expected_names,
+
         expected_deleted_labels:
           expected_deleted_labels,
-        written_labels: written_labels,
-        deleted_labels: deleted_labels
+
+        written_labels:
+          written_labels,
+
+        deleted_labels:
+          deleted_labels
       }
     end
 
     private
 
-    attr_reader :profile, :cluster_tip, :dry_run
+    attr_reader :snapshot, :dry_run
+
+    def ineligible_result(result)
+      {
+        ok: true,
+        dry_run: dry_run,
+        eligible: false,
+        reason: result[:reason],
+
+        actor_behavior_snapshot_id:
+          snapshot&.id,
+
+        actor_profile_id:
+          snapshot&.actor_profile_id,
+
+        cluster_id:
+          snapshot&.cluster_id,
+
+        expected_labels: [],
+        expected_deleted_labels: [],
+        written_labels: [],
+        deleted_labels: []
+      }
+    end
 
     def write_label(label_data:, rule_result:)
-      attributes = {
-        actor_profile_id: profile.id,
+      now =
+        Time.current
+
+      label =
+        ActorLabel.find_or_initialize_by(
+          cluster_id:
+            snapshot.cluster_id,
+
+          label:
+            label_data.fetch(:label),
+
+          source:
+            SOURCE
+        )
+
+      created =
+        label.new_record?
+
+      label.first_seen_at ||= now
+
+      label.assign_attributes(
+        actor_profile_id:
+          snapshot.actor_profile_id,
+
         confidence:
           label_data.fetch(:confidence),
 
         metadata: {
           strict: true,
+          behavior_based: true,
 
-          profile_version:
-            ActorLabels::StrictRuleSetV2::PROFILE_VERSION,
+          actor_behavior_snapshot_id:
+            snapshot.id,
+
+          behavior_version:
+            snapshot.behavior_version,
+
+          behavior_status:
+            snapshot.status,
 
           rule_version:
             label_data.fetch(:rule_version),
@@ -108,40 +174,29 @@ module ActorLabels
           reason:
             label_data.fetch(:reason),
 
+          profile_version:
+            snapshot.profile_version,
+
           profile_height:
-            profile.last_computed_height,
-
-          cluster_tip:
-            cluster_tip,
-
-          profile_lag:
-            rule_result[:profile_lag],
-
-          profile_cluster_composition_version:
-            profile.cluster_composition_version,
+            snapshot.profile_height,
 
           cluster_composition_version:
-            profile.cluster.composition_version,
+            snapshot.cluster_composition_version,
+
+          profile_fingerprint:
+            snapshot.profile_fingerprint,
+
+          behavior_computed_at:
+            snapshot.computed_at,
 
           evidence:
             rule_result[:evidence]
         },
 
         last_seen_at:
-          Time.current
-      }
+          now
+      )
 
-      label =
-        ActorLabel.find_or_initialize_by(
-          cluster_id: profile.cluster_id,
-          label: label_data.fetch(:label),
-          source: SOURCE
-        )
-
-      created = label.new_record?
-
-      label.first_seen_at ||= Time.current
-      label.assign_attributes(attributes)
       label.save!
 
       {

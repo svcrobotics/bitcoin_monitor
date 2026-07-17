@@ -228,19 +228,6 @@ module AddressSpendStats
       )
     end
 
-    test "rejects a projection ahead of the requested certification height" do
-      required_height = 1_900_025
-      mark_projection_completed(height: required_height)
-      mark_projection_completed(height: required_height + 1)
-      cluster = create_cluster(address_count: 1)
-
-      error = assert_raises(ClusterAggregate::ProjectionNotReady) do
-        ClusterAggregate.call(cluster_id: cluster.id, required_height: required_height)
-      end
-
-      assert_equal required_height + 1, error.projection_tip
-    end
-
     test "rejects an earlier checkpoint requiring replay" do
       replay_height =
         1_900_031

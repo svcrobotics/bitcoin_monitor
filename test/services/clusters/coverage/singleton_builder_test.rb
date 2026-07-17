@@ -51,47 +51,6 @@ module Clusters
         assert_equal 120, cluster.last_seen_height
       end
 
-      test "registers the created singleton through PostgreSQL admission" do
-        after_id = Address.maximum(:id).to_i
-        address = Address.create!(address: VALID_P2PKH_ADDRESS)
-        registered_cluster_ids = []
-        result = nil
-
-        register_latest = lambda do |cluster_ids:, reason:|
-          registered_cluster_ids.concat(cluster_ids)
-          assert_equal "missing_profile", reason
-
-          {
-            ok: true,
-            selected: cluster_ids.size,
-            created: cluster_ids.size,
-            already_registered: 0
-          }
-        end
-
-        ActorProfiles::Admission.stub(:register_latest, register_latest) do
-          result =
-            Clusters::Coverage::SingletonBuilder.call(
-              after_id: after_id
-            )
-
-          assert_equal 1, result[:updated]
-          assert_equal 1, result[:singleton_clusters_created]
-        end
-
-        assert_equal [address.reload.cluster_id], registered_cluster_ids
-        assert JSON.generate(result)
-      end
-
-      test "does not use the legacy Redis dirty admission" do
-        source = Rails.root.join(
-          "app/services/clusters/ensure_address_clusters.rb"
-        ).read
-
-        refute_match(/DirtyMarker|DirtyClusterQueue|Redis|Sidekiq/, source)
-        assert_match(/ActorProfiles::Admission\.register_latest/, source)
-      end
-
       test "is idempotent when replayed" do
         after_id =
           Address.maximum(:id).to_i

@@ -1,12 +1,19 @@
 ENV["RAILS_ENV"] ||= "test"
+
+ENV["REDIS_URL"] =
+  ENV.fetch(
+    "TEST_REDIS_URL",
+    "redis://127.0.0.1:6379/15"
+  )
+
 require_relative "../config/environment"
 require "rails/test_help"
 
 module ActiveSupport
   class TestCase
     # Run tests in parallel with specified workers
-    parallelize(workers: :number_of_processors)
-
+    test_workers = Integer(ENV.fetch("PARALLEL_WORKERS", "4"))
+    parallelize(workers: test_workers)
     # Setup all fixtures in test/fixtures/*.yml for all tests in alphabetical order.
     # fixtures :all
 

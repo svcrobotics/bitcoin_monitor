@@ -5,69 +5,36 @@ module System
     module ActorProfileRules
       module_function
 
-      MODULE_NAME = "actor_profiles_strict"
-      SOURCE = "canonical_postgresql_chain"
-      AVAILABLE_STATUSES = %w[healthy syncing warning].freeze
-
       def call(context:)
-        health = context[:actor_profile_health]
-        reason = critical_reason(health)
+        profile =
+          context.dig(:pipeline, :actor_profile) || {}
+        decision =
+          context.dig(:decisions, :actor_profile) || {}
 
-        return [] unless reason
+        return [] unless decision[:allowed] == true
+
+        pending =
+          profile[:pending_work].to_i
+
+        return [] unless pending.positive?
+        return [] if profile[:processing] == true
+        return [] if profile[:strict_worker_busy] == true
+        return [] if profile[:strict_queue_size].to_i.positive?
 
         [
           Base.anomaly(
-            code: "actor_profile_strict_health_critical",
+            code: "actor_profile_backlog_idle",
             module_name: "actor_profile",
-            severity: "critical",
-            title: "ActorProfile strict signale un état critique",
-            facts: critical_facts(health, reason),
-            fingerprint: "actor_profile:strict_health_critical:#{reason}"
+            severity: "warning",
+            title: "ActorProfile a du travail sans traitement actif",
+            facts: {
+              pending_work: pending,
+              checkpoint_height: profile[:checkpoint_height]
+            }.compact,
+            fingerprint: "actor_profile:backlog_idle",
+            confirmation_observations: 2
           )
         ]
-      end
-
-      def critical_reason(health)
-        return "snapshot_invalid" unless canonical_identity?(health)
-        return "snapshot_unavailable" if health[:available] != true || health[:status].to_s == "unavailable"
-        return "snapshot_invalid" unless AVAILABLE_STATUSES.include?(health[:status].to_s)
-        return "snapshot_invalid" unless valid_handoff_counts?(health)
-
-        failed = health.dig(:handoffs, :failed)
-        stale = health.dig(:handoffs, :stale)
-
-        return "failed_and_stale_handoffs" if failed.positive? && stale.positive?
-        return "failed_handoffs" if failed.positive?
-        return "stale_handoffs" if stale.positive?
-
-        nil
-      end
-
-      def canonical_identity?(health)
-        health.is_a?(Hash) &&
-          health[:module].to_s == MODULE_NAME &&
-          health[:source].to_s == SOURCE
-      end
-
-      def valid_handoff_counts?(health)
-        handoffs = health[:handoffs]
-        return false unless handoffs.is_a?(Hash)
-
-        %i[failed stale].all? do |key|
-          handoffs[key].is_a?(Integer) && handoffs[key] >= 0
-        end
-      end
-
-      def critical_facts(health, reason)
-        {
-          reason: reason,
-          status: health.is_a?(Hash) ? health[:status] : nil,
-          available: health.is_a?(Hash) ? health[:available] : nil,
-          failed_handoffs: health.is_a?(Hash) ? health.dig(:handoffs, :failed) : nil,
-          stale_handoffs: health.is_a?(Hash) ? health.dig(:handoffs, :stale) : nil,
-          oldest_handoff_age_seconds:
-            health.is_a?(Hash) ? health.dig(:handoffs, :oldest_age_seconds) : nil
-        }.compact
       end
     end
   end

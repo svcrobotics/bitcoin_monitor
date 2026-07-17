@@ -44,13 +44,21 @@ module Layer1
         end
 
         pending_scope =
+          Layer1TxOutputSync.where(status: "pending")
+        processing_scope =
+          Layer1TxOutputSync.where(status: "processing")
+        failed_scope =
+          Layer1TxOutputSync.where(status: "failed")
+        selectable_scope =
           Layer1TxOutputSync.where(status: %w[pending processing failed])
         last_synced_height =
           Layer1TxOutputSync.where(status: "synced").maximum(:height)
+        stale_scope =
+          stale_processing_scope(processing_scope)
 
         {
           status: projection_status(
-            pending_scope: pending_scope,
+            pending_scope: selectable_scope,
             last_synced_height: last_synced_height,
             worker: worker
           ),
@@ -59,8 +67,19 @@ module Layer1
           queue_size: queue_size,
           scheduled_jobs: scheduled_jobs,
           pending_count: pending_scope.count,
-          failed_count: Layer1TxOutputSync.where(status: "failed").count,
-          oldest_pending_height: pending_scope.minimum(:height),
+          processing_count: processing_scope.count,
+          failed_count: failed_scope.count,
+          stale_processing_count: stale_scope.count,
+          oldest_pending_height: selectable_scope.minimum(:height),
+          oldest_processing_height: processing_scope.minimum(:height),
+          oldest_processing_age_seconds:
+            oldest_processing_age_seconds(processing_scope),
+          lock_present: lock_present?,
+          job_active: worker[:busy].to_i.positive?,
+          recovery: recovery_status,
+          next_record_height:
+            Layer1::TxOutputsSpentSync::NextRecord.call&.height,
+          historical_budget: historical_budget_snapshot,
           last_synced_height: last_synced_height,
           projection_lag_blocks: projection_lag(last_synced_height)
         }
@@ -87,9 +106,14 @@ module Layer1
       def projection_status(pending_scope:, last_synced_height:, worker:)
         failed_count = Layer1TxOutputSync.where(status: "failed").count
         pending_count = pending_scope.count
+        stale_count =
+          stale_processing_scope(
+            Layer1TxOutputSync.where(status: "processing")
+          ).count
         lag = projection_lag(last_synced_height).to_i
 
         return "failed" if failed_count.positive?
+        return "waiting" if stale_count.positive? && worker[:busy].to_i.zero?
         return "processing" if worker[:busy].to_i.positive?
         return "pending" if pending_count.positive? || lag.positive?
         return "synced" if last_synced_height.present?
@@ -168,6 +192,73 @@ module Layer1
         end
       rescue StandardError
         0
+      end
+
+      def stale_processing_scope(scope)
+        scope.where(
+          "COALESCE(last_attempt_at, started_at, updated_at) < ?",
+          Config.recovery_stale_after_seconds.seconds.ago
+        )
+      end
+
+      def oldest_processing_age_seconds(scope)
+        timestamp =
+          scope.minimum(
+            Arel.sql("COALESCE(last_attempt_at, started_at, updated_at)")
+          )
+
+        return nil unless timestamp
+
+        [(Time.current - timestamp).to_i, 0].max
+      end
+
+      def lock_present?
+        require "sidekiq/api"
+
+        Sidekiq.redis do |redis|
+          value =
+            redis.exists?(Layer1::TxOutputsSpentSyncJob::LOCK_KEY)
+
+          value == true || value.to_i.positive?
+        end
+      rescue StandardError
+        false
+      end
+
+      def recovery_status
+        require "json"
+        require "sidekiq/api"
+
+        raw =
+          Sidekiq.redis do |redis|
+            redis.get(Layer1::TxOutputsSpentSync::Recovery::STATUS_KEY)
+          end
+
+        raw.present? ? JSON.parse(raw).with_indifferent_access : {}
+      rescue StandardError
+        {}
+      end
+
+      def historical_budget_snapshot
+        snapshot =
+          System::PipelineController.snapshot
+
+        {
+          layer1_lag:
+            snapshot.dig(:layer1, :lag).to_i,
+          layer1_lag_budget:
+            Layer1::HistoricalWorkConfig.max_layer1_lag_blocks,
+          cluster_lag:
+            snapshot.dig(:cluster, :lag).to_i,
+          cluster_lag_budget:
+            Layer1::HistoricalWorkConfig.max_cluster_lag_blocks,
+          decision:
+            System::PipelineController
+              .decision(:tx_outputs_async, current_snapshot: snapshot)
+              .slice(:allowed, :state, :reason, :failed_constraints)
+        }
+      rescue StandardError => error
+        { error: "#{error.class}: #{error.message}" }
       end
     end
   end

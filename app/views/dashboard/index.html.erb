@@ -1,86 +1,70 @@
-<div class="relative min-h-[calc(100vh-7rem)] overflow-hidden">
-  <!-- Background -->
-  <div class="pointer-events-none absolute inset-0">
-    <div class="absolute left-1/2 top-24 h-96 w-96 -translate-x-1/2 rounded-full bg-cyan-500/10 blur-3xl"></div>
-    <div class="absolute right-20 top-40 h-72 w-72 rounded-full bg-blue-500/10 blur-3xl"></div>
-    <div class="absolute left-20 bottom-20 h-72 w-72 rounded-full bg-emerald-500/10 blur-3xl"></div>
+<div class="relative min-h-screen overflow-hidden bg-[#050711] font-mono">
+  <div class="pointer-events-none absolute inset-0 overflow-hidden">
+    <%= image_tag "tansa/background.png",
+          class: "absolute inset-0 h-full w-full object-cover object-center" %>
+
+    <div class="absolute inset-0 bg-[#050711]/20"></div>
+    <div class="absolute inset-0 bg-gradient-to-r from-[#050711]/88 via-[#050711]/35 to-transparent"></div>
   </div>
 
-  <div class="relative z-10 mx-auto flex min-h-[calc(100vh-7rem)] max-w-6xl flex-col px-4 py-10">
-
-    <!-- Hero -->
-    <div class="mx-auto max-w-4xl text-center">
-      <div class="inline-flex items-center rounded-full border border-cyan-500/20 bg-cyan-500/10 px-4 py-2 text-xs font-semibold tracking-wider text-cyan-200 uppercase">
-        探査 — Tansa
+  <div class="relative z-10 mx-auto flex min-h-screen max-w-[1680px] flex-col px-8 py-10 lg:px-14">
+    <header class="flex items-center gap-8 pb-10">
+      <div class="text-2xl font-light tracking-[0.42em] text-white">
+        TANSA
       </div>
 
-      <h1 class="mt-6 text-4xl font-bold tracking-tight text-white md:text-6xl">
-        Intelligence Bitcoin
-      </h1>
+      <div class="text-xs uppercase tracking-[0.28em] text-slate-400">
+        Observatoire Bitcoin
+      </div>
+    </header>
 
-      <p class="mx-auto mt-6 max-w-3xl text-lg leading-8 text-slate-400">
-        Posez une question ou choisissez un exemple. Tansa interroge ses sources de vérité :
-        blockchain, code source, état système et données externes.
-      </p>
-    </div>
+    <section
+      class="flex flex-1 flex-col pt-8"
+      data-controller="dashboard-question"
+    >
+      <div class="w-full max-w-5xl">
+        <%= turbo_stream_from System::AnomalyBroadcaster::STREAM %>
 
-    <div class="mx-auto mt-12 w-full max-w-5xl"
-        data-controller="dashboard-question">
+        <!-- Historique du terminal -->
+        <div id="terminal_stream" class="space-y-10">
+          <%= turbo_frame_tag "dashboard_answer",
+                data: {
+                  dashboard_question_target: "answer"
+                } do %>
+          <% end %>
+        </div>
 
-      <%= form_with url: ai_dashboard_answer_path,
-                    method: :post,
-                    data: { turbo_frame: "dashboard_answer", dashboard_question_target: "form" } do %>
+        <!-- Prompt actif -->
+        <%= render "system/anomaly_notification", notification: nil %>
 
-        <div class="overflow-hidden rounded-3xl border border-white/10 bg-slate-950/80 backdrop-blur-xl">
-          <div class="px-6 py-5">
+        <%= form_with url: ai_dashboard_answer_path,
+                      method: :post,
+                      data: {
+                        turbo_frame: true,
+                        dashboard_question_target: "form",
+                        action: "turbo:submit-end->dashboard-question#showNewQuestion"
+                      } do %>
+
+          <div class="mt-10 flex items-center gap-3">
+            <span class="shrink-0 text-xl text-violet-300">›</span>
+
             <textarea
               name="q"
-              rows="2"
+              rows="1"
               autocomplete="off"
+              autofocus
               data-dashboard-question-target="input"
               data-action="keydown->dashboard-question#submitOnEnter"
-              placeholder="Posez une question à Tansa..."
-              class="w-full resize-none bg-transparent text-lg text-white outline-none placeholder:text-slate-500"
+              class="h-10 w-full resize-none overflow-hidden bg-transparent text-xl leading-10 text-white outline-none placeholder:text-transparent"
             ></textarea>
           </div>
 
-          <div class="flex items-center justify-between border-t border-white/5 px-6 py-4">
-            <div class="flex flex-wrap gap-2">
-              <span class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">Marché</span>
-              <span class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">Whales</span>
-              <span class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">Système</span>
-              <span class="rounded-full border border-white/10 px-3 py-1 text-xs text-slate-400">Architecture</span>
-            </div>
+          <button type="submit" class="hidden">
+            Envoyer
+          </button>
 
-            <div class="flex items-center gap-3">
-              <button
-                type="button"
-                data-action="click->dashboard-question#reset"
-                class="rounded-2xl border border-white/10 px-5 py-2 text-sm font-semibold text-slate-300 transition hover:border-cyan-400/40 hover:bg-cyan-400/10 hover:text-cyan-100">
-                Nouvelle question
-              </button>
-
-              <button
-                type="submit"
-                data-action="click->dashboard-question#hideExamples"
-                class="rounded-2xl bg-cyan-400 px-5 py-2 text-sm font-semibold text-slate-950 transition hover:bg-cyan-300">
-                Demander à Tansa
-              </button>
-            </div>
-          </div>
-        </div>
-      <% end %>
-
-      <div data-dashboard-question-target="examples">
-        <%= render "dashboard/question_examples" %>
-      </div>
-
-      <!-- Answer -->
-      <div class="mx-auto mt-12 w-full max-w-6xl">
-        <%= turbo_frame_tag "dashboard_answer",
-              data: { dashboard_question_target: "answer" } do %>
         <% end %>
       </div>
-    </div>
+    </section>
   </div>
 </div>

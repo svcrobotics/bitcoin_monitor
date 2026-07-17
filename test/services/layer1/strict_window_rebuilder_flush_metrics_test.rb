@@ -328,7 +328,7 @@ module Layer1
         Rails.root.join("app/services/layer1/strict_window_rebuilder.rb")
       )
       metrics_source = source[
-        /def flush_buffers_until_empty!.*?(?=\n    def finalize_block!)/m
+        /def flush_buffers_until_empty!.*?(?=\n    def metric_value)/m
       ]
 
       assert_not_nil metrics_source

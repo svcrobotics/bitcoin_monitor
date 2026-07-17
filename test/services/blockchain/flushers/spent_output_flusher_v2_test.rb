@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "minitest/mock"
 
 class SpentOutputFlusherV2Test < ActiveSupport::TestCase
   setup do
@@ -405,11 +406,19 @@ class SpentOutputFlusherV2Test < ActiveSupport::TestCase
       block_height: 390
     )
 
-    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+    flusher = Blockchain::Flushers::SpentOutputFlusherV2.new(
       redis: FakeRedis.new([row]),
       logger: Rails.logger,
       mode: :realtime
-    ).call
+    )
+
+    result = nil
+    flusher.stub(
+      :realtime_cluster_input_conflicts,
+      ->(*) { raise "conflict verification should not run" }
+    ) do
+      result = flusher.call
+    end
 
     assert result[:ok]
     assert_equal :realtime, result[:cluster_mode]
@@ -417,6 +426,8 @@ class SpentOutputFlusherV2Test < ActiveSupport::TestCase
     assert_equal 0, result[:cluster_conflicts]
     assert_equal 0, result[:cluster_conflicts_identical]
     assert_equal 0, result[:cluster_conflicts_divergent]
+    assert_includes result[:stage_timings], :realtime_insert_cluster_inputs
+    assert_not_includes result[:stage_timings], :realtime_verify_conflicts
     assert ClusterInput.find_by!(txid: txid, vout: 0).spent?
   end
 
@@ -455,6 +466,8 @@ class SpentOutputFlusherV2Test < ActiveSupport::TestCase
     assert_equal 1, result[:cluster_conflicts]
     assert_equal 1, result[:cluster_conflicts_identical]
     assert_equal 0, result[:cluster_conflicts_divergent]
+    assert_includes result[:stage_timings], :realtime_insert_cluster_inputs
+    assert_includes result[:stage_timings], :realtime_verify_conflicts
   end
 
   test "realtime fails on divergent cluster input conflict" do
@@ -490,10 +503,121 @@ class SpentOutputFlusherV2Test < ActiveSupport::TestCase
       end
 
     assert_match "divergent cluster_inputs in realtime spent flusher", error.message
+    assert_match "samples=", error.message
+    assert_match "bc1qexisting", error.message
+    assert_match "bc1qincoming", error.message
 
     existing = ClusterInput.find_by!(txid: txid, vout: 0)
     assert_equal 409, existing.block_height
     assert_equal "bc1qexisting", existing.address
+  end
+
+  test "realtime accepts mixed new and identical cluster inputs" do
+    existing_txid = "8" * 64
+    new_txid = "9" * 64
+    spent_txid = "a" * 64
+
+    existing_row = spent_row(
+      txid: existing_txid,
+      vout: 0,
+      spent_txid: spent_txid,
+      spent_block_height: 450,
+      prevout_address: "bc1qmixedidentical",
+      prevout_amount_btc: "5.25",
+      prevout_block_height: 430
+    )
+
+    new_row = spent_row(
+      txid: new_txid,
+      vout: 1,
+      spent_txid: spent_txid,
+      spent_block_height: 450,
+      prevout_address: "bc1qmixednew",
+      prevout_amount_btc: "6.25",
+      prevout_block_height: 431
+    )
+
+    ClusterInput.create!(
+      block_height: 430,
+      txid: existing_txid,
+      vout: 0,
+      address: "bc1qmixedidentical",
+      amount_btc: BigDecimal("5.25"),
+      spent: true,
+      spent_txid: spent_txid,
+      spent_block_height: 450
+    )
+
+    result = Blockchain::Flushers::SpentOutputFlusherV2.new(
+      redis: FakeRedis.new([existing_row, new_row]),
+      logger: Rails.logger,
+      mode: :realtime
+    ).call
+
+    assert result[:ok]
+    assert_equal 1, result[:cluster_inserted]
+    assert_equal 1, result[:cluster_conflicts]
+    assert_equal 1, result[:cluster_conflicts_identical]
+    assert_equal 0, result[:cluster_conflicts_divergent]
+    assert ClusterInput.find_by!(txid: new_txid, vout: 1).spent?
+    assert_includes result[:stage_timings], :realtime_verify_conflicts
+  end
+
+  test "realtime rolls back mixed new and divergent cluster inputs atomically" do
+    existing_txid = "a" * 64
+    new_txid = "b" * 64
+    spent_txid = "c" * 64
+
+    divergent_row = spent_row(
+      txid: existing_txid,
+      vout: 0,
+      spent_txid: spent_txid,
+      spent_block_height: 460,
+      prevout_address: "bc1qincomingdivergent",
+      prevout_amount_btc: "7.25",
+      prevout_block_height: 440
+    )
+
+    new_row = spent_row(
+      txid: new_txid,
+      vout: 1,
+      spent_txid: spent_txid,
+      spent_block_height: 460,
+      prevout_address: "bc1qrolledback",
+      prevout_amount_btc: "8.25",
+      prevout_block_height: 441
+    )
+
+    ClusterInput.create!(
+      block_height: 439,
+      txid: existing_txid,
+      vout: 0,
+      address: "bc1qexistingdivergent",
+      amount_btc: BigDecimal("7.25"),
+      spent: true,
+      spent_txid: spent_txid,
+      spent_block_height: 460
+    )
+
+    assert_no_difference -> { ClusterInput.count } do
+      error =
+        assert_raises(RuntimeError) do
+          Blockchain::Flushers::SpentOutputFlusherV2.new(
+            redis: FakeRedis.new([divergent_row, new_row]),
+            logger: Rails.logger,
+            mode: :realtime
+          ).call
+        end
+
+      assert_match "divergent cluster_inputs in realtime spent flusher", error.message
+      assert_match "bc1qincomingdivergent", error.message
+    end
+
+    assert_nil ClusterInput.find_by(txid: new_txid, vout: 1)
+
+    existing = ClusterInput.find_by!(txid: existing_txid, vout: 0)
+    assert_equal 439, existing.block_height
+    assert_equal "bc1qexistingdivergent", existing.address
   end
 
   test "recovery continues to update divergent cluster input conflict" do
@@ -535,6 +659,8 @@ class SpentOutputFlusherV2Test < ActiveSupport::TestCase
     assert_equal 420, corrected.block_height
     assert_equal "bc1qrecoverycorrected", corrected.address
     assert_equal BigDecimal("4.25"), corrected.amount_btc
+    assert_not_includes result[:stage_timings], :realtime_insert_cluster_inputs
+    assert_not_includes result[:stage_timings], :realtime_verify_conflicts
   end
 
   private

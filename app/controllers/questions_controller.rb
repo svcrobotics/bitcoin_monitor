@@ -3,7 +3,7 @@ class QuestionsController < ApplicationController
     question = QuestionDefinition.find_by!(key: params[:key])
 
     if layer1_question?(question)
-      snapshot = Layer1::CachedHealthSnapshot.read
+      snapshot = Layer1::OverviewSnapshot.call
 
       render turbo_stream: turbo_stream.update(
         "dashboard_answer",
@@ -21,6 +21,38 @@ class QuestionsController < ApplicationController
       partial: "questions/answer_card",
       locals: { answer: answer }
     )
+  end
+
+  def live
+    case params[:kind]
+    when "layer1"
+      snapshot =
+        Layer1::OverviewSnapshot.call
+
+      render partial: "questions/answers/layer1_frame",
+             locals: {
+               snapshot: snapshot
+             }
+
+    when "cluster"
+      snapshot = Intelligence::ContextBuilder.cluster_health
+      render partial: "questions/answers/cluster_frame",
+             locals: {
+               snapshot: snapshot[:raw_snapshot] || snapshot
+             }
+
+    when "actor_profiles"
+      snapshot =
+        ActorProfiles::OperationalSnapshot.read
+
+      render partial: "questions/answers/actor_profiles_frame",
+             locals: {
+               snapshot: snapshot
+             }
+
+    else
+      head :not_found
+    end
   end
 
   private

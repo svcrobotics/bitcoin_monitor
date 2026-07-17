@@ -52,24 +52,7 @@ module Search
         subtitle: "Signaux analytiques cluster",
         body: "cluster signals metrics activity spike sudden activity analytics score",
         route: "/cluster_signals"
-      },
-      {
-        id: "module_system",
-        type: "module",
-        title: "System Dashboard",
-        subtitle: "Operations",
-        body: "system layer 1 redis sidekiq jobs pipelines monitoring operations dashboard",
-        route: "/system"
-      },
-      {
-        id: "module_recovery",
-        type: "module",
-        title: "Recovery Center",
-        subtitle: "Recovery control center",
-        body: "recovery workers locks dirty clusters queues lag rattrapage pipeline",
-        route: "/system/recovery"
-      }
-    ].freeze
+      },    ].freeze
 
     def self.call
       MODULES.each do |doc|

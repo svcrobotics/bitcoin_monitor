@@ -2,22 +2,30 @@ import { Controller } from "@hotwired/stimulus"
 
 export default class extends Controller {
   static values = {
-    url: String,
-    interval: { type: Number, default: 5000 }
+    interval: Number,
+    url: String
   }
 
   connect() {
-    console.log("AUTO REFRESH CONNECTED", this.element)
+    this.interval = this.hasIntervalValue ? this.intervalValue : 10000
+    this.url = this.hasUrlValue ? this.urlValue : this.element.getAttribute("src")
 
     this.timer = setInterval(() => {
-      console.log("AUTO REFRESH RELOAD", this.urlValue)
-
-      this.element.setAttribute("src", this.urlValue)
-      this.element.reload()
-    }, this.intervalValue)
+      this.reload()
+    }, this.interval)
   }
 
   disconnect() {
-    clearInterval(this.timer)
+    if (this.timer) clearInterval(this.timer)
+  }
+
+  reload() {
+    if (document.hidden) return
+    if (!this.url) return
+
+    const url = new URL(this.url, window.location.origin)
+    url.searchParams.set("_live", Date.now().toString())
+
+    this.element.src = url.toString()
   }
 }

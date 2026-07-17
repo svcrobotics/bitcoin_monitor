@@ -1,66 +1,143 @@
 <!-- app/views/shared/_topbar.html.erb -->
 
 <%
-  health =
+  layer1_lag =
     if defined?(@recovery_snapshot) && @recovery_snapshot.present?
-      layer1 = @recovery_snapshot[:layer1] || {}
+      @recovery_snapshot.dig(:layer1, :lag).to_i
+    elsif defined?(BlockBufferModel)
+      best = BlockBufferModel.maximum(:height).to_i
+      processed = BlockBufferModel.where(status: "processed").maximum(:height).to_i
+      [best - processed, 0].max
+    else
+      0
+    end
 
-      if layer1[:lag].to_i > 24
-        :critical
-      elsif layer1[:lag].to_i > 0
-        :warning
-      else
-        :healthy
+  best_height =
+    if defined?(@recovery_snapshot) && @recovery_snapshot.present?
+      @recovery_snapshot.dig(:layer1, :best_height)
+    elsif defined?(BlockBufferModel)
+      BlockBufferModel.where(status: "processed").maximum(:height)
+    end
+
+  cluster_tip =
+    if defined?(ClusterProcessedBlock)
+      ClusterProcessedBlock.where(status: "processed").maximum(:height)
+    end
+
+  cluster_lag =
+    if best_height.present? && cluster_tip.present?
+      [best_height.to_i - cluster_tip.to_i, 0].max
+    else
+      nil
+    end
+
+  actor_snapshot =
+    if defined?(ActorProfiles::StrictHealthSnapshot)
+      begin
+        ActorProfiles::StrictHealthSnapshot.call
+      rescue StandardError
+        {}
       end
+    else
+      {}
+    end
+
+  actor_missing = actor_snapshot.dig(:progress, :missing_profiles).to_i
+
+  actor_label =
+    if actor_missing >= 1_000_000
+      "#{number_with_precision(actor_missing / 1_000_000.0, precision: 1, strip_insignificant_zeros: true)}M"
+    elsif actor_missing >= 1_000
+      "#{number_with_precision(actor_missing / 1_000.0, precision: 1, strip_insignificant_zeros: true)}k"
+    else
+      actor_missing.to_s
+    end
+
+
+  actor_labels_snapshot =
+    if defined?(ActorLabels::StrictHealthSnapshot)
+      begin
+        ActorLabels::StrictHealthSnapshot.call
+      rescue StandardError
+        {}
+      end
+    else
+      {}
+    end
+
+  actor_labels_total =
+    actor_labels_snapshot.dig(:actor_labels, :strict_total).to_i
+
+  actor_labels_label =
+    if actor_labels_total >= 1_000_000
+      "#{number_with_precision(actor_labels_total / 1_000_000.0, precision: 1, strip_insignificant_zeros: true)}M"
+    elsif actor_labels_total >= 1_000
+      "#{number_with_precision(actor_labels_total / 1_000.0, precision: 1, strip_insignificant_zeros: true)}k"
+    else
+      actor_labels_total.to_s
+    end
+
+  health =
+    if layer1_lag.to_i > 6 || cluster_lag.to_i > 6
+      :critical
+    elsif layer1_lag.to_i > 0 || cluster_lag.to_i > 0 || actor_missing.to_i > 0
+      :syncing
+    elsif best_height.present?
+      :healthy
     else
       :unknown
     end
 
-  status_classes =
+  status_label =
     case health
     when :healthy
-      "border-emerald-500/20 bg-emerald-500/10 text-emerald-300"
-    when :warning
-      "border-amber-500/20 bg-amber-500/10 text-amber-300"
+      "live"
+    when :syncing
+      "syncing"
     when :critical
-      "border-rose-500/20 bg-rose-500/10 text-rose-300"
+      "critical"
     else
-      "border-white/10 bg-white/[0.04] text-slate-400"
+      "unknown"
     end
 
   dot_classes =
     case health
     when :healthy
       "bg-emerald-400 shadow-emerald-400/40"
-    when :warning
-      "bg-amber-400 shadow-amber-400/40"
+    when :syncing
+      "bg-cyan-400 shadow-cyan-400/40"
     when :critical
       "bg-rose-400 shadow-rose-400/40"
     else
       "bg-slate-500"
     end
 
-  layer1_lag =
-    if defined?(@recovery_snapshot)
-      @recovery_snapshot.dig(:layer1, :lag) || 0
+  status_classes =
+    case health
+    when :healthy
+      "border-emerald-400/20 bg-emerald-400/10 text-emerald-200"
+    when :syncing
+      "border-cyan-400/20 bg-cyan-400/10 text-cyan-200"
+    when :critical
+      "border-rose-400/20 bg-rose-400/10 text-rose-200"
     else
-      0
-    end
-
-  best_height =
-    if defined?(@recovery_snapshot)
-      @recovery_snapshot.dig(:layer1, :best_height)
+      "border-slate-700 bg-slate-900/80 text-slate-400"
     end
 %>
 
-<header class="sticky top-0 z-30 border-b border-white/10 bg-[#081018]/85 backdrop-blur-xl">
-  <div class="flex h-16 items-center justify-between gap-4 px-4 lg:px-6">
+<header
+  data-controller="system-heartbeat"
+  data-system-heartbeat-url-value="/tansa/heartbeat"
+  data-system-heartbeat-interval-value="30000"
+  class="sticky top-0 z-30 border-b border-white/10 bg-[#060b12]/92 shadow-2xl shadow-black/20 backdrop-blur-xl"
+>
+  <div class="mx-auto flex h-16 max-w-[1680px] items-center justify-between gap-3 overflow-hidden px-4 lg:px-6">
     <!-- LEFT -->
-    <div class="flex min-w-0 items-center gap-4">
+    <div class="flex min-w-0 flex-1 items-center gap-3">
       <!-- Mobile menu -->
       <button
         type="button"
-        class="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400 transition hover:bg-white/[0.06] hover:text-white lg:hidden"
+        class="inline-flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-white/[0.03] text-slate-400 transition hover:border-cyan-400/30 hover:bg-white/[0.06] hover:text-cyan-200 lg:hidden"
       >
         <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
           <path d="M4 7h16" />
@@ -68,124 +145,203 @@
           <path d="M4 17h16" />
         </svg>
       </button>
+
+      <!-- Recent Bitcoin block cadence -->
+      <div
+        data-system-heartbeat-target="cadencePanel"
+        title="Intervalles indicatifs calculés à partir des horodatages des en-têtes Bitcoin Core."
+        class="hidden h-11 min-w-0 flex-1 items-center gap-2 overflow-hidden rounded-xl border border-white/10 bg-slate-950/80 px-2.5 shadow-xl shadow-black/20 ring-1 ring-white/[0.04] xl:flex"
+      >
+        <span class="hidden h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-amber-300/10 bg-amber-400/10 text-amber-200 2xl:flex">
+          <svg class="h-4 w-4" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+            <path d="M12 3 4 7l8 4 8-4-8-4Z" />
+            <path d="M4 12l8 4 8-4" />
+            <path d="M4 17l8 4 8-4" />
+          </svg>
+        </span>
+
+        <span class="shrink-0 text-[10px] font-bold uppercase tracking-[0.13em] text-slate-300">
+          Bitcoin
+        </span>
+
+        <span
+          data-system-heartbeat-target="cadenceVerdict"
+          class="shrink-0 whitespace-nowrap rounded-full border border-slate-700 bg-slate-900 px-2 py-1 text-[10px] font-bold text-slate-400"
+        >
+          Chargement…
+        </span>
+
+        <div
+          data-system-heartbeat-target="networkBlocks"
+          class="flex min-w-0 flex-1 items-center gap-1 overflow-hidden"
+          aria-label="Cinq derniers blocs Bitcoin et intervalles entre blocs"
+        >
+          <% 3.times do %>
+            <span class="h-8 w-[66px] shrink-0 animate-pulse rounded-lg bg-white/[0.05]"></span>
+          <% end %>
+          <% 2.times do %>
+            <span class="hidden h-8 w-[66px] shrink-0 animate-pulse rounded-lg bg-white/[0.05] 2xl:block"></span>
+          <% end %>
+        </div>
+
+        <span
+          data-system-heartbeat-target="cadenceMetrics"
+          class="hidden shrink-0 whitespace-nowrap rounded-lg border border-white/10 bg-white/[0.035] px-2 py-1 font-mono text-[9px] font-semibold text-slate-300 2xl:inline-flex"
+        >
+          Réseau — · L1 —
+        </span>
+
+        <span data-system-heartbeat-target="cadenceSummary" class="hidden"></span>
+      </div>
     </div>
 
-    <!-- RIGHT -->
-    <div class="flex items-center gap-3">
-      <!-- Tansa heartbeat -->
+    <!-- RIGHT / LIVE STATUS -->
+    <div class="flex shrink-0 items-center justify-end gap-2">
       <div
-        data-controller="system-heartbeat"
-        data-system-heartbeat-url-value="/system/heartbeat"
-        data-system-heartbeat-interval-value="30000"
-        class="hidden lg:flex items-center gap-3 rounded-2xl border px-4 py-2 <%= status_classes %>"
+        class="flex items-center gap-2 rounded-xl border border-white/10 bg-slate-950/70 px-2 py-1.5 shadow-xl shadow-black/20 ring-1 ring-white/[0.03]"
       >
-        <div class="flex items-center gap-3">
-          <!-- Heart pulse -->
-          <span class="relative flex h-3 w-3">
-            <span class="absolute inline-flex h-full w-full animate-ping rounded-full <%= dot_classes %> opacity-70"></span>
+        <!-- Global pulse -->
+        <div class="flex items-center gap-2 pr-1">
+          <span class="relative flex h-3 w-3 shrink-0">
+            <span class="absolute inline-flex h-full w-full animate-ping rounded-full <%= dot_classes %> opacity-60"></span>
             <span
               data-system-heartbeat-target="pulse"
               class="relative inline-flex h-3 w-3 rounded-full <%= dot_classes %>"
             ></span>
           </span>
 
-          <div>
-            <div class="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[0.18em]">
-              <span>Tansa heartbeat</span>
+          <span
+            data-system-heartbeat-target="status"
+            class="hidden rounded-full border px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.14em] sm:inline-flex <%= status_classes %>"
+          >
+            <%= status_label %>
+          </span>
+        </div>
 
-              <span
-                data-system-heartbeat-target="status"
-                class="rounded-full border border-white/10 bg-white/[0.05] px-2 py-0.5 text-[9px] tracking-normal text-slate-300"
-              >
-                live
-              </span>
-            </div>
+        <!-- Layer1 -->
+        <div class="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-1.5 sm:flex">
+          <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-cyan-400/10 text-cyan-200">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M4 7h16" />
+              <path d="M4 12h16" />
+              <path d="M4 17h16" />
+            </svg>
+          </span>
 
-            <div class="mt-0.5 flex items-center gap-3 text-[11px] text-slate-400">
-              <span>
-                L1
-                <span class="font-semibold text-white" data-system-heartbeat-target="lag">
-                  <%= layer1_lag %>
-                </span>
-              </span>
-
-              <span>
-                OUT
-                <span class="font-semibold text-white" data-system-heartbeat-target="outputs">
-                  -
-                </span>
-              </span>
-
-              <span>
-                SPENT
-                <span class="font-semibold text-white" data-system-heartbeat-target="spent">
-                  -
-                </span>
-              </span>
-
-              <span>
-                DRAIN
-                <span class="font-semibold text-white" data-system-heartbeat-target="drain">
-                  -
-                </span>
-              </span>
-
-              <span>
-                FLUSH
-                <span class="font-semibold text-white" data-system-heartbeat-target="flushers">
-                  -
-                </span>
-              </span>
-              
-              <span>
-                RESOLVE
-                <span class="font-semibold text-white" data-system-heartbeat-target="resolve">
-                  -
-                </span>
-              </span>
-
-              <% if best_height.present? %>
-                <span class="text-slate-600">•</span>
-
-                <span>
-                  H
-                  <span class="font-semibold text-white">
-                    <%= best_height %>
-                  </span>
-                </span>
-              <% end %>
-
-              <span class="text-slate-600">•</span>
-
-              <span class="text-slate-500">
-                MAJ
-                <span data-system-heartbeat-target="time">--:--:--</span>
-              </span>
+          <div class="leading-none">
+            <div class="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">L1</div>
+            <div class="mt-1 font-mono text-[12px] font-semibold text-slate-100">
+              <span data-system-heartbeat-target="lag"><%= layer1_lag %></span>
             </div>
           </div>
         </div>
+
+        <!-- Cluster -->
+        <div class="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-1.5 md:flex">
+          <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-violet-400/10 text-violet-200">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <circle cx="6" cy="12" r="2.5" />
+              <circle cx="18" cy="7" r="2.5" />
+              <circle cx="18" cy="17" r="2.5" />
+              <path d="M8.2 10.8 15.8 8.2" />
+              <path d="M8.2 13.2 15.8 15.8" />
+            </svg>
+          </span>
+
+          <div class="leading-none">
+            <div class="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">CL</div>
+            <div class="mt-1 font-mono text-[12px] font-semibold text-slate-100">
+              <span data-system-heartbeat-target="cluster"><%= cluster_lag.nil? ? "—" : cluster_lag %></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ActorProfile -->
+        <div class="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-1.5 xl:flex">
+          <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-fuchsia-400/10 text-fuchsia-200">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M12 12a4 4 0 1 0 0-8 4 4 0 0 0 0 8Z" />
+              <path d="M4 21a8 8 0 0 1 16 0" />
+            </svg>
+          </span>
+
+          <div class="leading-none">
+            <div class="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">AP</div>
+            <div class="mt-1 font-mono text-[12px] font-semibold text-slate-100">
+              <span data-system-heartbeat-target="profile"><%= actor_label %></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ActorLabel -->
+        <div class="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-1.5 2xl:flex">
+          <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-pink-400/10 text-pink-200">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <path d="M5 7h14" />
+              <path d="M7 12h10" />
+              <path d="M9 17h6" />
+              <circle cx="5" cy="7" r="1" />
+              <circle cx="19" cy="7" r="1" />
+            </svg>
+          </span>
+
+          <div class="leading-none">
+            <div class="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">
+              AL
+            </div>
+
+            <div class="mt-1 font-mono text-[12px] font-semibold text-slate-100">
+              <span data-system-heartbeat-target="labels"><%= actor_labels_label %></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Height -->
+        <% if best_height.present? %>
+          <div class="hidden items-center gap-2 rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-1.5 xl:flex">
+            <span class="flex h-6 w-6 items-center justify-center rounded-lg bg-emerald-400/10 text-emerald-200">
+              <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+                <path d="M12 3 4 7l8 4 8-4-8-4Z" />
+                <path d="M4 12l8 4 8-4" />
+                <path d="M4 17l8 4 8-4" />
+              </svg>
+            </span>
+
+            <div class="leading-none">
+              <div class="text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500">Bloc</div>
+              <div class="mt-1 font-mono text-[12px] font-semibold text-slate-100">
+                <span data-system-heartbeat-target="height"><%= best_height %></span>
+              </div>
+            </div>
+          </div>
+        <% end %>
+
+        <!-- Updated -->
+        <div class="flex items-center gap-2 rounded-xl border border-white/10 bg-white/[0.035] px-2.5 py-1.5">
+          <span class="hidden h-6 w-6 items-center justify-center rounded-lg bg-slate-400/10 text-slate-300 sm:flex">
+            <svg class="h-3.5 w-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
+              <circle cx="12" cy="12" r="8" />
+              <path d="M12 7v5l3 2" />
+            </svg>
+          </span>
+
+          <div class="leading-none">
+            <div class="hidden text-[9px] font-semibold uppercase tracking-[0.16em] text-slate-500 sm:block">MAJ</div>
+            <div class="font-mono text-[12px] font-semibold text-slate-300 sm:mt-1">
+              <span data-system-heartbeat-target="time">--:--:--</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Targets conservées pour éviter de casser le contrôleur Stimulus actuel. -->
+        <span class="hidden" data-system-heartbeat-target="outputs">-</span>
+        <span class="hidden" data-system-heartbeat-target="spent">-</span>
+        <span class="hidden" data-system-heartbeat-target="drain">-</span>
+        <span class="hidden" data-system-heartbeat-target="flushers">-</span>
+        <span class="hidden" data-system-heartbeat-target="resolve">-</span>
+        <span class="hidden" data-system-heartbeat-target="process">-</span>
+        <span class="hidden" data-system-heartbeat-target="exchange">-</span>
       </div>
-
-      <!-- Recovery -->
-      <%= link_to system_recovery_path,
-        class: "inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400 transition hover:border-cyan-400/30 hover:bg-white/[0.06] hover:text-cyan-300" do %>
-
-        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <path d="M4 12a8 8 0 1 1 2.34 5.66" />
-          <path d="M4 18v-6h6" />
-        </svg>
-      <% end %>
-
-      <!-- System -->
-      <%= link_to system_path,
-        class: "inline-flex h-10 w-10 items-center justify-center rounded-xl border border-white/10 bg-white/[0.03] text-slate-400 transition hover:border-cyan-400/30 hover:bg-white/[0.06] hover:text-cyan-300" do %>
-
-        <svg class="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">
-          <path d="M4 14h4v6H4z" />
-          <path d="M10 9h4v11h-4z" />
-          <path d="M16 4h4v16h-4z" />
-        </svg>
-      <% end %>
     </div>
   </div>
 </header>

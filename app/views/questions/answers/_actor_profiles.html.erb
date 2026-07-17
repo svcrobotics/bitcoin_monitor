@@ -1,138 +1,2004 @@
-<% status = snapshot[:status].to_s %>
-<% counts = snapshot[:counts] || {} %>
-<% activity = snapshot[:activity] || {} %>
-<% queues = snapshot[:queues] || {} %>
-<% workers = Array(snapshot[:workers]) %>
+<%
+  snapshot ||= {}
 
-<section class="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100">
-  <div class="flex items-start justify-between gap-4">
-    <div>
-      <p class="text-xs uppercase tracking-wide text-slate-500">Actor Profiles Health</p>
-      <h2 class="mt-1 text-xl font-semibold">État du moteur Actor Profiles</h2>
-      <p class="mt-2 text-sm text-slate-500">
-        Vérifie la transformation des clusters en profils comportementaux exploitables.
-      </p>
+  read_value = lambda do |hash, key|
+    next nil unless hash.respond_to?(:[])
+
+    hash[key] || hash[key.to_s]
+  end
+
+  # Les tests peuvent fournir le snapshot strict directement.
+  # En fonctionnement normal, il est calculé à partir de PostgreSQL.
+  strict_snapshot =
+    read_value.call(snapshot, :strict) ||
+    ActorProfiles::StrictHealthSnapshot.call
+
+  available =
+    read_value.call(snapshot, :available) != false
+
+  status =
+    read_value.call(strict_snapshot, :status)
+      .to_s
+      .presence ||
+    read_value.call(snapshot, :status)
+      .to_s
+      .presence ||
+    "unknown"
+
+  sync =
+    read_value.call(strict_snapshot, :sync) || {}
+
+  progress =
+    read_value.call(strict_snapshot, :progress) || {}
+
+  certification =
+    read_value.call(strict_snapshot, :certification) || {}
+
+  integrity =
+    read_value.call(strict_snapshot, :integrity) || {}
+
+  freshness =
+    read_value.call(strict_snapshot, :freshness) || {}
+
+  activity =
+    read_value.call(snapshot, :activity) || {}
+
+  dependencies =
+    read_value.call(snapshot, :dependencies) || {}
+
+  address_spend =
+    read_value.call(
+      dependencies,
+      :address_spend_projection
+    ) || {}
+
+  address_spend_sync =
+    read_value.call(
+      address_spend,
+      :sync
+    ) || {}
+
+  address_spend_activity =
+    read_value.call(
+      address_spend,
+      :activity
+    ) || {}
+
+  address_spend_automation =
+    read_value.call(
+      address_spend,
+      :automation
+    ) || {}
+
+  automation =
+    read_value.call(snapshot, :automation) || {}
+
+  last_batch =
+    read_value.call(snapshot, :last_batch) || {}
+
+  recent_batches =
+    Array(
+      read_value.call(snapshot, :recent_batches)
+    )
+
+  issues =
+    Array(
+      read_value.call(strict_snapshot, :issues)
+    ) |
+    Array(
+      read_value.call(snapshot, :issues)
+    )
+
+  profile_version =
+    read_value.call(
+      certification,
+      :required_profile_version
+    ).presence ||
+    ActorProfiles::StrictBuildFromCluster::PROFILE_VERSION
+
+  epoch_active =
+    read_value.call(
+      certification,
+      :epoch_active
+    ) == true
+
+  certification_epoch_height =
+    read_value.call(
+      certification,
+      :certification_epoch_height
+    ).to_i
+
+  certification_scope =
+    read_value.call(
+      certification,
+      :certification_scope
+    ).to_s.presence ||
+    "activity_since_epoch"
+
+  active_clusters_since_epoch =
+    read_value.call(
+      progress,
+      :active_clusters_since_epoch
+    ).to_i
+
+  historical_clusters_outside_epoch =
+    read_value.call(
+      progress,
+      :historical_clusters_outside_epoch
+    ).to_i
+
+  certified_profiles_since_epoch =
+    read_value.call(
+      progress,
+      :certified_profiles_since_epoch
+    ).to_i
+
+  pending_profiles_since_epoch =
+    read_value.call(
+      progress,
+      :pending_profiles_since_epoch
+    ).to_i
+
+  layer1_tip =
+    read_value.call(sync, :layer1_tip).to_i
+
+  cluster_tip =
+    read_value.call(sync, :cluster_tip).to_i
+
+  profile_max_height =
+    read_value.call(sync, :profile_max_height).to_i
+
+  certified_profile_max_height =
+    read_value.call(
+      sync,
+      :certified_profile_max_height
+    ).to_i
+
+  strict_tips_aligned =
+    read_value.call(sync, :strict_tips_aligned) == true
+
+  cluster_lag =
+    [
+      layer1_tip - cluster_tip,
+      0
+    ].max
+
+  total_clusters =
+    read_value.call(progress, :total_clusters).to_i
+
+  profiles_in_scope =
+    read_value.call(progress, :profiles_in_scope).to_i
+
+  actor_profiles_count =
+    read_value.call(progress, :actor_profiles).to_i
+
+  certified_profiles =
+    read_value.call(progress, :certified_profiles).to_i
+
+  missing_profiles =
+    read_value.call(progress, :missing_profiles).to_i
+
+  stale_profiles =
+    read_value.call(progress, :stale_profiles).to_i
+
+  pending_profiles =
+    read_value.call(progress, :pending_profiles).to_i
+
+  completion_pct =
+    read_value.call(progress, :completion_pct)
+      .to_f
+      .clamp(0, 100)
+
+  completion_label =
+    number_with_precision(
+      completion_pct,
+      precision: 2,
+      strip_insignificant_zeros: true
+    )
+
+  pipeline_state =
+    read_value.call(activity, :pipeline_state)
+      .to_s
+
+  wait_reason =
+    read_value.call(activity, :wait_reason)
+
+  address_spend_available =
+    read_value.call(
+      address_spend,
+      :available
+    ) == true
+
+  address_spend_cluster_tip =
+    read_value.call(
+      address_spend_sync,
+      :cluster_tip
+    ).to_i
+
+  address_spend_projection_tip =
+    read_value.call(
+      address_spend_sync,
+      :projection_tip
+    ).to_i
+
+  address_spend_lag_raw =
+    read_value.call(
+      address_spend_sync,
+      :lag
+    )
+
+  address_spend_lag =
+    address_spend_lag_raw.nil? ?
+      nil :
+      address_spend_lag_raw.to_i
+
+  address_spend_next_height =
+    read_value.call(
+      address_spend_sync,
+      :next_record_height
+    ).to_i
+
+  address_spend_caught_up =
+    read_value.call(
+      address_spend_sync,
+      :caught_up_to_cluster
+    ) == true
+
+  address_spend_processing_height =
+    read_value.call(
+      address_spend_activity,
+      :processing_height
+    ).to_i
+
+  address_spend_worker_present =
+    read_value.call(
+      address_spend_automation,
+      :process_present
+    ) == true
+
+  waiting_for_address_spend =
+    pipeline_state ==
+      "waiting_for_address_spend" ||
+    (
+      pending_profiles.positive? &&
+      address_spend_available &&
+      !address_spend_caught_up
+    )
+
+  worker_present =
+    read_value.call(automation, :process_present) == true
+
+  process_count =
+    read_value.call(automation, :process_count).to_i
+
+  busy_workers =
+    read_value.call(automation, :busy_workers).to_i
+
+  queue_size =
+    read_value.call(automation, :queue_size).to_i
+
+  scheduled_jobs =
+    read_value.call(automation, :scheduled_jobs).to_i
+
+  retries =
+    read_value.call(automation, :retries).to_i
+
+  dead_jobs =
+    read_value.call(automation, :dead_jobs).to_i
+
+  automation_ok =
+    read_value.call(automation, :automation_ok) == true
+
+  lock_ttl =
+    read_value.call(automation, :lock_ttl).to_i
+
+  schedule_marker_ttl =
+    read_value.call(
+      automation,
+      :schedule_marker_ttl
+    ).to_i
+
+  partition_ok =
+    read_value.call(
+      integrity,
+      :profile_partition_ok
+    )
+
+  partition_delta =
+    read_value.call(
+      integrity,
+      :profile_partition_delta
+    )
+
+  invalid_profile_refs =
+    read_value.call(
+      integrity,
+      :invalid_profile_refs
+    ).to_i
+
+  strict_core_profiles =
+    read_value.call(
+      certification,
+      :strict_core_profiles
+    ).to_i
+
+  dirty_profiles =
+    read_value.call(
+      certification,
+      :dirty_profiles
+    ).to_i
+
+  composition_mismatches =
+    read_value.call(
+      certification,
+      :composition_mismatches
+    ).to_i
+
+  height_stale_profiles =
+    read_value.call(
+      certification,
+      :height_stale_profiles
+    ).to_i
+
+  provenance_mismatches =
+    read_value.call(
+      certification,
+      :provenance_mismatches
+    ).to_i
+
+  profiles_last_10m =
+    read_value.call(
+      freshness,
+      :profiles_last_10m
+    ).to_i
+
+  profiles_last_1h =
+    read_value.call(
+      freshness,
+      :profiles_last_1h
+    ).to_i
+
+  last_selected =
+    read_value.call(last_batch, :selected).to_i
+
+  last_built =
+    read_value.call(last_batch, :built).to_i
+
+  last_deferred =
+    read_value.call(last_batch, :deferred).to_i
+
+  last_failed =
+    read_value.call(last_batch, :failed).to_i
+
+  last_duration_ms =
+    read_value.call(last_batch, :duration_ms).to_i
+
+  last_avg_runtime_ms =
+    read_value.call(last_batch, :avg_runtime_ms).to_i
+
+  last_min_runtime_ms =
+    read_value.call(last_batch, :min_runtime_ms)
+
+  last_max_runtime_ms =
+    read_value.call(last_batch, :max_runtime_ms)
+
+  last_cluster_tip =
+    read_value.call(last_batch, :cluster_tip).to_i
+
+  last_completed_at =
+    read_value.call(last_batch, :completed_at)
+
+  last_completed_label =
+    begin
+      parsed_last_completed_at =
+        if last_completed_at.respond_to?(:strftime)
+          last_completed_at
+        elsif last_completed_at.present?
+          Time.zone.parse(
+            last_completed_at.to_s
+          )
+        end
+
+      parsed_last_completed_at ?
+        parsed_last_completed_at.strftime(
+          "%d/%m/%Y %H:%M:%S"
+        ) :
+        "—"
+    rescue ArgumentError, TypeError
+      last_completed_at.presence || "—"
+    end
+
+  non_blocking_issues =
+    Array(issues)
+      .map(&:to_s)
+      .select do |issue|
+        issue.start_with?(
+          "strict_tips_not_aligned="
+        )
+      end
+
+  blocking_issues =
+    Array(issues)
+      .map(&:to_s) -
+      non_blocking_issues
+
+  genuine_warning =
+    !automation_ok ||
+    retries.positive? ||
+    dead_jobs.positive? ||
+    blocking_issues.any?
+
+  orchestrated_wait =
+    waiting_for_address_spend ||
+    pipeline_state.start_with?(
+      "waiting"
+    ) ||
+    wait_reason.present?
+
+  status_label =
+    if status == "critical"
+      "CRITIQUE"
+
+    elsif genuine_warning
+      "À VÉRIFIER"
+
+    elsif waiting_for_address_spend ||
+          wait_reason.to_s ==
+            "address_spend_projection_not_ready"
+      "PROJECTION EN RATTRAPAGE"
+
+    elsif pipeline_state == "active"
+      "TRAITEMENT EN COURS"
+
+    elsif orchestrated_wait
+      case wait_reason.to_s
+      when "actor_profile_layer1_lag_within_budget"
+        "EN ATTENTE DE LAYER1"
+
+      when "actor_profile_cluster_global_lag_within_budget"
+        "EN ATTENTE DE CLUSTER"
+
+      when "address_spend_projection_not_ready"
+        "PROJECTION EN RATTRAPAGE"
+
+      else
+        "ATTENTE ORCHESTRÉE"
+      end
+
+    elsif status == "healthy"
+      "PRÊT"
+
+    elsif status.in?(
+      [
+        "syncing",
+        "warning"
+      ]
+    )
+      "PIPELINE EN ALTERNANCE"
+
+    else
+      "ÉTAT INCONNU"
+    end
+
+  status_classes =
+    if status == "critical"
+      "border-red-400/30 bg-red-400/10 text-red-200"
+
+    elsif genuine_warning
+      "border-amber-400/30 bg-amber-400/10 text-amber-200"
+
+    elsif status == "healthy" &&
+          !orchestrated_wait
+      "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+
+    elsif orchestrated_wait ||
+          pipeline_state == "active" ||
+          status == "syncing" ||
+          status == "warning"
+      "border-cyan-400/30 bg-cyan-400/10 text-cyan-200"
+
+    else
+      "border-slate-600/40 bg-slate-800/60 text-slate-300"
+    end
+
+  source_tables = [
+    {
+      name: "addresses",
+      role:
+        "Adresses rattachées au cluster et bornes d’activité."
+    },
+    {
+      name: "address_spend_stats",
+      role:
+        "Historique sortant préagrégé par adresse : volumes, inputs dépensés et bornes d’activité."
+    },
+    {
+      name: "cluster_inputs",
+      role:
+        "Références strictes aux dépenses utilisées pour compter les transactions sortantes."
+    },
+    {
+      name: "utxo_outputs",
+      role:
+        "UTXO vivants, solde courant et transactions reçues."
+    }
+  ]
+
+  core_facts = [
+    "address_count",
+    "balance_btc",
+    "total_received_btc",
+    "total_sent_btc",
+    "net_btc",
+    "tx_count",
+    "inflow_count",
+    "outflow_count",
+    "live_utxo_count",
+    "spent_inputs_count",
+    "first_seen_height",
+    "last_seen_height",
+    "activity_span_blocks",
+    "tx_density"
+  ]
+
+  certification_rules = [
+    "epoch_active = true",
+    "certification_epoch_height = #{certification_epoch_height}",
+    "certification_scope = #{certification_scope}",
+    "cluster actif depuis le début de l’époque",
+    "certified_at présent",
+    "dirty = false",
+    "composition du cluster identique",
+    "checkpoint au moins égal à la dernière activité",
+    "profile_version = #{profile_version}",
+    "metadata.strict = true"
+  ]
+
+  calculation_steps = [
+    {
+      number: 1,
+      title: "Sélection des clusters",
+      description:
+        "Priorise les profils manquants ou périmés parmi les clusters actifs depuis le début de l’époque.",
+      label: "Sélectionnés",
+      value: last_selected,
+      secondary:
+        "#{number_with_delimiter(missing_profiles, delimiter: " ")} manquants · " \
+        "#{number_with_delimiter(stale_profiles, delimiter: " ")} périmés dans le backlog"
+    },
+    {
+      number: 2,
+      title: "Agrégation des sources",
+      description:
+        "Regroupe les adresses du cluster, leurs statistiques de dépenses projetées et leurs UTXO encore vivants.",
+      label: "Clusters parcourus",
+      value: last_selected,
+      secondary:
+        "lecture sous isolation repeatable_read"
+    },
+    {
+      number: 3,
+      title: "Calcul des faits économiques",
+      description:
+        "Calcule le solde, les volumes, l’activité, les comptes de transactions et les traits du profil.",
+      label: "Profils calculés",
+      value: last_built,
+      secondary:
+        last_avg_runtime_ms.positive? ?
+          "#{last_avg_runtime_ms} ms en moyenne par profil" :
+          "temps moyen indisponible"
+    },
+    {
+      number: 4,
+      title: "Certification du profil",
+      description:
+        "Enregistre le checkpoint, la composition, la provenance, la version du profil, l’époque de certification et certified_at.",
+      label: "Construits",
+      value: last_built,
+      secondary:
+        "#{last_deferred} reporté(s) · #{last_failed} échec(s)"
+    }
+  ]
+
+  certified_outputs_available =
+    certified_profiles.positive?
+
+  consumers = [
+    {
+      title: "ActorBehavior",
+
+      state:
+        certified_outputs_available ?
+          "Source directe" :
+          "En attente",
+
+      data:
+        certified_outputs_available ?
+          "faits certifiés · checkpoint · composition" :
+          "aucun profil v5 certifié disponible",
+
+      description:
+        certified_outputs_available ?
+          "Transforme les profils certifiés en scores, signaux et preuves comportementales." :
+          "Démarrera lorsque les premiers profils strict_v5_address_spend_projection seront certifiés."
+    },
+    {
+      title: "ActorLabels",
+
+      state:
+        certified_outputs_available ?
+          "Source indirecte" :
+          "En attente",
+
+      data:
+        "ActorProfile → ActorBehavior → ActorLabels",
+
+      description:
+        certified_outputs_available ?
+          "Reçoit les données ActorProfile uniquement après leur transformation par ActorBehavior." :
+          "Attend les futurs comportements produits à partir des profils v5 certifiés."
+    },
+    {
+      title: "Moteur de réponses Tansa",
+
+      state:
+        certified_outputs_available ?
+          "Disponible" :
+          "En attente",
+
+      data:
+        certified_outputs_available ?
+          "faits économiques certifiés" :
+          "aucun fait ActorProfile v5 publié",
+
+      description:
+        certified_outputs_available ?
+          "Peut expliquer l’état économique observable d’un cluster sans s’appuyer sur une classification supposée." :
+          "Ne doit pas encore présenter les faits ActorProfile v5 comme certifiés."
+    },
+    {
+      title: "Futurs modules analytiques",
+
+      state:
+        certified_outputs_available ?
+          "Donnée disponible" :
+          "Contrat prêt",
+
+      data:
+        "soldes · flux · activité · ancienneté",
+
+      description:
+        certified_outputs_available ?
+          "Dispose d’une base certifiée pour les futures analyses économiques et temporelles." :
+          "Le schéma de sortie est défini, mais attend encore la certification des profils v5."
+    }
+  ]
+%>
+
+<section
+  data-module-pipeline="actor-profile"
+  class="overflow-hidden rounded-3xl border border-cyan-400/20 bg-[#080b13] text-slate-100 shadow-2xl shadow-black/30"
+>
+  <header class="border-b border-white/10 bg-gradient-to-r from-cyan-500/10 via-violet-500/5 to-transparent p-6">
+    <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+      <div class="max-w-3xl">
+        <p class="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
+          ActorProfile
+        </p>
+
+        <h2 class="mt-2 text-2xl font-semibold text-white">
+          Profils économiques certifiés
+        </h2>
+
+        <p class="mt-3 text-sm leading-6 text-slate-400">
+          ActorProfile transforme les clusters certifiés en faits
+          économiques stables, versionnés et réutilisables par les
+          couches comportementales.
+        </p>
+      </div>
+
+      <span class="inline-flex w-fit rounded-full border px-3 py-1.5 text-xs font-semibold tracking-wide <%= status_classes %>">
+        <%= status_label %>
+      </span>
     </div>
 
-    <div class="rounded-full px-3 py-1 text-xs font-semibold
-      <%= status == "healthy" ? "bg-emerald-500/10 text-emerald-300" : status == "warning" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300" %>">
-      <%= status.upcase.presence || "UNKNOWN" %>
-    </div>
-  </div>
-
-  <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-    <%= render "questions/answers/layer1_metric",
-      label: "Actor profiles",
-      value: number_with_delimiter(counts[:actor_profiles].to_i) %>
-
-    <%= render "questions/answers/layer1_metric",
-      label: "Cluster profiles",
-      value: number_with_delimiter(counts[:cluster_profiles].to_i) %>
-
-    <%= render "questions/answers/layer1_metric",
-      label: "Actor labels",
-      value: number_with_delimiter(counts[:actor_labels].to_i) %>
-
-    <%= render "questions/answers/layer1_metric",
-      label: "Dirty profiles",
-      value: number_with_delimiter(counts[:dirty_actor_profiles].to_i) %>
-  </div>
-
-  <div class="mt-6 grid gap-4 md:grid-cols-2">
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">Fraîcheur</h3>
-
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between">
-          <span>Dernier actor profile</span>
-          <strong><%= activity[:last_actor_profile_at]&.strftime("%H:%M:%S") || "—" %></strong>
+    <div class="mt-6 grid grid-cols-2 gap-3 xl:grid-cols-5">
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Backlog ActorProfile
         </div>
 
-        <div class="flex justify-between">
-          <span>Dernier cluster profile</span>
-          <strong><%= activity[:last_cluster_profile_at]&.strftime("%H:%M:%S") || "—" %></strong>
+        <div class="mt-2 text-2xl font-semibold text-cyan-300">
+          <%= number_with_delimiter(
+                pending_profiles,
+                delimiter: " "
+              ) %>
         </div>
 
-        <div class="flex justify-between">
-          <span>Dernier cluster</span>
-          <strong><%= activity[:last_cluster_at]&.strftime("%H:%M:%S") || "—" %></strong>
-        </div>
-
-        <div class="flex justify-between">
-          <span>Dernier actor label</span>
-          <strong class="<%= activity[:last_actor_label_at].present? && activity[:last_actor_label_at] < 6.hours.ago ? "text-amber-300" : "text-slate-100" %>">
-            <%= activity[:last_actor_label_at]&.strftime("%H:%M:%S") || "—" %>
-          </strong>
+        <div class="mt-1 text-xs text-slate-500">
+          profils à construire ou reconstruire
         </div>
       </div>
-    </div>
 
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">État de traitement</h3>
-
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between">
-          <span>Profils à recalculer</span>
-          <strong class="<%= counts[:dirty_actor_profiles].to_i.positive? ? "text-amber-300" : "text-emerald-300" %>">
-            <%= number_with_delimiter(counts[:dirty_actor_profiles].to_i) %>
-          </strong>
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Retard Cluster
         </div>
 
-        <div class="flex justify-between">
-          <span>Clusters disponibles</span>
-          <strong><%= number_with_delimiter(counts[:clusters].to_i) %></strong>
+        <div class="mt-2 text-2xl font-semibold text-amber-300">
+          <%= number_with_delimiter(
+                cluster_lag,
+                delimiter: " "
+              ) %>
         </div>
 
-        <div class="flex justify-between">
-          <span>Queues en attente</span>
-          <strong><%= number_with_delimiter(queues.values.sum(&:to_i)) %></strong>
-        </div>
-
-        <div class="flex justify-between">
-          <span>Workers actifs</span>
-          <strong><%= workers.size %></strong>
+        <div class="mt-1 text-xs text-slate-500">
+          blocs derrière Layer1
         </div>
       </div>
-    </div>
-  </div>
 
-  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <h3 class="font-semibold">Queues Actor Profiles</h3>
-
-    <div class="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
-      <% queues.each do |name, size| %>
-        <div class="flex justify-between rounded-lg bg-slate-950 px-3 py-2">
-          <span class="text-slate-400"><%= name %></span>
-          <strong><%= size %></strong>
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Retard AddressSpend
         </div>
-      <% end %>
-    </div>
-  </div>
 
-  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <h3 class="font-semibold">Workers Actor Profiles actifs</h3>
+        <div class="mt-2 text-2xl font-semibold <%= address_spend_caught_up ? "text-emerald-300" : "text-amber-300" %>">
+          <% if address_spend_lag.nil? %>
+            —
+          <% else %>
+            <%= number_with_delimiter(
+                  address_spend_lag,
+                  delimiter: " "
+                ) %>
+          <% end %>
+        </div>
 
-    <% if workers.any? %>
-      <div class="mt-3 space-y-2 text-sm">
-        <% workers.each do |worker| %>
-          <div class="rounded-lg bg-slate-950 px-3 py-2">
-            <div class="flex justify-between gap-3">
-              <span class="text-slate-400"><%= worker[:queue] %></span>
-              <strong class="text-slate-200"><%= worker[:klass] %></strong>
-            </div>
+        <div class="mt-1 text-xs text-slate-500">
+          blocs derrière le checkpoint Cluster
+        </div>
+      </div>
 
-            <% if worker[:args].present? %>
-              <div class="mt-1 font-mono text-xs text-slate-500">
-                <%= worker[:args].inspect.truncate(120) %>
-              </div>
-            <% end %>
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          <%= waiting_for_address_spend ?
+                "Dernier lot ActorProfile (historique)" :
+                "Dernier lot" %>
+        </div>
+
+        <div class="mt-2 text-lg font-semibold text-violet-300">
+          <%= number_with_delimiter(
+                last_selected,
+                delimiter: " "
+              ) %>
+          sélectionnés ·
+          <%= number_with_delimiter(
+                last_built,
+                delimiter: " "
+              ) %>
+          construits
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          <% if last_duration_ms.positive? %>
+            durée :
+            <%= number_with_precision(
+                  last_duration_ms / 1_000.0,
+                  precision: 1
+                ) %>
+            s
+          <% else %>
+            durée non disponible
+          <% end %>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Profils certifiés
+        </div>
+
+        <div class="mt-2 text-2xl font-semibold text-emerald-300">
+          <%= number_with_delimiter(
+                certified_profiles,
+                delimiter: " "
+              ) %>
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          <%= completion_label %> % de couverture
+        </div>
+
+        <% if waiting_for_address_spend &&
+              certified_profiles.zero? %>
+          <div class="mt-2 text-xs leading-5 text-cyan-300">
+            reconstruction v5 en attente de la projection
           </div>
         <% end %>
       </div>
-    <% else %>
-      <p class="mt-3 text-sm text-slate-500">
-        Aucun worker Actor Profiles actif au moment du snapshot.
-      </p>
+    </div>
+
+    <% if waiting_for_address_spend %>
+      <div class="mt-5 rounded-2xl border border-cyan-400/25 bg-cyan-400/[0.06] p-4">
+        <div class="flex items-start gap-3">
+          <span class="mt-0.5 text-cyan-300">
+            ⏸
+          </span>
+
+          <div>
+            <p class="font-semibold text-cyan-100">
+              ActorProfile est en attente volontaire
+            </p>
+
+            <p class="mt-1 text-sm leading-6 text-slate-400">
+              AddressSpendProjection doit rejoindre le checkpoint
+              Cluster avant la construction des profils
+              <span class="font-mono text-slate-300">
+                <%= profile_version %>
+              </span>.
+              Aucun profil ActorProfile n’est actuellement en cours
+              de calcul.
+            </p>
+
+            <div class="mt-3 flex flex-wrap gap-2 text-xs">
+              <span class="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-300">
+                projection :
+                <span class="font-mono text-white">
+                  <%= number_with_delimiter(
+                        address_spend_projection_tip,
+                        delimiter: " "
+                      ) %>
+                </span>
+              </span>
+
+              <span class="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-300">
+                cluster :
+                <span class="font-mono text-white">
+                  <%= number_with_delimiter(
+                        address_spend_cluster_tip,
+                        delimiter: " "
+                      ) %>
+                </span>
+              </span>
+
+              <span class="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-300">
+                prochain bloc :
+                <span class="font-mono text-white">
+                  <%= number_with_delimiter(
+                        address_spend_next_height,
+                        delimiter: " "
+                      ) %>
+                </span>
+              </span>
+            </div>
+          </div>
+        </div>
+      </div>
     <% end %>
+  </header>
+
+  <div class="space-y-5 p-6">
+    <!-- 1. ENTRÉES -->
+    <section class="rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-400/10 text-sm font-bold text-cyan-200">
+          1
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+            Entrées
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Données reçues par ActorProfile
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            ActorProfile travaille sur un checkpoint Cluster certifié
+            et agrège uniquement les données rattachées au cluster
+            sélectionné.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 xl:grid-cols-3">
+        <article class="rounded-2xl border border-cyan-400/20 bg-black/20 p-5">
+          <div class="flex items-start justify-between gap-3">
+            <div>
+              <p class="text-xs uppercase tracking-wide text-cyan-400">
+                Entrée directe
+              </p>
+
+              <h4 class="mt-1 font-semibold text-white">
+                Cluster certifié
+              </h4>
+            </div>
+
+            <span class="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs text-emerald-200">
+              checkpoint disponible
+            </span>
+          </div>
+
+          <p class="mt-3 text-sm leading-6 text-slate-400">
+            Le cluster fournit son identité, sa composition, ses
+            adresses et la borne stricte jusqu’à laquelle le profil
+            peut être calculé.
+          </p>
+
+          <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">
+                Clusters éligibles
+              </dt>
+
+              <dd class="mt-1 font-semibold text-cyan-300">
+                <%= number_with_delimiter(
+                      total_clusters,
+                      delimiter: " "
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">
+                Checkpoint Cluster
+              </dt>
+
+              <dd class="mt-1 font-mono font-semibold text-white">
+                <%= number_with_delimiter(
+                      cluster_tip,
+                      delimiter: " "
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">
+                Profils manquants
+              </dt>
+
+              <dd class="mt-1 font-semibold text-amber-300">
+                <%= number_with_delimiter(
+                      missing_profiles,
+                      delimiter: " "
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">
+                Profils périmés
+              </dt>
+
+              <dd class="mt-1 font-semibold text-amber-300">
+                <%= number_with_delimiter(
+                      stale_profiles,
+                      delimiter: " "
+                    ) %>
+              </dd>
+            </div>
+          </dl>
+        </article>
+
+        <article
+          data-actor-profile-address-spend
+          class="min-w-0 overflow-hidden rounded-2xl border border-cyan-400/20 bg-black/20"
+        >
+          <div class="p-5">
+            <p class="text-xs uppercase tracking-wide text-cyan-400">
+              Dépendance stricte
+            </p>
+
+            <h4 class="mt-1 break-words font-semibold text-white">
+              AddressSpendProjection
+            </h4>
+
+            <p class="mt-3 text-sm leading-6 text-slate-400">
+              Cette projection transforme les dépenses historiques par
+              adresse en agrégats réutilisables. Elle fournit les
+              volumes sortants préagrégés via
+              <span class="font-mono text-slate-300">
+                address_spend_stats
+              </span>.
+              ActorProfile consulte encore
+              <span class="font-mono text-slate-300">
+                cluster_inputs
+              </span>
+              pour compter les transactions de dépense.
+            </p>
+          </div>
+
+          <div class="border-y border-white/10 px-5 py-4 <%= address_spend_caught_up ? "bg-emerald-400/[0.06]" : "bg-amber-400/[0.06]" %>">
+            <div class="flex min-w-0 items-start gap-3">
+              <span
+                class="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border <%= address_spend_caught_up ? "border-emerald-400/30 bg-emerald-400/10 text-emerald-200" : "border-amber-400/30 bg-amber-400/10 text-amber-200" %>"
+                aria-hidden="true"
+              >
+                <%= address_spend_caught_up ? "✓" : "⏳" %>
+              </span>
+
+              <div class="min-w-0">
+                <p class="text-[10px] font-semibold uppercase tracking-[0.16em] <%= address_spend_caught_up ? "text-emerald-300" : "text-amber-300" %>">
+                  État de la dépendance
+                </p>
+
+                <p class="mt-1 break-words text-sm font-semibold leading-5 <%= address_spend_caught_up ? "text-emerald-100" : "text-amber-100" %>">
+                  <%= address_spend_caught_up ?
+                        "Projection prête" :
+                        "Rattrapage en cours" %>
+                </p>
+
+                <p class="mt-1 text-xs leading-5 text-slate-400">
+                  <% if address_spend_caught_up %>
+                    Le checkpoint de dépenses a rejoint le checkpoint
+                    Cluster. ActorProfile peut être autorisé par le
+                    scheduler.
+                  <% else %>
+                    ActorProfile attend que la projection rejoigne le
+                    checkpoint Cluster avant de construire les profils.
+                  <% end %>
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <dl class="grid min-w-0 grid-cols-1 gap-3 p-5 text-sm sm:grid-cols-2">
+            <div class="min-w-0 rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-xs text-slate-500">
+                Checkpoint projection
+              </dt>
+
+              <dd class="mt-1 break-words font-mono font-semibold text-cyan-300">
+                <%= number_with_delimiter(
+                      address_spend_projection_tip,
+                      delimiter: " "
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="min-w-0 rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-xs text-slate-500">
+                Retard sur Cluster
+              </dt>
+
+              <dd class="mt-1 break-words font-semibold <%= address_spend_caught_up ? "text-emerald-300" : "text-amber-300" %>">
+                <%= address_spend_lag.nil? ?
+                      "—" :
+                      "#{number_with_delimiter(
+                        address_spend_lag,
+                        delimiter: " "
+                      )} bloc#{address_spend_lag == 1 ? "" : "s"}" %>
+              </dd>
+            </div>
+
+            <div class="min-w-0 rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-xs text-slate-500">
+                Worker
+              </dt>
+
+              <dd class="mt-1 break-words font-semibold <%= address_spend_worker_present ? "text-emerald-300" : "text-red-300" %>">
+                <%= address_spend_worker_present ?
+                      "présent" :
+                      "absent" %>
+              </dd>
+            </div>
+
+            <div class="min-w-0 rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-xs text-slate-500">
+                État ActorProfile
+              </dt>
+
+              <dd class="mt-1 break-words font-semibold <%= waiting_for_address_spend ? "text-amber-300" : "text-emerald-300" %>">
+                <%= waiting_for_address_spend ?
+                      "en attente de la projection" :
+                      "dépendance satisfaite" %>
+              </dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            Origine des faits
+          </p>
+
+          <h4 class="mt-1 font-semibold text-white">
+            Tables strictes réellement lues
+          </h4>
+
+          <div class="mt-4 space-y-3">
+            <% source_tables.each do |source| %>
+              <div class="rounded-xl border border-white/10 bg-white/[0.025] p-3">
+                <div class="font-mono text-xs text-cyan-300">
+                  <%= source[:name] %>
+                </div>
+
+                <p class="mt-1 text-xs leading-5 text-slate-400">
+                  <%= source[:role] %>
+                </p>
+              </div>
+            <% end %>
+          </div>
+        </article>
+      </div>
+
+      <div class="mt-4">
+        <p class="text-xs uppercase tracking-wide text-slate-500">
+          Faits recherchés
+        </p>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <% core_facts.each do |fact| %>
+            <span class="rounded-full border border-white/10 bg-black/20 px-3 py-1 font-mono text-xs text-slate-300">
+              <%= fact %>
+            </span>
+          <% end %>
+        </div>
+      </div>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600" aria-hidden="true">
+      ↓
+    </div>
+
+    <!-- 2. CALCULS -->
+    <section class="rounded-3xl border border-violet-400/20 bg-violet-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-400/30 bg-violet-400/10 text-sm font-bold text-violet-200">
+          2
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
+            Calculs
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Transformations effectuées
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            ActorProfile mesure la durée totale du lot ainsi que le
+            temps moyen, minimum et maximum par profil construit.
+          </p>
+
+          <% if waiting_for_address_spend %>
+            <p class="mt-2 text-xs leading-5 text-amber-300">
+              Les métriques ci-dessous décrivent le dernier lot
+              ActorProfile terminé avant le rattrapage de la nouvelle
+              projection. Elles ne correspondent pas à un traitement
+              actuellement actif.
+            </p>
+          <% end %>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 xl:grid-cols-2">
+        <% calculation_steps.each do |step| %>
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start gap-3">
+              <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-400/10 text-xs font-bold text-violet-200">
+                <%= step[:number] %>
+              </span>
+
+              <div>
+                <h4 class="font-semibold text-white">
+                  <%= step[:title] %>
+                </h4>
+
+                <p class="mt-1 text-sm leading-6 text-slate-400">
+                  <%= step[:description] %>
+                </p>
+              </div>
+            </div>
+
+            <div class="mt-4 rounded-xl bg-white/[0.035] p-3">
+              <div class="text-xs text-slate-500">
+                <%= step[:label] %>
+              </div>
+
+              <div class="mt-1 text-xl font-semibold text-white">
+                <%= number_with_delimiter(
+                      step[:value],
+                      delimiter: " "
+                    ) %>
+              </div>
+
+              <div class="mt-1 text-xs text-slate-500">
+                <%= step[:secondary] %>
+              </div>
+            </div>
+          </article>
+        <% end %>
+      </div>
+
+      <div class="mt-4 grid gap-3 md:grid-cols-5">
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Durée totale
+          </div>
+
+          <div class="mt-1 font-semibold text-violet-200">
+            <% if last_duration_ms.positive? %>
+              <%= number_with_precision(
+                    last_duration_ms / 1_000.0,
+                    precision: 1
+                  ) %>
+              s
+            <% else %>
+              —
+            <% end %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Temps moyen / profil
+          </div>
+
+          <div class="mt-1 font-semibold text-white">
+            <%= last_avg_runtime_ms.positive? ?
+                  "#{last_avg_runtime_ms} ms" :
+                  "—" %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Minimum / profil
+          </div>
+
+          <div class="mt-1 font-semibold text-white">
+            <%= last_min_runtime_ms.present? ?
+                  "#{last_min_runtime_ms.to_i} ms" :
+                  "—" %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Maximum / profil
+          </div>
+
+          <div class="mt-1 font-semibold text-white">
+            <%= last_max_runtime_ms.present? ?
+                  "#{last_max_runtime_ms.to_i} ms" :
+                  "—" %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Dernier lot terminé
+          </div>
+
+          <div class="mt-1 text-sm font-semibold text-white">
+            <%= last_completed_label %>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-3">
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Construits
+          </div>
+
+          <div class="mt-1 font-semibold text-emerald-300">
+            <%= number_with_delimiter(
+                  last_built,
+                  delimiter: " "
+                ) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Reportés
+          </div>
+
+          <div class="mt-1 font-semibold <%= last_deferred.zero? ? "text-emerald-300" : "text-amber-300" %>">
+            <%= number_with_delimiter(
+                  last_deferred,
+                  delimiter: " "
+                ) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Échecs
+          </div>
+
+          <div class="mt-1 font-semibold <%= last_failed.zero? ? "text-emerald-300" : "text-red-300" %>">
+            <%= number_with_delimiter(
+                  last_failed,
+                  delimiter: " "
+                ) %>
+          </div>
+        </div>
+      </div>
+
+      <% if recent_batches.any? %>
+        <div class="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4">
+          <h4 class="text-sm font-semibold text-white">
+            Lots récents
+          </h4>
+
+          <div class="mt-3 space-y-2">
+            <% recent_batches.each do |batch| %>
+              <%
+                recent_selected =
+                  read_value.call(batch, :selected).to_i
+
+                recent_built =
+                  read_value.call(batch, :built).to_i
+
+                recent_deferred =
+                  read_value.call(batch, :deferred).to_i
+
+                recent_failed =
+                  read_value.call(batch, :failed).to_i
+
+                recent_duration_ms =
+                  read_value.call(batch, :duration_ms).to_i
+
+                recent_cluster_tip =
+                  read_value.call(batch, :cluster_tip).to_i
+              %>
+
+              <div class="flex flex-col justify-between gap-2 rounded-xl border border-white/5 px-4 py-3 sm:flex-row sm:items-center">
+                <div class="text-sm text-slate-300">
+                  <span class="font-semibold text-emerald-300">
+                    <%= recent_built %> construits
+                  </span>
+
+                  <span class="text-slate-500">
+                    sur <%= recent_selected %>
+                    · <%= recent_deferred %> reportés
+                    · <%= recent_failed %> échecs
+                  </span>
+                </div>
+
+                <div class="font-mono text-xs text-slate-500">
+                  bloc
+                  <%= number_with_delimiter(
+                        recent_cluster_tip,
+                        delimiter: " "
+                      ) %>
+                  ·
+                  <%= number_with_precision(
+                        recent_duration_ms / 1_000.0,
+                        precision: 1
+                      ) %>
+                  s
+                </div>
+              </div>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600" aria-hidden="true">
+      ↓
+    </div>
+
+    <!-- 3. SORTIES -->
+    <section class="rounded-3xl border border-emerald-400/20 bg-emerald-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 text-sm font-bold text-emerald-200">
+          3
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+            Sorties
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Profils économiques certifiés
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Chaque profil contient les faits économiques du cluster,
+            sa provenance stricte et les versions nécessaires pour
+            détecter automatiquement son obsolescence.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-3">
+        <article class="rounded-2xl border border-emerald-400/20 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-emerald-300">
+            Profil canonique
+          </p>
+
+          <h4 class="mt-1 break-words font-mono text-sm font-semibold text-white">
+            <%= profile_version %>
+          </h4>
+
+          <div class="mt-4 rounded-xl border border-cyan-400/20 bg-cyan-400/[0.06] p-3">
+            <div class="flex items-center justify-between gap-4 text-xs">
+              <span class="text-slate-500">
+                Époque de certification
+              </span>
+
+              <span class="<%= epoch_active ? "text-emerald-300" : "text-amber-300" %>">
+                <%= epoch_active ? "active" : "inactive" %>
+              </span>
+            </div>
+
+            <div class="mt-2 flex items-center justify-between gap-4 text-xs">
+              <span class="text-slate-500">
+                Bloc de départ
+              </span>
+
+              <span class="font-mono text-white">
+                <%= certification_epoch_height.positive? ?
+                      number_with_delimiter(
+                        certification_epoch_height,
+                        delimiter: " "
+                      ) :
+                      "—" %>
+              </span>
+            </div>
+
+            <div class="mt-2 flex items-center justify-between gap-4 text-xs">
+              <span class="text-slate-500">
+                Périmètre
+              </span>
+
+              <span class="break-all font-mono text-cyan-300">
+                <%= certification_scope %>
+              </span>
+            </div>
+          </div>
+
+          <dl class="mt-4 space-y-3 text-sm">
+            <div class="flex justify-between gap-4">
+              <dt class="text-slate-500">
+                Certifiés
+              </dt>
+
+              <dd class="font-semibold text-emerald-300">
+                <%= number_with_delimiter(
+                      certified_profiles,
+                      delimiter: " "
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="text-slate-500">
+                Couverture
+              </dt>
+
+              <dd class="font-semibold text-cyan-300">
+                <%= completion_label %> %
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="text-slate-500">
+                Checkpoint maximal
+              </dt>
+
+              <dd class="font-mono text-white">
+                <%= number_with_delimiter(
+                      certified_profile_max_height,
+                      delimiter: " "
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="text-slate-500">
+                Partition
+              </dt>
+
+              <dd class="<%= partition_ok == true ? "text-emerald-300" : "text-amber-300" %>">
+                <%= partition_ok == true ?
+                      "conforme" :
+                      "à vérifier" %>
+              </dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5 lg:col-span-2">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            Critères de certification
+          </p>
+
+          <div class="mt-4 grid gap-3 md:grid-cols-2">
+            <% certification_rules.each do |rule| %>
+              <div class="rounded-xl border border-white/10 bg-white/[0.025] p-3">
+                <div class="flex items-start gap-2">
+                  <span class="mt-0.5 text-emerald-300">
+                    ✓
+                  </span>
+
+                  <span class="font-mono text-xs leading-5 text-slate-300">
+                    <%= rule %>
+                  </span>
+                </div>
+              </div>
+            <% end %>
+          </div>
+        </article>
+      </div>
+
+      <div class="mt-4 rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.04] p-4">
+        <p class="text-sm leading-6 text-slate-300">
+          La couverture ActorProfile est calculée uniquement sur les
+          clusters actifs depuis le bloc
+          <span class="font-mono text-cyan-300">
+            <%= number_with_delimiter(
+                  certification_epoch_height,
+                  delimiter: " "
+                ) %>
+          </span>.
+          Les clusters historiques restés inactifs avant cette époque
+          sont hors du backlog automatique.
+        </p>
+
+        <div class="mt-3 flex flex-wrap gap-2 text-xs">
+          <span class="rounded-full border border-cyan-400/20 bg-black/20 px-3 py-1 text-cyan-200">
+            <%= number_with_delimiter(
+                  active_clusters_since_epoch,
+                  delimiter: " "
+                ) %>
+            actifs depuis l’époque
+          </span>
+
+          <span class="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-400">
+            <%= number_with_delimiter(
+                  historical_clusters_outside_epoch,
+                  delimiter: " "
+                ) %>
+            historiques hors époque
+          </span>
+
+          <span class="rounded-full border border-amber-400/20 bg-black/20 px-3 py-1 text-amber-200">
+            <%= number_with_delimiter(
+                  pending_profiles_since_epoch,
+                  delimiter: " "
+                ) %>
+            en attente dans l’époque
+          </span>
+
+          <span class="rounded-full border border-emerald-400/20 bg-black/20 px-3 py-1 text-emerald-200">
+            <%= number_with_delimiter(
+                  certified_profiles_since_epoch,
+                  delimiter: " "
+                ) %>
+            certifiés dans l’époque
+          </span>
+        </div>
+      </div>
+
+      <div class="mt-4 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            <%= certified_outputs_available ?
+                  "Faits économiques publiés" :
+                  "Faits économiques attendus" %>
+          </p>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <% core_facts.each do |fact| %>
+              <span class="rounded-full border border-white/10 bg-white/[0.025] px-3 py-1 font-mono text-xs text-slate-300">
+                <%= fact %>
+              </span>
+            <% end %>
+          </div>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            Provenance et fraîcheur
+          </p>
+
+          <div class="mt-3 space-y-3 text-sm">
+            <div class="flex justify-between gap-4">
+              <span class="text-slate-500">
+                Source
+              </span>
+
+              <span class="font-mono text-right text-slate-300">
+                addresses_address_spend_stats_cluster_inputs_utxo_outputs
+              </span>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <span class="text-slate-500">
+                Isolation
+              </span>
+
+              <span class="font-mono text-slate-300">
+                repeatable_read
+              </span>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <span class="text-slate-500">
+                Profils produits sur 10 min
+              </span>
+
+              <span class="font-semibold text-emerald-300">
+                <%= number_with_delimiter(
+                      profiles_last_10m,
+                      delimiter: " "
+                    ) %>
+              </span>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <span class="text-slate-500">
+                Profils produits sur 1 h
+              </span>
+
+              <span class="font-semibold text-emerald-300">
+                <%= number_with_delimiter(
+                      profiles_last_1h,
+                      delimiter: " "
+                    ) %>
+              </span>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div class="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-400">
+        <% if certified_outputs_available %>
+          ActorProfile publie des
+          <span class="font-semibold text-white">faits économiques certifiés</span>,
+          mais ne produit pas la classification finale d’un acteur.
+          Cette transformation appartient à ActorBehavior puis à
+          ActorLabels.
+        <% else %>
+          ActorProfile ne publie encore aucun profil économique
+          <span class="font-mono text-white"><%= profile_version %></span>.
+          Les premières sorties certifiées seront produites après le
+          rattrapage complet d’AddressSpendProjection.
+        <% end %>
+      </div>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600" aria-hidden="true">
+      ↓
+    </div>
+
+    <!-- 4. CONSOMMATEURS -->
+    <section class="rounded-3xl border border-pink-400/20 bg-pink-400/[0.03] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-pink-400/30 bg-pink-400/10 text-sm font-bold text-pink-200">
+          4
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-pink-300">
+            Utilisé par
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Modules alimentés par ces sorties
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            ActorProfile constitue la couche économique certifiée entre
+            l’identité Cluster et l’analyse comportementale.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <% consumers.each do |consumer| %>
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start justify-between gap-3">
+              <h4 class="font-semibold text-white">
+                <%= consumer[:title] %>
+              </h4>
+
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-slate-400">
+                <%= consumer[:state].upcase %>
+              </span>
+            </div>
+
+            <div class="mt-2 font-mono text-xs text-pink-300">
+              <%= consumer[:data] %>
+            </div>
+
+            <p class="mt-3 text-sm leading-6 text-slate-400">
+              <%= consumer[:description] %>
+            </p>
+          </article>
+        <% end %>
+      </div>
+    </section>
+
+    <!-- DÉTAILS TECHNIQUES -->
+    <details class="rounded-2xl border border-white/10 bg-black/20">
+      <summary class="cursor-pointer select-none px-5 py-4 text-sm font-semibold text-slate-300">
+        Voir les détails techniques
+      </summary>
+
+      <div class="border-t border-white/10 p-5">
+        <dl class="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              État du pipeline
+            </dt>
+
+            <dd class="mt-1 text-slate-200">
+              <%= pipeline_state.presence || "inconnu" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Attente éventuelle
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= wait_reason.presence || "aucune" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Automatisation
+            </dt>
+
+            <dd class="mt-1 <%= automation_ok ? "text-emerald-300" : "text-amber-300" %>">
+              <%= automation_ok ? "opérationnelle" : "à vérifier" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Worker
+            </dt>
+
+            <dd class="mt-1 text-slate-200">
+              <% if worker_present && busy_workers.positive? %>
+                actif
+              <% elsif worker_present %>
+                disponible
+              <% else %>
+                absent
+              <% end %>
+
+              · <%= process_count %> processus
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Queue / planifiés
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= queue_size %> /
+              <%= scheduled_jobs %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Retry / dead
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= retries %> /
+              <span class="<%= dead_jobs.zero? ? "text-emerald-300" : "text-red-300" %>">
+                <%= dead_jobs %>
+              </span>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Lock TTL
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= lock_ttl.positive? ? "#{lock_ttl} s" : "inactif" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Marqueur planifié
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= schedule_marker_ttl.positive? ?
+                    "#{schedule_marker_ttl} s" :
+                    "absent" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Layer1 / Cluster
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(
+                    layer1_tip,
+                    delimiter: " "
+                  ) %>
+              /
+              <%= number_with_delimiter(
+                    cluster_tip,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Tips alignés
+            </dt>
+
+            <dd class="mt-1 <%= strict_tips_aligned ? "text-emerald-300" : "text-amber-300" %>">
+              <%= strict_tips_aligned ? "oui" : "non" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Profils en table / scope
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(
+                    actor_profiles_count,
+                    delimiter: " "
+                  ) %>
+              /
+              <%= number_with_delimiter(
+                    profiles_in_scope,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Profils strict core
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(
+                    strict_core_profiles,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Dirty
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(
+                    dirty_profiles,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Composition incohérente
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(
+                    composition_mismatches,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Hauteur périmée
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(
+                    height_stale_profiles,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Provenance incohérente
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(
+                    provenance_mismatches,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Références invalides
+            </dt>
+
+            <dd class="mt-1 font-mono <%= invalid_profile_refs.zero? ? "text-emerald-300" : "text-red-300" %>">
+              <%= number_with_delimiter(
+                    invalid_profile_refs,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Delta de partition
+            </dt>
+
+            <dd class="mt-1 font-mono <%= partition_delta.to_i.zero? ? "text-emerald-300" : "text-red-300" %>">
+              <%= partition_delta.nil? ?
+                    "non mesuré" :
+                    partition_delta %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Checkpoint profil maximal
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(
+                    profile_max_height,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Checkpoint dernier lot
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(
+                    last_cluster_tip,
+                    delimiter: " "
+                  ) %>
+            </dd>
+          </div>
+        </dl>
+
+        <% if issues.any? %>
+          <div class="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] p-4">
+            <div class="text-xs font-semibold uppercase tracking-wide text-amber-300">
+              État strict
+            </div>
+
+            <div class="mt-3 flex flex-wrap gap-2">
+              <% issues.each do |issue| %>
+                <span class="rounded-full border border-amber-400/20 bg-black/20 px-3 py-1 font-mono text-xs text-amber-100/70">
+                  <%= issue %>
+                </span>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </details>
   </div>
 </section>

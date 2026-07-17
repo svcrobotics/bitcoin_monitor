@@ -21,17 +21,60 @@ module Layer1
             :call,
             ->(*) { raise "projection failed" }
           ) do
-            overview = Layer1::OverviewSnapshot.call
+            with_stubbed(
+              Layer1::TxOutputProjection::OperationalSnapshot,
+              :call,
+              { status: "synced" }
+            ) do
+              overview = Layer1::OverviewSnapshot.call
 
-            assert_equal "healthy", overview.dig(:realtime, :status)
-            assert_equal(
-              "unavailable",
-              overview.dig(:historical_projection, :status)
-            )
-            assert_match(
-              /projection failed/,
-              overview.dig(:historical_projection, :error)
-            )
+              assert_equal "healthy", overview.dig(:realtime, :status)
+              assert_equal(
+                "unavailable",
+                overview.dig(:historical_projection, :status)
+              )
+              assert_equal(
+                "synced",
+                overview.dig(:historical_projection, :outputs, :status)
+              )
+              assert_match(
+                /projection failed/,
+                overview.dig(:historical_projection, :spent_sync, :error)
+              )
+            end
+          end
+        end
+      end
+    end
+
+    test "audit error does not degrade realtime status" do
+      realtime = {
+        status: "healthy",
+        processed_height: 956_250
+      }
+
+      with_stubbed(Layer1::Realtime::HealthSnapshot, :call, realtime) do
+        with_stubbed(
+          Layer1::Audit::OperationalSnapshot,
+          :call,
+          -> { raise "audit unavailable" }
+        ) do
+          with_stubbed(
+            Layer1::TxOutputProjection::OperationalSnapshot,
+            :call,
+            { status: "synced" }
+          ) do
+            with_stubbed(
+              Layer1::TxOutputsSpentSync::OperationalSnapshot,
+              :call,
+              { status: "synced" }
+            ) do
+              overview = Layer1::OverviewSnapshot.call
+
+              assert_equal "healthy", overview.dig(:realtime, :status)
+              assert_equal "unavailable", overview.dig(:audit, :status)
+              assert_match(/audit unavailable/, overview.dig(:audit, :error))
+            end
           end
         end
       end

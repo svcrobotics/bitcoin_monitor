@@ -134,105 +134,6 @@ module Layer1
       )
     end
 
-    test "keeps certification cadence separate from processing duration" do
-      presenter =
-        Layer1::PacePresenter.new(
-          pace_snapshot(
-            certification: {
-              median_10_seconds: 120,
-              average_10_seconds: 125,
-              blocks_per_hour: 30
-            },
-            processing: {
-              median_10_seconds: 17,
-              average_10_seconds: 19
-            }
-          )
-        )
-
-      assert_equal 120, presenter.layer1_seconds
-      assert_equal 125, presenter.certification_average_seconds
-      assert_equal 17, presenter.processing_seconds
-      assert_equal 19, presenter.processing_average_seconds
-      assert_equal 30, presenter.layer1_blocks_per_hour
-    end
-
-    test "does not substitute processing when certification is unavailable" do
-      presenter =
-        Layer1::PacePresenter.new(
-          pace_snapshot(
-            certification: {},
-            processing: {
-              median_10_seconds: 11,
-              average_10_seconds: 12
-            }
-          )
-        )
-
-      assert_nil presenter.layer1_seconds
-      assert_nil presenter.certification_average_seconds
-      assert_nil presenter.layer1_blocks_per_hour
-      assert_equal 11, presenter.processing_seconds
-      assert_equal 12, presenter.processing_average_seconds
-    end
-
-    test "uses only certification fallbacks in their public order" do
-      assert_equal(
-        10,
-        presenter_for_certification(
-          median_10_seconds: 10,
-          median_30_seconds: 30,
-          last_interval_seconds: 90
-        ).layer1_seconds
-      )
-      assert_equal(
-        30,
-        presenter_for_certification(
-          median_30_seconds: 30,
-          last_interval_seconds: 90
-        ).layer1_seconds
-      )
-      assert_equal(
-        90,
-        presenter_for_certification(
-          last_interval_seconds: 90
-        ).layer1_seconds
-      )
-    end
-
-    test "derives certified blocks per hour from certification only" do
-      presenter =
-        Layer1::PacePresenter.new(
-          pace_snapshot(
-            certification: { median_10_seconds: 120 },
-            processing: { median_10_seconds: 10 }
-          )
-        )
-
-      assert_in_delta 30.0, presenter.layer1_blocks_per_hour, 0.001
-    end
-
-    test "reads distinct certification and processing history values" do
-      presenter = Layer1::PacePresenter.new(pace_snapshot)
-      entry = {
-        certification_interval_seconds: 180,
-        processing_duration_seconds: 13
-      }
-
-      assert_equal 180, presenter.certification_history_seconds(entry)
-      assert_equal 13, presenter.processing_history_seconds(entry)
-    end
-
-    test "handles nil cadence values and formats seconds and minutes" do
-      presenter = Layer1::PacePresenter.new(pace_snapshot)
-
-      assert_nil presenter.layer1_seconds
-      assert_nil presenter.processing_seconds
-      assert_equal "—", presenter.format_duration(nil)
-      assert_equal "17 s", presenter.format_duration(17)
-      assert_equal "2 min 00 s", presenter.format_duration(120)
-    end
-
     private
 
     def snapshot(
@@ -248,20 +149,6 @@ module Layer1
           pace_ratio: 0.94
         }
       }
-    end
-
-    def pace_snapshot(certification: {}, processing: {})
-      {
-        certification: certification,
-        processing: processing,
-        comparison: {}
-      }
-    end
-
-    def presenter_for_certification(certification)
-      Layer1::PacePresenter.new(
-        pace_snapshot(certification: certification)
-      )
     end
   end
 end

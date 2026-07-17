@@ -6,6 +6,7 @@ class ActorLabel < ApplicationRecord
 
   LABELS = %w[
     exchange_like
+    exchange_infrastructure_candidate
     whale_like
     whale_candidate
     service_like
@@ -13,8 +14,6 @@ class ActorLabel < ApplicationRecord
     etf_like
     etf_candidate
   ].freeze
-
-  belongs_to :actor_behavior_snapshot, optional: true
 
   validates :label, presence: true, inclusion: { in: LABELS }
   validates :source, presence: true

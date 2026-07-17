@@ -40,7 +40,8 @@ module Actors
       row.outflow_btc = outflow
       row.netflow_btc = inflow - outflow
       row.events_count = events_count
-      row.source = "actor_profile_exchange_like"
+      row.source =
+        ActorLabels::StrictWriter::SOURCE
       row.save!
 
       {
@@ -58,8 +59,8 @@ module Actors
     private
 
     def exchange_cluster_ids
-      ActorLabel
-        .where(source: "actor_profile", label: "exchange_like")
+      Actors::StrictExchangeLikeQuery
+        .call
         .pluck(:cluster_id)
     end
 

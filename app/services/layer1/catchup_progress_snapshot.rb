@@ -4,102 +4,86 @@ require "json"
 
 module Layer1
   class CatchupProgressSnapshot
+    PHASE_KEY =
+      "tansa:pipeline:development_backfill:phase"
+
     MIN_OBSERVATION_SECONDS = 10.minutes.to_i
     MIN_ESTIMATION_SECONDS = 1.hour.to_i
     MIN_RECOVERED_BLOCKS_FOR_ESTIMATE = 3
+    DEFAULT_START_LAG = 10
+    DEFAULT_STOP_LAG = 2
 
-    class MissingPhaseState < StandardError; end
-    class InvalidPhaseState < StandardError; end
-
-    def self.call(current_lag:, redis: nil, now: Time.current)
-      new(current_lag: current_lag, redis: redis, now: now).call
+    def self.call(current_lag:, phase_state: nil, redis: nil, now: Time.current)
+      new(
+        current_lag: current_lag,
+        phase_state: phase_state,
+        redis: redis,
+        now: now
+      ).call
     end
 
-    def initialize(current_lag:, redis:, now:)
+    def initialize(current_lag:, phase_state:, redis:, now:)
       @current_lag = current_lag
+      @phase_state = phase_state
       @redis = redis
       @now = now
     end
 
     def call
-      lag = normalize_nonnegative_integer(current_lag)
-      return unavailable_snapshot("current_lag_unavailable") if lag.nil?
+      return unavailable_snapshot if current_lag.blank?
 
-      raw_state = read_phase_state
-      phase = normalize_phase_state(raw_state)
-      build_snapshot(current: lag, phase: phase)
-    rescue MissingPhaseState
-      unavailable_snapshot("phase_state_missing")
-    rescue InvalidPhaseState
-      unavailable_snapshot("phase_state_invalid")
+      with_redis do |connection|
+        phase = normalized_phase_state(
+          phase_state || read_json(connection, PHASE_KEY)
+        )
+        build_snapshot(phase)
+      end
     rescue StandardError => error
-      Rails.logger.warn(
-        "[layer1_catchup_progress_snapshot] redis_unavailable " \
-        "error_class=#{error.class.name}"
+      Rails.logger.error(
+        "[layer1_catchup_progress_snapshot] " \
+        "#{error.class}: #{error.message}"
       )
-      unavailable_snapshot(
-        "redis_unavailable",
-        error_class: error.class.name
-      )
+      unavailable_snapshot(error: "#{error.class}: #{error.message}")
     end
 
     private
 
-    attr_reader :current_lag, :redis, :now
-
-    def read_phase_state
-      raw = with_redis do |connection|
-        connection.get(System::DevelopmentBackfillPhase::STATE_KEY)
-      end
-
-      raise MissingPhaseState if raw.blank?
-
-      parsed = JSON.parse(raw)
-      raise InvalidPhaseState unless parsed.is_a?(Hash)
-
-      parsed.with_indifferent_access
-    rescue JSON::ParserError
-      raise InvalidPhaseState
-    end
+    attr_reader :current_lag, :phase_state, :redis, :now
 
     def with_redis
       return yield(redis) if redis
-
       Sidekiq.redis { |connection| yield(connection) }
     end
 
-    def normalize_phase_state(state)
-      phase = state[:phase].to_s
-      raise InvalidPhaseState unless
-        System::DevelopmentBackfillPhase::PHASES.include?(phase)
-
-      changed_at = parse_time(state[:changed_at])
-      entered_lag = normalize_nonnegative_integer(state[:entered_layer1_lag])
-      start_lag = normalize_nonnegative_integer(state[:start_lag])
-      stop_lag = normalize_nonnegative_integer(state[:stop_lag])
-
-      raise InvalidPhaseState unless
-        changed_at && entered_lag && start_lag && stop_lag &&
-          start_lag > stop_lag
+    def normalized_phase_state(value)
+      state = value.respond_to?(:to_h) ? value.to_h : {}
+      state = state.with_indifferent_access
 
       {
-        phase: phase,
-        changed_at: changed_at,
-        entered_layer1_lag: entered_lag,
-        start_lag: start_lag,
-        stop_lag: stop_lag
+        phase: state[:phase].presence || "unknown",
+        changed_at: state[:changed_at],
+        entered_layer1_lag: state[:entered_layer1_lag],
+        observed_layer1_lag: state[:observed_layer1_lag],
+        start_lag: integer_value(state[:start_lag], DEFAULT_START_LAG),
+        stop_lag: integer_value(state[:stop_lag], DEFAULT_STOP_LAG)
       }
     end
 
-    def build_snapshot(current:, phase:)
-      downstream = phase[:phase] == "downstream_catchup"
-      baseline = phase[:entered_layer1_lag]
-      start_lag = phase[:start_lag]
-      stop_lag = phase[:stop_lag]
-      elapsed_seconds = [now.to_f - phase[:changed_at].to_f, 0.0].max
-      lag_change = current - baseline
-      recovered_blocks = downstream ? 0 : baseline - current
-      accumulated_lag_blocks = downstream ? current - baseline : 0
+    def build_snapshot(phase)
+      downstream = phase[:phase].to_s == "downstream_catchup"
+      start_lag = phase[:start_lag].to_i
+      stop_lag = phase[:stop_lag].to_i
+      baseline_lag =
+        integer_value(
+          phase[:entered_layer1_lag],
+          integer_value(phase[:observed_layer1_lag], current_lag.to_i)
+        )
+      started_at = parse_time(phase[:changed_at]) || now
+      elapsed_seconds = [now.to_f - started_at.to_f, 0].max
+      current = current_lag.to_i
+      lag_change = current - baseline_lag
+      recovered_blocks = downstream ? 0 : baseline_lag - current
+      accumulated_lag_blocks = downstream ? current - baseline_lag : 0
       target_lag = downstream ? start_lag : stop_lag
       blocks_to_target =
         if downstream
@@ -115,36 +99,34 @@ module Layer1
 
       estimation_ready =
         !downstream &&
-          elapsed_seconds >= MIN_ESTIMATION_SECONDS &&
-          recovered_blocks >= MIN_RECOVERED_BLOCKS_FOR_ESTIMATE
+        elapsed_seconds >= MIN_ESTIMATION_SECONDS &&
+        recovered_blocks >= MIN_RECOVERED_BLOCKS_FOR_ESTIMATE
 
       observed_rate = estimation_ready ? raw_rate : nil
       catchup_rate =
-        observed_rate.abs if observed_rate&.negative?
+        if observed_rate.present? && observed_rate.negative?
+          observed_rate.abs
+        end
 
       estimate_hours =
         if !downstream && blocks_to_target.zero?
           0.0
-        elsif estimation_ready && catchup_rate&.positive?
+        elsif estimation_ready && catchup_rate.present? && catchup_rate.positive?
           (blocks_to_target.to_f / catchup_rate).round(2)
         end
 
       {
         source: "layer1_catchup_progress_snapshot",
-        available: true,
-        generated_at: now.iso8601(6),
-        phase_state_key: System::DevelopmentBackfillPhase::STATE_KEY,
+        generated_at: now,
         phase: phase[:phase],
-        phase_changed_at: phase[:changed_at].iso8601(6),
+        phase_changed_at: phase[:changed_at],
         status: status(
           phase: phase[:phase],
-          current: current,
           elapsed_seconds: elapsed_seconds,
           recovered_blocks: recovered_blocks,
           stop_lag: stop_lag
         ),
-        reason: nil,
-        baseline_lag: baseline,
+        baseline_lag: baseline_lag,
         current_lag: current,
         start_lag: start_lag,
         stop_lag: stop_lag,
@@ -155,61 +137,58 @@ module Layer1
         recovered_blocks: recovered_blocks,
         accumulated_lag_blocks: accumulated_lag_blocks,
         lag_change: lag_change,
-        started_at: phase[:changed_at].iso8601(6),
+        started_at: started_at,
         elapsed_seconds: elapsed_seconds,
         estimation_ready: estimation_ready,
         raw_observed_change_per_hour: raw_rate,
         observed_change_per_hour: observed_rate,
         estimated_catchup_hours: estimate_hours,
         estimated_catchup_at:
-          estimate_hours&.positive? ?
-            (now + estimate_hours.hours).iso8601(6) :
-            nil,
-        error_class: nil
+          estimate_hours.present? && estimate_hours.positive? ?
+            now + estimate_hours.hours :
+            nil
       }
     end
 
-    def status(phase:, current:, elapsed_seconds:, recovered_blocks:, stop_lag:)
+    def status(phase:, elapsed_seconds:, recovered_blocks:, stop_lag:)
       return "downstream_catchup" if phase == "downstream_catchup"
-      return "target_reached" if current <= stop_lag
+      return "target_reached" if current_lag.to_i <= stop_lag
       return "catching_up" if recovered_blocks.positive?
       return "falling_behind" if recovered_blocks.negative?
       return "measuring" if elapsed_seconds < MIN_OBSERVATION_SECONDS
-
       "stable"
     end
 
-    def unavailable_snapshot(reason, error_class: nil)
+    def unavailable_snapshot(error: nil)
       {
         source: "layer1_catchup_progress_snapshot",
-        available: false,
-        generated_at: now.iso8601(6),
-        phase_state_key: System::DevelopmentBackfillPhase::STATE_KEY,
-        phase: nil,
+        generated_at: now,
         status: "unavailable",
-        reason: reason,
-        current_lag: normalize_nonnegative_integer(current_lag),
+        current_lag: current_lag,
         estimation_ready: false,
-        observed_change_per_hour: nil,
-        estimated_catchup_hours: nil,
-        estimated_catchup_at: nil,
-        error_class: error_class
+        error: error
       }
     end
 
-    def parse_time(value)
-      return if value.blank?
+    def read_json(connection, key)
+      raw = connection.get(key)
+      return {} if raw.blank?
+      JSON.parse(raw)
+    rescue JSON::ParserError
+      {}
+    end
 
+    def parse_time(value)
+      return nil if value.blank?
       Time.zone.parse(value.to_s)
     rescue ArgumentError, TypeError
       nil
     end
 
-    def normalize_nonnegative_integer(value)
-      integer = value.is_a?(String) ? Integer(value, 10) : Integer(value)
-      integer unless integer.negative?
+    def integer_value(value, fallback)
+      Integer(value)
     rescue ArgumentError, TypeError
-      nil
+      fallback.to_i
     end
   end
 end

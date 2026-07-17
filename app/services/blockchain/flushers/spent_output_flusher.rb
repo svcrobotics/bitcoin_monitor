@@ -23,7 +23,7 @@ module Blockchain
       def call
         started_at = monotonic_ms
         rows = []
-        committed = false
+        committed_rows_count = 0
 
         rows = measure_stage("pop_batch") { pop_batch }
         return empty_result if rows.empty?
@@ -33,45 +33,76 @@ module Blockchain
         cluster_inserted = 0
         slice_timings = []
 
-        ActiveRecord::Base.transaction do
-          rows.each_slice(SLICE_SIZE).with_index(1) do |slice, index|
-            slice_started_at = monotonic_ms
-            timings = {}
+        rows.each_slice(SLICE_SIZE).with_index(1) do |slice, index|
+          slice_started_at = monotonic_ms
+          timings = {}
 
-            tx_updated +=
-              measure_stage("slice_#{index}_update_tx_outputs", timings) do
+          slice_tx_updated = 0
+          slice_cluster_inserted = 0
+          slice_utxo_deleted = 0
+
+          ActiveRecord::Base.transaction do
+            slice_tx_updated =
+              measure_stage(
+                "slice_#{index}_update_tx_outputs",
+                timings
+              ) do
                 update_tx_outputs(slice)
               end
 
             consumer_result =
-              measure_stage("slice_#{index}_spent_utxo_consumer", timings) do
+              measure_stage(
+                "slice_#{index}_spent_utxo_consumer",
+                timings
+              ) do
                 Clusters::SpentUtxoConsumer.call(rows: slice)
               end
 
-            cluster_inserted += consumer_result[:inserted].to_i
+            slice_cluster_inserted =
+              consumer_result[:inserted].to_i
 
-            utxo_deleted +=
-              measure_stage("slice_#{index}_delete_utxo_outputs", timings) do
+            slice_utxo_deleted =
+              measure_stage(
+                "slice_#{index}_delete_utxo_outputs",
+                timings
+              ) do
                 delete_utxo_outputs(slice)
               end
-
-            slice_duration_ms = monotonic_ms - slice_started_at
-
-            slice_timings << {
-              slice: index,
-              rows: slice.size,
-              duration_ms: slice_duration_ms,
-              timings: timings
-            }
-
-            @logger.info(
-              "[spent_output_flusher_slice] slice=#{index} rows=#{slice.size} " \
-              "duration_ms=#{slice_duration_ms} timings=#{timings.inspect}"
-            )
           end
-        end
 
-        committed = true
+          # La slice est maintenant réellement validée et visible
+          # depuis les autres connexions PostgreSQL.
+          committed_rows_count += slice.size
+
+          tx_updated += slice_tx_updated.to_i
+          cluster_inserted += slice_cluster_inserted
+          utxo_deleted += slice_utxo_deleted.to_i
+
+          slice_duration_ms =
+            monotonic_ms - slice_started_at
+
+          heartbeat_slice(
+            slice,
+            index: index,
+            duration_ms: slice_duration_ms
+          )
+
+          slice_timings << {
+            slice: index,
+            rows: slice.size,
+            duration_ms: slice_duration_ms,
+            timings: timings
+          }
+
+          @logger.info(
+            "[spent_output_flusher_slice] " \
+            "slice=#{index} " \
+            "rows=#{slice.size} " \
+            "committed_rows=#{committed_rows_count} " \
+            "duration_ms=#{slice_duration_ms} " \
+            "timings=#{timings.inspect}"
+          )
+        end
         duration_ms = monotonic_ms - started_at
 
         @logger.info(
@@ -98,17 +129,54 @@ module Blockchain
           slice_timings: slice_timings
         }
       rescue StandardError => e
-        requeue_rows(rows) if rows.any? && !committed
+        pending_rows =
+          rows.drop(committed_rows_count)
+
+        requeue_rows(pending_rows) if pending_rows.any?
 
         @logger.error(
-          "[spent_output_flusher] failed rows=#{rows.size} " \
-          "requeued=#{rows.any? && !committed} error=#{e.class}: #{e.message}"
+          "[spent_output_flusher] failed " \
+          "rows=#{rows.size} " \
+          "committed_rows=#{committed_rows_count} " \
+          "requeued_rows=#{pending_rows.size} " \
+          "error=#{e.class}: #{e.message}"
         )
 
         raise
       end
 
       private
+
+      def heartbeat_slice(rows, index:, duration_ms:)
+        return unless mode == :realtime
+
+        heights =
+          rows
+            .map { |row| row["spent_block_height"].to_i }
+            .select(&:positive?)
+            .uniq
+
+        heights.each do |height|
+          Blockchain::Buffer::BlockBuffer.heartbeat(height)
+        end
+
+        @logger.info(
+          "[spent_output_flusher_heartbeat] " \
+          "slice=#{index} " \
+          "heights=#{heights.join(',')} " \
+          "duration_ms=#{duration_ms}"
+        )
+      rescue StandardError => e
+        # Une défaillance d'observabilité ne doit jamais annuler
+        # une slice déjà validée.
+        @logger.warn(
+          "[spent_output_flusher_heartbeat] failed " \
+          "slice=#{index} " \
+          "error=#{e.class}: #{e.message}"
+        )
+
+        nil
+      end
 
       def empty_result
         {

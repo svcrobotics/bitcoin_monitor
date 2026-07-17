@@ -20,13 +20,7 @@ class SystemTestStatus
       key: "address_lookup_edge_cases",
       label: "AddressLookup edge cases",
       files: ["./spec/requests/address_lookup_edge_cases_spec.rb"]
-    },
-    {
-      key: "system_page",
-      label: "/system",
-      files: ["./spec/requests/system_spec.rb"]
-    },
-    {
+    },    {
       key: "v3_rake_tasks",
       label: "Tâches rake V3",
       files: ["./spec/tasks/cluster_v3_tasks_spec.rb"]

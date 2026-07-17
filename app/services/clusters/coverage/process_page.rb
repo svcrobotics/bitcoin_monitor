@@ -90,7 +90,8 @@ module Clusters
 
             singleton_result =
               Clusters::EnsureAddressClusters.call(
-                addresses: addresses
+                addresses: addresses,
+                mark_dirty: false
               )
 
             unresolved_count =

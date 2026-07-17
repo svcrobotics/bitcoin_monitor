@@ -29,12 +29,29 @@ module Intelligence
     end
 
     def self.layer1_health
-      snapshot = Layer1::CachedHealthSnapshot.read
+      snapshot = Layer1::OperationalSnapshot.call
+      buffers = snapshot[:buffers] || {}
+
+      pipeline_state =
+        if snapshot[:error].present?
+          "unknown"
+        elsif snapshot[:lag].to_i.zero? &&
+              buffers[:outputs].to_i.zero? &&
+              buffers[:spent].to_i.zero?
+          "idle_synced"
+        else
+          "active"
+        end
 
       {
         module: "layer1_health",
-        source: "layer1_health_snapshot",
-        generated_at: Time.current,
+        source: "layer1_operational_snapshot",
+        generated_at: snapshot[:generated_at] || Time.current,
+
+        raw_snapshot: snapshot.merge(
+          module: "layer1_health",
+          source: "layer1_operational_snapshot"
+        ),
 
         architecture: {
           pipeline: [
@@ -53,42 +70,56 @@ module Intelligence
         status: snapshot[:status],
 
         sync: {
-          best_height: snapshot[:best_height] || snapshot.dig(:sync, :best_height),
-          processed_height: snapshot[:processed_height] || snapshot.dig(:sync, :processed_height),
-          lag: snapshot[:lag] || snapshot.dig(:sync, :lag)
+          best_height: snapshot[:bitcoin_core_height],
+          processed_height: snapshot[:processed_height],
+          lag: snapshot[:lag]
         },
 
-        buffers: snapshot[:buffers],
-        counts: snapshot[:counts],
-        cursors: snapshot[:cursors],
-        queues: snapshot[:queues],
-        workers: snapshot[:workers],
-        processes: snapshot[:processes],
-        activity: snapshot[:activity],
-        timestamps: snapshot[:timestamps],
+        buffers: buffers,
+
+        activity: {
+          pipeline_state: pipeline_state,
+          generated_at: snapshot[:generated_at],
+          error: snapshot[:error]
+        },
+
+        queues: {},
 
         watch_priority: {
-          watch: "Surveiller le lag Layer 1, les buffers Redis outputs/spent, la progression de utxo_outputs et cluster_inputs."
+          watch: "Surveiller le lag Layer 1, les buffers Redis outputs/spent et la progression du dernier bloc traité."
         },
 
         interpretation_rules: {
-          healthy: "lag = 0 et buffers faibles",
-          warning: "lag positif, outputs > 200000, ou queues importantes",
-          critical: "lag élevé, outputs > 500000, ou process bloqué"
+          healthy: "lag = 0 et buffers vides",
+          warning: "lag positif ou buffers en cours de traitement",
+          critical: "état Layer1 impossible à vérifier"
         }
       }
     end
 
     def self.cluster_health
-      Clusters::CachedHealthSnapshot.read
+      Clusters::OperationalSnapshot.call
     end
 
     def self.actor_profiles_health
-      ActorProfiles::CachedHealthSnapshot.read
+      ActorProfiles::StrictHealthSnapshot.call.merge(
+        module: "actor_profiles_health"
+      )
+    end
+
+    def self.actor_behaviors_health
+      ActorBehaviors::StrictHealthSnapshot.call.merge(
+        module: "actor_behaviors_health",
+        source: "actor_behaviors_strict_health_snapshot",
+        control: ActorBehaviors::ControlSnapshot.call
+      )
     end
 
     def self.actor_labels_health
-      ActorLabels::CachedHealthSnapshot.read
+      ActorLabels::StrictHealthSnapshot.call.merge(
+        module: "actor_labels_health",
+        generated_at: Time.current
+      )
     end
 
     def self.exchange_flow

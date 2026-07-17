@@ -5,64 +5,41 @@ module System
     module ActorLabelsRules
       module_function
 
-      SOURCE = "actor_labels_strict_health_snapshot_v2"
-      VALID_STATUSES = %w[healthy syncing dry_run critical].freeze
-
       def call(context:)
-        health = context[:actor_labels_health]
-        reason = critical_reason(health)
+        control =
+          context[:actor_labels_control] || {}
 
-        return [] unless reason
+        anomalies = []
 
-        [
-          Base.anomaly(
-            code: "actor_labels_strict_integrity_critical",
+        if control[:worker_present] == true &&
+           control[:worker_write_observed] != true
+          anomalies << Base.anomaly(
+            code: "actor_labels_write_capability_unobserved",
             module_name: "actor_labels",
-            severity: "critical",
-            title: "ActorLabels strict signale une divergence certifiée",
-            facts: critical_facts(health, reason),
-            fingerprint: "actor_labels:strict_integrity_critical:#{reason}"
+            severity: "warning",
+            title: "ActorLabels n'a pas encore confirmé sa capacité d'écriture",
+            facts: {
+              worker_present: true,
+              queue_name: control[:queue_name]
+            },
+            fingerprint: "actor_labels:write_capability_unobserved",
+            confirmation_observations: 2
           )
-        ]
-      end
-
-      def critical_reason(health)
-        return "snapshot_missing" if health.nil?
-        return "snapshot_invalid" unless valid_snapshot?(health)
-
-        profiles = health[:actor_profiles]
-
-        return "certified_scope_mismatch" if profiles[:certified_scope_matches] == false
-
-        nil
-      end
-
-      def valid_snapshot?(health)
-        return false unless health.is_a?(Hash)
-        return false unless health[:source].to_s == SOURCE
-        return false unless VALID_STATUSES.include?(health[:status].to_s)
-        return false if health[:rule_version].to_s.empty?
-
-        profiles = health[:actor_profiles]
-        return false unless profiles.is_a?(Hash)
-        return false unless [true, false].include?(profiles[:certified_scope_matches])
-
-        %i[certified expected_certified].all? do |key|
-          profiles[key].is_a?(Integer) && profiles[key] >= 0
+        elsif control[:worker_write_observed] == true &&
+              control[:worker_write_status_fresh] != true
+          anomalies << Base.anomaly(
+            code: "actor_labels_write_capability_stale",
+            module_name: "actor_labels",
+            severity: "warning",
+            title: "La preuve d'écriture ActorLabels est expirée",
+            facts: {
+              observed_at: control[:worker_status_observed_at]
+            }.compact,
+            fingerprint: "actor_labels:write_capability_stale"
+          )
         end
-      end
 
-      def critical_facts(health, reason)
-        profiles = health.is_a?(Hash) && health[:actor_profiles].is_a?(Hash) ? health[:actor_profiles] : {}
-
-        {
-          reason: reason,
-          source: health.is_a?(Hash) ? health[:source] : nil,
-          status: health.is_a?(Hash) ? health[:status] : nil,
-          rule_version: health.is_a?(Hash) ? health[:rule_version] : nil,
-          certified_profiles: profiles[:certified],
-          expected_certified_profiles: profiles[:expected_certified]
-        }.compact
+        anomalies
       end
     end
   end

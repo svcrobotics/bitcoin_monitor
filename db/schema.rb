@@ -10,38 +10,11 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
+ActiveRecord::Schema[8.0].define(version: 2026_07_14_001000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pg_catalog.plpgsql"
   enable_extension "pg_stat_statements"
   enable_extension "vector"
-
-  create_table "actor_behavior_build_handoffs", force: :cascade do |t|
-    t.bigint "cluster_id", null: false
-    t.bigint "actor_profile_id", null: false
-    t.bigint "cluster_composition_version", null: false
-    t.string "profile_version", null: false
-    t.integer "source_height", null: false
-    t.string "source_hash", null: false
-    t.string "status", default: "pending", null: false
-    t.integer "attempts", default: 0, null: false
-    t.datetime "claimed_at"
-    t.datetime "completed_at"
-    t.string "last_error_class"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.index ["actor_profile_id"], name: "index_actor_behavior_build_handoffs_on_actor_profile_id"
-    t.index ["claimed_at"], name: "index_actor_behavior_build_handoffs_on_claimed_at"
-    t.index ["cluster_id", "cluster_composition_version", "profile_version", "source_height", "source_hash"], name: "idx_actor_behavior_handoffs_identity", unique: true
-    t.index ["cluster_id"], name: "index_actor_behavior_build_handoffs_on_cluster_id"
-    t.index ["status", "source_height", "cluster_id", "id"], name: "idx_actor_behavior_handoffs_claim"
-    t.check_constraint "attempts >= 0", name: "actor_behavior_handoffs_attempts_nonnegative"
-    t.check_constraint "cluster_composition_version >= 1", name: "actor_behavior_handoffs_positive_composition"
-    t.check_constraint "profile_version::text <> ''::text", name: "actor_behavior_handoffs_profile_version_present"
-    t.check_constraint "source_hash::text <> ''::text", name: "actor_behavior_handoffs_source_hash_present"
-    t.check_constraint "source_height >= 0", name: "actor_behavior_handoffs_nonnegative_height"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_behavior_handoffs_status_valid"
-  end
 
   create_table "actor_behavior_heavy_snapshots", force: :cascade do |t|
     t.bigint "cluster_id", null: false
@@ -121,20 +94,14 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
     t.jsonb "scores", default: {}, null: false
     t.jsonb "evidence", default: {}, null: false
     t.datetime "computed_at", null: false
-    t.string "source_hash"
-    t.string "certification_scope"
-    t.datetime "certified_at"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["actor_profile_id"], name: "index_actor_behavior_snapshots_on_actor_profile_id"
-    t.index ["certified_at"], name: "index_actor_behavior_snapshots_on_certified_at"
     t.index ["cluster_id", "profile_height", "cluster_composition_version"], name: "idx_actor_behavior_snapshot_checkpoint"
     t.index ["cluster_id"], name: "index_actor_behavior_snapshots_on_cluster_id", unique: true
-    t.index ["cluster_id", "cluster_composition_version", "profile_version", "profile_height", "source_hash"], name: "idx_actor_behavior_snapshots_strict_identity"
     t.index ["profile_fingerprint"], name: "index_actor_behavior_snapshots_on_profile_fingerprint"
     t.index ["profile_height"], name: "index_actor_behavior_snapshots_on_profile_height"
     t.index ["status"], name: "index_actor_behavior_snapshots_on_status"
-    t.check_constraint "status::text <> 'certified'::text OR source_hash IS NOT NULL AND source_hash::text <> ''::text AND certification_scope::text = 'strict'::text AND certified_at IS NOT NULL", name: "actor_behavior_snapshots_certified_provenance", validate: false
   end
 
   create_table "actor_labels", force: :cascade do |t|
@@ -148,73 +115,11 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.bigint "actor_profile_id"
-    t.bigint "actor_behavior_snapshot_id"
-    t.string "rule_version"
-    t.datetime "certified_at"
     t.index ["actor_profile_id"], name: "index_actor_labels_on_actor_profile_id"
-    t.index ["actor_behavior_snapshot_id"], name: "index_actor_labels_on_actor_behavior_snapshot_id"
     t.index ["cluster_id", "label", "source"], name: "index_actor_labels_on_cluster_id_and_label_and_source", unique: true
     t.index ["cluster_id"], name: "index_actor_labels_on_cluster_id"
     t.index ["confidence"], name: "index_actor_labels_on_confidence"
     t.index ["label"], name: "index_actor_labels_on_label"
-  end
-
-  create_table "actor_label_handoffs", force: :cascade do |t|
-    t.bigint "cluster_id", null: false
-    t.bigint "actor_behavior_snapshot_id", null: false
-    t.bigint "cluster_composition_version", null: false
-    t.string "profile_version", null: false
-    t.bigint "source_height", null: false
-    t.string "source_hash", null: false
-    t.string "behavior_version", null: false
-    t.string "rule_version", null: false
-    t.string "status", default: "pending", null: false
-    t.integer "attempts", default: 0, null: false
-    t.datetime "claimed_at"
-    t.datetime "completed_at"
-    t.string "last_error_class"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.index ["actor_behavior_snapshot_id"], name: "index_actor_label_handoffs_on_actor_behavior_snapshot_id"
-    t.index ["claimed_at"], name: "index_actor_label_handoffs_on_claimed_at"
-    t.index ["cluster_id", "cluster_composition_version", "profile_version", "source_height", "source_hash", "behavior_version", "actor_behavior_snapshot_id", "rule_version"], name: "idx_actor_label_handoffs_identity", unique: true
-    t.index ["cluster_id"], name: "index_actor_label_handoffs_on_cluster_id"
-    t.index ["status", "source_height", "cluster_id", "id"], name: "idx_actor_label_handoffs_claim"
-    t.check_constraint "attempts >= 0", name: "actor_label_handoffs_attempts_nonnegative"
-    t.check_constraint "behavior_version::text <> ''::text", name: "actor_label_handoffs_behavior_version_present"
-    t.check_constraint "cluster_composition_version >= 1", name: "actor_label_handoffs_composition_positive"
-    t.check_constraint "profile_version::text <> ''::text", name: "actor_label_handoffs_profile_version_present"
-    t.check_constraint "rule_version::text <> ''::text", name: "actor_label_handoffs_rule_version_present"
-    t.check_constraint "source_hash::text <> ''::text", name: "actor_label_handoffs_source_hash_present"
-    t.check_constraint "source_height >= 0", name: "actor_label_handoffs_height_nonnegative"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_label_handoffs_status_valid"
-  end
-
-  create_table "actor_label_evaluations", force: :cascade do |t|
-    t.bigint "cluster_id", null: false
-    t.bigint "actor_behavior_snapshot_id", null: false
-    t.bigint "cluster_composition_version", null: false
-    t.string "profile_version", null: false
-    t.bigint "source_height", null: false
-    t.string "source_hash", null: false
-    t.string "behavior_version", null: false
-    t.string "rule_version", null: false
-    t.string "status", null: false
-    t.string "certification_scope", null: false
-    t.jsonb "rule_results", default: {}, null: false
-    t.jsonb "active_rules", default: [], null: false
-    t.jsonb "deferred_rules", default: [], null: false
-    t.datetime "certified_at", null: false
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.index ["actor_behavior_snapshot_id"], name: "index_actor_label_evaluations_on_actor_behavior_snapshot_id"
-    t.index ["certified_at"], name: "index_actor_label_evaluations_on_certified_at"
-    t.index ["cluster_id", "cluster_composition_version", "profile_version", "source_height", "source_hash", "behavior_version", "actor_behavior_snapshot_id", "rule_version"], name: "idx_actor_label_evaluations_identity", unique: true
-    t.index ["cluster_id"], name: "index_actor_label_evaluations_on_cluster_id"
-    t.check_constraint "cluster_composition_version >= 1", name: "actor_label_evaluations_composition_positive"
-    t.check_constraint "jsonb_typeof(rule_results) = 'object'::text", name: "actor_label_evaluations_results_object"
-    t.check_constraint "source_height >= 0", name: "actor_label_evaluations_height_nonnegative"
-    t.check_constraint "status::text = 'certified'::text AND certification_scope::text = 'strict'::text", name: "actor_label_evaluations_strict_certification"
   end
 
   create_table "actor_metrics", force: :cascade do |t|
@@ -295,32 +200,6 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
     t.check_constraint "certification_scope IS NULL OR certification_scope::text <> ''::text", name: "actor_profiles_certification_scope_present"
   end
 
-  create_table "actor_profile_build_admissions", force: :cascade do |t|
-    t.bigint "cluster_id", null: false
-    t.bigint "cluster_composition_version", null: false
-    t.bigint "source_height", null: false
-    t.string "source_hash", null: false
-    t.string "reason", null: false
-    t.string "status", default: "pending", null: false
-    t.integer "attempts", default: 0, null: false
-    t.datetime "claimed_at", precision: 6
-    t.datetime "completed_at", precision: 6
-    t.string "last_error_class"
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.index ["cluster_id", "cluster_composition_version", "source_height", "source_hash"], name: "idx_actor_profile_admissions_identity", unique: true
-    t.index ["cluster_id"], name: "index_actor_profile_build_admissions_on_cluster_id"
-    t.index ["status", "source_height", "cluster_id", "id"], name: "idx_actor_profile_admissions_claim_order"
-    t.check_constraint "attempts >= 0", name: "actor_profile_admissions_attempts_check"
-    t.check_constraint "status <> 'processing'::text OR claimed_at IS NOT NULL", name: "actor_profile_admissions_claim_check"
-    t.check_constraint "status = 'completed'::text AND completed_at IS NOT NULL OR status <> 'completed'::text AND completed_at IS NULL", name: "actor_profile_admissions_completion_check"
-    t.check_constraint "cluster_composition_version >= 1", name: "actor_profile_admissions_composition_version_check"
-    t.check_constraint "reason::text <> ''::text", name: "actor_profile_admissions_reason_check"
-    t.check_constraint "source_hash::text <> ''::text", name: "actor_profile_admissions_source_hash_check"
-    t.check_constraint "source_height >= 0", name: "actor_profile_admissions_source_height_check"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "actor_profile_admissions_status_check"
-  end
-
   create_table "address_flow_stats", force: :cascade do |t|
     t.string "address", null: false
     t.decimal "received_btc", precision: 24, scale: 8, default: "0.0", null: false
@@ -377,7 +256,7 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
     t.check_constraint "address_count >= 0", name: "address_spend_projection_blocks_address_count_check"
     t.check_constraint "height >= 0", name: "address_spend_projection_blocks_height_check"
     t.check_constraint "input_count >= 0", name: "address_spend_projection_blocks_input_count_check"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "address_spend_projection_blocks_status_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying::text, 'processing'::character varying::text, 'completed'::character varying::text, 'failed'::character varying::text])", name: "address_spend_projection_blocks_status_check"
     t.check_constraint "total_sent_sats >= 0", name: "address_spend_projection_blocks_total_sent_sats_check"
   end
 
@@ -681,6 +560,23 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
     t.index ["cluster_id"], name: "index_cluster_activity_states_on_cluster_id"
   end
 
+  create_table "cluster_composition_revision_repair_checkpoints", force: :cascade do |t|
+    t.string "status", default: "pending", null: false
+    t.bigint "last_cluster_id", default: 0, null: false
+    t.bigint "scanned_count", default: 0, null: false
+    t.bigint "updated_count", default: 0, null: false
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.datetime "failed_at"
+    t.text "last_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.check_constraint "last_cluster_id >= 0", name: "cluster_revision_repair_last_cluster_id_check"
+    t.check_constraint "scanned_count >= 0", name: "cluster_revision_repair_scanned_count_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "cluster_revision_repair_status_check"
+    t.check_constraint "updated_count >= 0", name: "cluster_revision_repair_updated_count_check"
+  end
+
   create_table "cluster_coverage_blocks", force: :cascade do |t|
     t.bigint "height", null: false
     t.string "block_hash", null: false
@@ -748,30 +644,6 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
     t.index ["cluster_id"], name: "index_cluster_metrics_on_cluster_id"
   end
 
-  create_table "cluster_actor_profile_handoffs", force: :cascade do |t|
-    t.bigint "cluster_height", null: false
-    t.string "block_hash", null: false
-    t.bigint "cluster_id", null: false
-    t.bigint "composition_version", null: false
-    t.string "status", default: "pending", null: false
-    t.integer "attempts", default: 0, null: false
-    t.string "last_error_class"
-    t.datetime "claimed_at", precision: 6
-    t.datetime "completed_at", precision: 6
-    t.datetime "created_at", null: false
-    t.datetime "updated_at", null: false
-    t.index ["cluster_height", "block_hash", "cluster_id", "composition_version"], name: "idx_cluster_actor_handoffs_certification_version", unique: true
-    t.index ["cluster_height", "block_hash"], name: "idx_cluster_actor_handoffs_height_hash"
-    t.index ["cluster_id"], name: "index_cluster_actor_profile_handoffs_on_cluster_id"
-    t.index ["status", "cluster_height", "cluster_id"], name: "idx_cluster_actor_handoffs_claim_order"
-    t.check_constraint "attempts >= 0", name: "cluster_actor_handoffs_attempts_check"
-    t.check_constraint "status <> 'processing'::text OR claimed_at IS NOT NULL", name: "cluster_actor_handoffs_claim_check"
-    t.check_constraint "status = 'completed'::text AND completed_at IS NOT NULL OR status <> 'completed'::text AND completed_at IS NULL", name: "cluster_actor_handoffs_completion_check"
-    t.check_constraint "cluster_height >= 0", name: "cluster_actor_handoffs_height_check"
-    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'completed'::character varying, 'failed'::character varying]::text[])", name: "cluster_actor_handoffs_status_check"
-    t.check_constraint "composition_version >= 1", name: "cluster_actor_handoffs_version_check"
-  end
-
   create_table "cluster_pipeline_events", force: :cascade do |t|
     t.string "event"
     t.integer "height"
@@ -827,6 +699,138 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.index ["cluster_id"], name: "index_cluster_signals_on_cluster_id"
+  end
+
+  create_table "cluster_transaction_facts", id: false, force: :cascade do |t|
+    t.bigint "projection_generation_id", null: false
+    t.binary "txid", null: false
+    t.integer "received_height"
+    t.integer "spent_height"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["projection_generation_id", "txid"], name: "idx_ctp_facts_generation_txid", unique: true
+    t.check_constraint "octet_length(txid) = 32", name: "ctp_facts_txid_length_check"
+    t.check_constraint "received_height IS NOT NULL OR spent_height IS NOT NULL", name: "ctp_facts_presence_check"
+    t.check_constraint "received_height IS NULL OR received_height >= 0", name: "ctp_facts_received_height_check"
+    t.check_constraint "spent_height IS NULL OR spent_height >= 0", name: "ctp_facts_spent_height_check"
+  end
+
+  create_table "cluster_transaction_projection_backfill_addresses", force: :cascade do |t|
+    t.bigint "run_id", null: false
+    t.bigint "cluster_id", null: false
+    t.bigint "address_id", null: false
+    t.string "address", null: false
+    t.bigint "composition_version", null: false
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["run_id", "address"], name: "idx_ctp_backfill_addresses_run_address"
+    t.index ["run_id", "cluster_id", "address"], name: "idx_ctp_backfill_addresses_run_cluster_address", unique: true
+    t.check_constraint "btrim(address::text) <> ''::text", name: "ctp_backfill_addresses_address_present"
+    t.check_constraint "composition_version >= 1", name: "ctp_backfill_addresses_revision_check"
+  end
+
+  create_table "cluster_transaction_projection_backfill_items", force: :cascade do |t|
+    t.bigint "run_id", null: false
+    t.bigint "cluster_id", null: false
+    t.bigint "composition_version", null: false
+    t.bigint "projection_generation_id"
+    t.string "status", default: "pending", null: false
+    t.string "stage", default: "cluster_inputs_received", null: false
+    t.jsonb "source_cursor", default: {}, null: false
+    t.bigint "rows_scanned", default: 0, null: false
+    t.bigint "facts_written", default: 0, null: false
+    t.jsonb "metrics", default: {}, null: false
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.text "last_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["projection_generation_id"], name: "idx_ctp_backfill_items_generation"
+    t.index ["run_id", "cluster_id"], name: "idx_ctp_backfill_items_run_cluster", unique: true
+    t.index ["status", "stage"], name: "idx_ctp_backfill_items_status_stage"
+    t.check_constraint "composition_version >= 1", name: "ctp_backfill_items_revision_check"
+    t.check_constraint "facts_written >= 0", name: "ctp_backfill_items_facts_written_check"
+    t.check_constraint "rows_scanned >= 0", name: "ctp_backfill_items_rows_scanned_check"
+    t.check_constraint "stage::text = ANY (ARRAY['cluster_inputs_received'::character varying, 'utxo_outputs_received'::character varying, 'cluster_inputs_spent'::character varying, 'counter_audit'::character varying, 'certification'::character varying]::text[])", name: "ctp_backfill_items_stage_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'building'::character varying, 'paused'::character varying, 'ready_to_certify'::character varying, 'certified'::character varying, 'stale'::character varying, 'failed'::character varying]::text[])", name: "ctp_backfill_items_status_check"
+  end
+
+  create_table "cluster_transaction_projection_backfill_runs", force: :cascade do |t|
+    t.integer "target_checkpoint_height", null: false
+    t.string "target_checkpoint_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.string "source", default: "pilot_backfill", null: false
+    t.datetime "started_at"
+    t.datetime "paused_at"
+    t.datetime "completed_at"
+    t.text "last_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.datetime "stale_at"
+    t.string "stale_reason"
+    t.index ["status", "target_checkpoint_height"], name: "idx_ctp_backfill_runs_status_checkpoint"
+    t.check_constraint "btrim(source::text) <> ''::text", name: "ctp_backfill_runs_source_present"
+    t.check_constraint "btrim(target_checkpoint_hash::text) <> ''::text", name: "ctp_backfill_runs_checkpoint_hash_present"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'running'::character varying, 'paused'::character varying, 'completed'::character varying, 'failed'::character varying, 'stale'::character varying]::text[])", name: "ctp_backfill_runs_status_check"
+    t.check_constraint "target_checkpoint_height >= 0", name: "ctp_backfill_runs_checkpoint_height_check"
+  end
+
+  create_table "cluster_transaction_projection_blocks", force: :cascade do |t|
+    t.integer "block_height", null: false
+    t.string "block_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.datetime "started_at"
+    t.datetime "completed_at"
+    t.datetime "failed_at"
+    t.text "last_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.index ["block_height"], name: "idx_ctp_blocks_height", unique: true
+    t.index ["status", "block_height"], name: "idx_ctp_blocks_status_height"
+    t.check_constraint "block_height >= 0", name: "ctp_blocks_height_check"
+    t.check_constraint "btrim(block_hash::text) <> ''::text", name: "ctp_blocks_hash_present"
+    t.check_constraint "status::text <> 'projected'::text OR completed_at IS NOT NULL", name: "ctp_blocks_projected_at_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'processing'::character varying, 'projected'::character varying, 'failed'::character varying, 'stale'::character varying]::text[])", name: "ctp_blocks_status_check"
+  end
+
+  create_table "cluster_transaction_projection_generations", force: :cascade do |t|
+    t.bigint "cluster_id", null: false
+    t.bigint "composition_version", null: false
+    t.integer "checkpoint_height", null: false
+    t.string "checkpoint_hash", null: false
+    t.string "status", default: "pending", null: false
+    t.bigint "inflow_count", default: 0, null: false
+    t.bigint "outflow_count", default: 0, null: false
+    t.bigint "tx_count", default: 0, null: false
+    t.bigint "facts_count", default: 0, null: false
+    t.datetime "started_at"
+    t.datetime "certified_at"
+    t.datetime "failed_at"
+    t.datetime "stale_at"
+    t.string "stale_reason"
+    t.text "last_error"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.string "source", default: "manual", null: false
+    t.integer "base_checkpoint_height", null: false
+    t.string "base_checkpoint_hash", null: false
+    t.index ["cluster_id", "checkpoint_height"], name: "idx_ctp_generations_cluster_checkpoint"
+    t.index ["cluster_id", "composition_version"], name: "idx_ctp_generations_cluster_revision"
+    t.index ["cluster_id"], name: "idx_ctp_generations_one_certified_cluster", unique: true, where: "((status)::text = 'certified'::text)"
+    t.index ["status", "checkpoint_height"], name: "idx_ctp_generations_status_checkpoint"
+    t.check_constraint "base_checkpoint_height <= checkpoint_height", name: "ctp_generations_base_before_checkpoint"
+    t.check_constraint "base_checkpoint_height >= 0", name: "ctp_generations_base_height_check"
+    t.check_constraint "btrim(base_checkpoint_hash::text) <> ''::text", name: "ctp_generations_base_hash_present"
+    t.check_constraint "btrim(checkpoint_hash::text) <> ''::text", name: "ctp_generations_checkpoint_hash_present"
+    t.check_constraint "btrim(source::text) <> ''::text", name: "ctp_generations_source_present"
+    t.check_constraint "checkpoint_height >= 0", name: "ctp_generations_checkpoint_height_check"
+    t.check_constraint "composition_version >= 1", name: "ctp_generations_revision_check"
+    t.check_constraint "facts_count >= 0", name: "ctp_generations_facts_count_check"
+    t.check_constraint "inflow_count >= 0", name: "ctp_generations_inflow_count_check"
+    t.check_constraint "outflow_count >= 0", name: "ctp_generations_outflow_count_check"
+    t.check_constraint "status::text <> 'certified'::text OR certified_at IS NOT NULL", name: "ctp_generations_certified_at_check"
+    t.check_constraint "status::text = ANY (ARRAY['pending'::character varying, 'building'::character varying, 'certified'::character varying, 'failed'::character varying, 'stale'::character varying, 'replaced'::character varying]::text[])", name: "ctp_generations_status_check"
+    t.check_constraint "tx_count >= 0", name: "ctp_generations_tx_count_check"
   end
 
   create_table "clusters", force: :cascade do |t|
@@ -1222,23 +1226,6 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
     t.string "tags"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
-  end
-
-  create_table "layer1_audit_operational_events", force: :cascade do |t|
-    t.string "event_type", null: false
-    t.string "severity", null: false
-    t.bigint "audited_height"
-    t.integer "defer_attempt"
-    t.string "sidekiq_jid"
-    t.string "error_class"
-    t.datetime "occurred_at", null: false
-    t.jsonb "metadata", default: {}, null: false
-    t.index ["audited_height", "occurred_at"], name: "idx_layer1_audit_events_height_occurred_at"
-    t.index ["event_type", "occurred_at"], name: "idx_layer1_audit_events_type_occurred_at"
-    t.index ["occurred_at"], name: "idx_layer1_audit_events_occurred_at"
-    t.check_constraint "audited_height IS NULL OR audited_height >= 0", name: "layer1_audit_events_height_check"
-    t.check_constraint "defer_attempt IS NULL OR defer_attempt >= 0", name: "layer1_audit_events_attempt_check"
-    t.check_constraint "jsonb_typeof(metadata) = 'object'::text", name: "layer1_audit_events_metadata_object_check"
   end
 
   create_table "layer1_audit_runs", force: :cascade do |t|
@@ -1757,8 +1744,6 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
     t.index ["txid", "address", "direction"], name: "index_whale_core_flow_events_on_txid_and_address_and_direction", unique: true
   end
 
-  add_foreign_key "actor_behavior_build_handoffs", "actor_profiles"
-  add_foreign_key "actor_behavior_build_handoffs", "clusters"
   add_foreign_key "actor_behavior_heavy_snapshots", "actor_behavior_snapshots"
   add_foreign_key "actor_behavior_heavy_snapshots", "actor_profiles"
   add_foreign_key "actor_behavior_heavy_snapshots", "clusters"
@@ -1766,25 +1751,22 @@ ActiveRecord::Schema[8.0].define(version: 2026_07_16_141000) do
   add_foreign_key "actor_behavior_snapshots", "actor_profiles", on_delete: :cascade
   add_foreign_key "actor_behavior_snapshots", "clusters", on_delete: :cascade
   add_foreign_key "actor_labels", "clusters", on_delete: :cascade
-  add_foreign_key "actor_label_handoffs", "actor_behavior_snapshots"
-  add_foreign_key "actor_label_handoffs", "clusters"
-  add_foreign_key "actor_label_evaluations", "actor_behavior_snapshots"
-  add_foreign_key "actor_label_evaluations", "clusters"
-  add_foreign_key "actor_labels", "actor_behavior_snapshots"
   add_foreign_key "actor_metrics", "clusters", on_delete: :cascade
   add_foreign_key "actor_profiles", "clusters"
-  add_foreign_key "actor_profile_build_admissions", "clusters"
   add_foreign_key "address_links", "addresses", column: "address_a_id"
   add_foreign_key "address_links", "addresses", column: "address_b_id"
   add_foreign_key "addresses", "clusters"
   add_foreign_key "brc20_balances", "brc20_tokens"
   add_foreign_key "brc20_events", "brc20_tokens"
   add_foreign_key "brc20_token_daily_stats", "brc20_tokens"
-  add_foreign_key "cluster_actor_profile_handoffs", "clusters"
   add_foreign_key "cluster_activity_states", "clusters"
   add_foreign_key "cluster_metrics", "clusters"
   add_foreign_key "cluster_profiles", "clusters"
   add_foreign_key "cluster_signals", "clusters"
+  add_foreign_key "cluster_transaction_facts", "cluster_transaction_projection_generations", column: "projection_generation_id", on_delete: :cascade
+  add_foreign_key "cluster_transaction_projection_backfill_addresses", "cluster_transaction_projection_backfill_runs", column: "run_id", on_delete: :cascade
+  add_foreign_key "cluster_transaction_projection_backfill_items", "cluster_transaction_projection_backfill_runs", column: "run_id", on_delete: :cascade
+  add_foreign_key "cluster_transaction_projection_backfill_items", "cluster_transaction_projection_generations", column: "projection_generation_id", on_delete: :cascade
   add_foreign_key "opsec_answers", "opsec_assessments"
   add_foreign_key "rune_balances", "rune_tokens"
   add_foreign_key "rune_events", "rune_tokens"

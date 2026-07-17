@@ -7,21 +7,9 @@ module AddressSpendStats
   class ProjectionJobTest <
     ActiveJob::TestCase
 
-    setup do
-      @original_decision = System::PipelineController.method(:decision)
-      System::PipelineController.define_singleton_method(:decision) { |_| { allowed: true } }
-    end
-
-    teardown do
-      original = @original_decision
-      System::PipelineController.define_singleton_method(:decision) do |*args, **kwargs, &block|
-        original.call(*args, **kwargs, &block)
-      end
-    end
-
     test "uses the isolated projection queue" do
       assert_equal(
-        "actor_profile_strict",
+        "address_spend_projection",
         ProjectionJob.queue_name
       )
     end
@@ -85,7 +73,7 @@ module AddressSpendStats
       )
 
       assert_equal(
-        "actor_profile_strict",
+        "address_spend_projection",
         result.dig(
           :automation,
           :queue
@@ -232,19 +220,6 @@ module AddressSpendStats
 
       assert_equal true,
                    captured[:lock]
-    end
-
-    test "fails closed before the runner when Gate refuses or fails" do
-      System::PipelineController.define_singleton_method(:decision) { |_| { allowed: false } }
-      AddressSpendStats::Runner.stub(:call, ->(**) { flunk "must not run" }) do
-        assert_equal "pipeline_controller_refused", ProjectionJob.new.perform[:reason]
-      end
-
-      error = RuntimeError.new("gate unavailable")
-      System::PipelineController.define_singleton_method(:decision) { |_| raise error }
-      AddressSpendStats::Runner.stub(:call, ->(**) { flunk "must not run" }) do
-        assert_same error, assert_raises(RuntimeError) { ProjectionJob.new.perform }
-      end
     end
   end
 end

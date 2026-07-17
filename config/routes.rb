@@ -1,4 +1,7 @@
 Rails.application.routes.draw do
+  get "tansa/heartbeat", to: "tansa_heartbeat#show", as: :tansa_heartbeat
+  get "questions/live/actor-labels-strict", to: "questions/actor_labels_live#show"
+  get "questions/live/:module_name", to: "questions/live_answers#show", as: :questions_live_answer
   
   get "search/index"
 
@@ -23,7 +26,6 @@ Rails.application.routes.draw do
     resource :dashboard, only: [:show], controller: :dashboard
   end
 
-  get "system/recovery", to: "system#recovery"
 
   root "dashboard#index"
 
@@ -88,7 +90,6 @@ Rails.application.routes.draw do
 
   # get "/market/price", to: "market#price", as: :market_price
 
-  get "/system", to: "system#index"
 
   resources :opsec_assessments, only: %i[new create show]
   get "/opsec", to: "opsec_assessments#new"
@@ -126,7 +127,6 @@ Rails.application.routes.draw do
 
   get "/questions/:key", to: "questions#show", as: :question
 
-  get "system/sidekiq", to: "system#sidekiq", as: :system_sidekiq
 
   namespace :actors do
     resources :whale_core_flows, only: [:index]
@@ -134,14 +134,12 @@ Rails.application.routes.draw do
 
   post "ai/dashboard_answer", to: "ai/dashboard_answers#create", as: :ai_dashboard_answer
 
-  get "system/summary", to: "system#summary", as: :system_summary
-  get "system/layer1", to: "system#layer1", as: :system_layer1
-  get "system/sidekiq_runtime", to: "system#sidekiq_runtime", as: :system_sidekiq_runtime
 
   get "layer1/health", to: "layer1_health#show", as: :layer1_health
 
-  get "system/heartbeat", to: "system_heartbeat#show"
 
   get "system/layer1_audit", to: "layer1_audit#show", as: :system_layer1_audit
   post "system/layer1_audit/run", to: "layer1_audit#run", as: :system_layer1_audit_run
+
+  get "questions/live/:kind", to: "questions#live", as: :live_question
 end

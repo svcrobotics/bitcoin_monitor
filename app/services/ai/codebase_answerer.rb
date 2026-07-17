@@ -278,10 +278,7 @@ module Ai
         "app/services/intelligence/system_assistant.rb",
 
         # System
-        "app/services/system/health_snapshot_builder.rb",
         "app/services/system/blockchain_pipeline_status.rb",
-        "app/services/system/cluster_pipeline_status.rb",
-        "app/services/system/job_health_snapshot_builder.rb"
       ]
 
       CodeChunk.where(path: paths).order(:path, :chunk_index).to_a

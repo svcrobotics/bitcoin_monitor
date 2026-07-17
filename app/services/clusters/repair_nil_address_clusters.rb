@@ -12,31 +12,61 @@ module Clusters
       @limit = limit&.to_i
       @updated = 0
       @created_clusters = 0
+      @marked = 0
+      @batches = 0
     end
 
     def call
-      scope = Address.where(cluster_id: nil).where.not(address: [nil, ""])
-      scope = scope.limit(@limit) if @limit
+      scope =
+        Address
+          .where(cluster_id: nil)
+          .where.not(address: [nil, ""])
+          .order(:id)
 
-      scope.find_in_batches(batch_size: BATCH_SIZE).with_index do |batch, index|
-        puts "[repair] batch=#{index + 1} size=#{batch.size}"
+      scope =
+        scope.limit(limit) if limit.present?
 
-        batch.each do |address|
-          cluster = Cluster.create!
-          address.update!(cluster_id: cluster.id)
+      scope.find_in_batches(
+        batch_size: BATCH_SIZE
+      ) do |batch|
+        @batches += 1
 
-          @created_clusters += 1
-          @updated += 1
-        end
+        result =
+          Clusters::EnsureAddressClusters.call(
+            addresses:
+              batch.map(&:address)
+          )
 
-        puts "[repair] updated=#{@updated} created_clusters=#{@created_clusters}"
+        @updated +=
+          result[:updated].to_i
+
+        @created_clusters +=
+          result[:clusters].to_i
+
+        @marked +=
+          result[:marked].to_i
+
+        Rails.logger.info(
+          "[repair_nil_address_clusters] " \
+          "batch=#{@batches} " \
+          "updated=#{@updated} " \
+          "created_clusters=#{@created_clusters} " \
+          "marked=#{@marked}"
+        )
       end
 
       {
         ok: true,
+        batches: @batches,
         updated: @updated,
-        created_clusters: @created_clusters
+        created_clusters: @created_clusters,
+        marked: @marked
       }
     end
+
+    private
+
+    attr_reader :limit
+
   end
 end

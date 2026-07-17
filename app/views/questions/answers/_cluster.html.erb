@@ -1,184 +1,24 @@
-<% status = snapshot[:status].to_s %>
-<% sync = snapshot[:sync] || {} %>
-<% counts = snapshot[:counts] || {} %>
-<% activity = snapshot[:activity] || {} %>
-<% queues = snapshot[:queues] || {} %>
-<% workers = Array(snapshot[:workers]) %>
-<% audit = snapshot[:audit] || {} %>
+<%
+  snapshot ||= {}
 
-<section class="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100">
-  <div class="flex items-start justify-between gap-4">
-    <div>
-      <p class="text-xs uppercase tracking-wide text-slate-500">Cluster Health</p>
-      <h2 class="mt-1 text-xl font-semibold">État du moteur de clustering</h2>
-      <p class="mt-2 text-sm text-slate-500">
-        Vérifie si cluster_inputs alimente bien le scanner de clusters.
-      </p>
-    </div>
+  pipeline_snapshot =
+    System::PipelineController.snapshot
 
-    <div class="rounded-full px-3 py-1 text-xs font-semibold
-      <%= status == "healthy" ? "bg-emerald-500/10 text-emerald-300" : status == "warning" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300" %>">
-      <%= status.upcase.presence || "UNKNOWN" %>
-    </div>
-  </div>
+  cluster_decision =
+    System::PipelineController.decision(
+      :cluster,
+      current_snapshot:
+        pipeline_snapshot
+    )
 
-  <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-    <%= render "questions/answers/layer1_metric", label: "Best height", value: sync[:best_height] %>
-    <%= render "questions/answers/layer1_metric", label: "Cluster input max spent", value: sync[:cluster_input_max_spent] %>
-    <%= render "questions/answers/layer1_metric", label: "Scanner cursor", value: sync[:scanner_cursor] %>
-    <%= render "questions/answers/layer1_metric", label: "Scanner lag", value: sync[:scanner_lag] %>
-  </div>
+  dashboard =
+    Clusters::DashboardSnapshot.call(
+      snapshot: snapshot,
+      decision: cluster_decision
+    )
+%>
 
-  <div class="mt-6 grid gap-4 md:grid-cols-2">
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">Tables cluster</h3>
-
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between">
-          <span>Cluster inputs</span>
-          <strong><%= number_with_delimiter(counts[:cluster_inputs].to_i) %></strong>
-        </div>
-
-        <div class="flex justify-between">
-          <span>Clusters</span>
-          <strong><%= number_with_delimiter(counts[:clusters].to_i) %></strong>
-        </div>
-
-        <div class="flex justify-between">
-          <span>Addresses</span>
-          <strong><%= number_with_delimiter(counts[:addresses].to_i) %></strong>
-        </div>
-
-        <div class="flex justify-between">
-          <span>Actor profiles</span>
-          <strong><%= number_with_delimiter(counts[:actor_profiles].to_i) %></strong>
-        </div>
-      </div>
-    </div>
-
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">Fraîcheur</h3>
-
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between">
-          <span>Dernier cluster input</span>
-          <strong><%= activity[:last_cluster_input_at]&.strftime("%d/%m %H:%M") || "—" %></strong>
-        </div>
-
-        <div class="flex justify-between">
-          <span>Dernier cluster traité</span>
-          <strong>
-            <%= activity[:last_cluster_processed_at]&.strftime("%d/%m %H:%M") || "—" %>
-          </strong>
-        </div>
-
-        <div class="flex justify-between">
-          <span>Dernière adresse clusterisée</span>
-          <strong><%= activity[:last_address_updated_at]&.strftime("%d/%m %H:%M") || "—" %></strong>
-        </div>
-
-        <div class="flex justify-between">
-          <span>Dernier actor profile</span>
-          <strong class="<%= activity[:last_actor_profile_at].present? && activity[:last_actor_profile_at] < 6.hours.ago ? "text-amber-300" : "text-slate-100" %>">
-            <%= activity[:last_actor_profile_at]&.strftime("%d/%m %H:%M") || "—" %>
-          </strong>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <h3 class="font-semibold">Queues Cluster</h3>
-
-    <div class="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-5">
-      <% queues.each do |name, size| %>
-        <div class="flex justify-between rounded-lg bg-slate-950 px-3 py-2">
-          <span class="text-slate-400"><%= name %></span>
-          <strong><%= size %></strong>
-        </div>
-      <% end %>
-    </div>
-  </div>
-
-  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <h3 class="font-semibold">Workers Cluster actifs</h3>
-
-    <% if workers.any? %>
-      <div class="mt-3 space-y-2 text-sm">
-        <% workers.each do |worker| %>
-          <div class="rounded-lg bg-slate-950 px-3 py-2">
-            <div class="flex justify-between gap-3">
-              <span class="text-slate-400"><%= worker[:queue] %></span>
-              <strong class="text-slate-200"><%= worker[:klass] %></strong>
-            </div>
-
-            <% if worker[:args].present? %>
-              <div class="mt-1 font-mono text-xs text-slate-500">
-                <%= worker[:args].inspect.truncate(120) %>
-              </div>
-            <% end %>
-          </div>
-        <% end %>
-      </div>
-    <% else %>
-      <p class="mt-3 text-sm text-slate-500">
-        Aucun worker Cluster actif au moment du snapshot.
-      </p>
-    <% end %>
-  </div>
-</section>
-
-<div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-  <h3 class="font-semibold">Audit Cluster</h3>
-
-  <div class="mt-3 space-y-2 text-sm">
-    <div class="flex justify-between">
-      <span>Status</span>
-      <strong class="<%= audit[:status] == "healthy" ? "text-emerald-300" : "text-amber-300" %>">
-        <%= audit[:status]&.upcase || "—" %>
-      </strong>
-    </div>
-
-    <div class="flex justify-between">
-      <span>Blocs audités</span>
-      <strong>
-        <% heights = audit[:heights] || [] %>
-        <%= heights.any? ? "#{heights.first} → #{heights.last}" : "—" %>
-      </strong>
-    </div>
-
-    <div class="flex justify-between">
-      <span>Cluster inputs</span>
-      <strong><%= audit.dig(:counts, :cluster_inputs) || 0 %></strong>
-    </div>
-
-    <div class="flex justify-between">
-      <span>Adresses distinctes</span>
-      <strong><%= audit.dig(:counts, :distinct_input_addresses) || 0 %></strong>
-    </div>
-
-    <div class="flex justify-between">
-      <span>Clusters touchés</span>
-      <strong><%= audit.dig(:counts, :touched_clusters) || 0 %></strong>
-    </div>
-
-    <div class="flex justify-between">
-      <span>Anomalies</span>
-      <strong>
-        <%= [
-          audit.dig(:integrity, :missing_addresses).to_i,
-          audit.dig(:integrity, :unclustered_addresses).to_i,
-          audit.dig(:integrity, :invalid_cluster_refs).to_i,
-          audit.dig(:integrity, :recent_empty_clusters).to_i
-        ].sum %>
-      </strong>
-    </div>
-
-    <div class="flex justify-between">
-      <span>Dernier cluster traité</span>
-      <strong>
-        <%= audit.dig(:activity, :last_cluster_processed_at)&.strftime("%d/%m %H:%M") || "—" %>
-      </strong>
-    </div>
-  </div>
-</div>
+<%= render(
+      "questions/answers/cluster_pipeline",
+      dashboard: dashboard
+    ) %>

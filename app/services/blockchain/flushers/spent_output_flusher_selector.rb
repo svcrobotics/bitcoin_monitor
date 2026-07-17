@@ -3,11 +3,7 @@
 module Blockchain
   module Flushers
     class SpentOutputFlusherSelector
-      class ConfigurationError < StandardError; end
-
-      ENV_NAME = "SPENT_OUTPUT_FLUSHER_V2"
       TRUE_VALUES = %w[1 true yes on].freeze
-      FALSE_VALUES = %w[0 false no off].freeze
       MODES = %i[realtime recovery].freeze
 
       class << self
@@ -28,15 +24,7 @@ module Blockchain
         end
 
         def v2_enabled?
-          raw_value = ENV[ENV_NAME]
-          normalized = raw_value.to_s.strip.downcase
-
-          return true if normalized.empty? || TRUE_VALUES.include?(normalized)
-          return false if FALSE_VALUES.include?(normalized)
-
-          raise ConfigurationError,
-                "invalid #{ENV_NAME}=#{raw_value.inspect}; " \
-                "expected blank, #{TRUE_VALUES.join(', ')}, or #{FALSE_VALUES.join(', ')}"
+          TRUE_VALUES.include?(ENV.fetch("SPENT_OUTPUT_FLUSHER_V2", "0").to_s.downcase)
         end
 
         def normalize_mode(mode)

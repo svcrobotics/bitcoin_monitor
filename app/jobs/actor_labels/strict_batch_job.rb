@@ -8,7 +8,6 @@ class StrictBatchJob < ApplicationJob
 queue_as :actor_labels_strict
 
 DEFAULT_LIMIT = 500
-DEFAULT_WAIT_SECONDS = 60
 
 # Un lot de 1 000 profils peut durer plusieurs minutes.
 # Le verrou ne doit pas expirer pendant son exécution.
@@ -24,9 +23,20 @@ LOCK_KEY = "actor_labels:strict_batch:lock"
 CURSOR_KEY = "actor_labels:strict_batch:cursor"
 SCHEDULE_KEY = "actor_labels:strict_batch:scheduled"
 LAST_RUN_KEY = "actor_labels:strict_batch:last_run"
+WORKER_STATUS_KEY = "actor_labels:strict_batch:worker_status"
+
+WORKER_STATUS_TTL_SECONDS =
+  Integer(
+    ENV.fetch(
+      "ACTOR_LABEL_WORKER_STATUS_TTL_SECONDS",
+      "3600"
+    )
+  )
 
 def perform(options = {})
   options = options.to_h.symbolize_keys
+
+  self.class.publish_worker_status!
 
   limit =
     integer_option(
@@ -34,20 +44,6 @@ def perform(options = {})
       DEFAULT_LIMIT,
       minimum: 1,
       maximum: ActorLabels::StrictBatch::MAX_LIMIT
-    )
-
-  wait_seconds =
-    integer_option(
-      options[:wait_seconds],
-      DEFAULT_WAIT_SECONDS,
-      minimum: 10,
-      maximum: 3_600
-    )
-
-  schedule_next =
-    boolean_option(
-      options[:schedule_next],
-      default: true
     )
 
   persist_cursor =
@@ -102,8 +98,8 @@ def perform(options = {})
     after_id: after_id,
     next_cursor: next_cursor,
     persist_cursor: persist_cursor,
-    schedule_next: schedule_next,
-    wait_seconds: wait_seconds
+    schedule_next: false,
+    wait_seconds: nil
   )
 
   unless result[:ok]
@@ -118,16 +114,6 @@ def perform(options = {})
 
   save_cursor(next_cursor) if persist_cursor
 
-  scheduled_next =
-    if schedule_next
-      schedule_next_once(
-        limit: limit,
-        wait_seconds: wait_seconds
-      )
-    else
-      false
-    end
-
   Rails.logger.info(
     "[actor_labels_strict] " \
     "scanned=#{result.dig(:batch, :scanned)} " \
@@ -137,7 +123,7 @@ def perform(options = {})
     "failed=#{result.dig(:batch, :failed)} " \
     "after_id=#{after_id} " \
     "next_cursor=#{next_cursor} " \
-    "scheduled_next=#{scheduled_next} " \
+    "scheduled_next=false " \
     "write_enabled=#{write_enabled?}"
   )
 
@@ -148,9 +134,9 @@ def perform(options = {})
       cursor_persisted: persist_cursor,
       persisted_cursor:
         persist_cursor ? next_cursor : current_cursor,
-      schedule_next: schedule_next,
-      scheduled_next: scheduled_next,
-      wait_seconds: wait_seconds
+      schedule_next: false,
+      scheduled_next: false,
+      wait_seconds: nil
     }
   )
 ensure
@@ -164,13 +150,42 @@ end
 
 private
 
-def write_enabled?
+def self.publish_worker_status!(
+  queue_name: self.queue_name,
+  write_enabled: write_enabled?,
+  pid: Process.pid
+)
+  payload = {
+    observed_at: Time.current.iso8601(6),
+    queue_name: queue_name,
+    write_enabled: write_enabled,
+    pid: pid
+  }
+
+  Sidekiq.redis do |redis|
+    redis.set(
+      WORKER_STATUS_KEY,
+      JSON.generate(payload),
+      ex: WORKER_STATUS_TTL_SECONDS
+    )
+  end
+rescue StandardError => error
+  Rails.logger.warn(
+    "[actor_labels_strict] "     "worker_status_save_failed "     "#{error.class}: #{error.message}"
+  )
+end
+
+def self.write_enabled?
   ActiveModel::Type::Boolean.new.cast(
     ENV.fetch(
       "ACTOR_LABEL_WRITE_ENABLED",
       "false"
     )
   )
+end
+
+def write_enabled?
+  self.class.write_enabled?
 end
 
 def acquire_lock(token)
@@ -269,44 +284,6 @@ rescue StandardError => error
     "[actor_labels_strict] last_run_save_failed " \
     "#{error.class}: #{error.message}"
   )
-end
-
-def schedule_next_once(limit:, wait_seconds:)
-  marker_created =
-    Sidekiq.redis do |redis|
-      !!redis.set(
-        SCHEDULE_KEY,
-        Time.current.to_i,
-        nx: true,
-        ex: wait_seconds + LOCK_TTL_SECONDS
-      )
-    end
-
-  return false unless marker_created
-
-  self.class
-    .set(wait: wait_seconds.seconds)
-    .perform_later(
-      {
-        "limit" => limit,
-        "wait_seconds" => wait_seconds,
-        "schedule_next" => true,
-        "persist_cursor" => true
-      }
-    )
-
-  true
-rescue StandardError => error
-  Sidekiq.redis do |redis|
-    redis.del(SCHEDULE_KEY)
-  end
-
-  Rails.logger.error(
-    "[actor_labels_strict] scheduling_failed " \
-    "#{error.class}: #{error.message}"
-  )
-
-  raise
 end
 
 def boolean_option(value, default:)

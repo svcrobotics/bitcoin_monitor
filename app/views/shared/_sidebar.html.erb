@@ -273,51 +273,6 @@
 
     <div class="<%= nav_section %>">Operations</div>
 
-    <div class="space-y-1">
-      <%= link_to system_path, class: nav_item do %>
-        <span class="<%= nav_icon %>">
-          <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M3 13.5A1.5 1.5 0 0 1 4.5 12H6v5H4.5A1.5 1.5 0 0 1 3 15.5v-2ZM8 7h4v10H8V7ZM14 3h1.5A1.5 1.5 0 0 1 17 4.5v11a1.5 1.5 0 0 1-1.5 1.5H14V3Z" />
-          </svg>
-        </span>
-
-        <div class="min-w-0">
-          <div class="truncate">System</div>
-          <div class="truncate text-[11px] font-normal text-slate-500">
-            Health · Pipelines
-          </div>
-        </div>
-      <% end %>
-
-      <%= link_to system_recovery_path, class: nav_item do %>
-        <span class="<%= nav_icon %>">
-          <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10 3a7 7 0 1 1-5.66 11.12.75.75 0 0 1 1.22-.88A5.5 5.5 0 1 0 4.5 10H6a.75.75 0 0 1 0 1.5H3.25A.75.75 0 0 1 2.5 10.75V8a.75.75 0 0 1 1.5 0v1.1A7 7 0 0 1 10 3Z" />
-          </svg>
-        </span>
-
-        <div class="min-w-0">
-          <div class="truncate">Recovery</div>
-          <div class="truncate text-[11px] font-normal text-slate-500">
-            Lag · Requeue · Backfill
-          </div>
-        </div>
-      <% end %>
-
-      <%= link_to system_sidekiq_path, class: nav_item do %>
-        <span class="<%= nav_icon %>">
-          <svg class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M4 5.5A1.5 1.5 0 0 1 5.5 4h9A1.5 1.5 0 0 1 16 5.5v1A1.5 1.5 0 0 1 14.5 8h-9A1.5 1.5 0 0 1 4 6.5v-1ZM4 13.5A1.5 1.5 0 0 1 5.5 12h9a1.5 1.5 0 0 1 1.5 1.5v1a1.5 1.5 0 0 1-1.5 1.5h-9A1.5 1.5 0 0 1 4 14.5v-1ZM6 6h.01V6H6Zm0 8h.01v.01H6V14Z" />
-          </svg>
-        </span>
-
-        <div class="min-w-0">
-          <div class="truncate">Sidekiq</div>
-          <div class="truncate text-[11px] font-normal text-slate-500">
-            Jobs · Queues · Workers
-          </div>
-        </div>
-      <% end %>
-    </div>
+    <div class="space-y-1">    </div>
   </nav>
 </div>

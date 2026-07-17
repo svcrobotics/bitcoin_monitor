@@ -1,109 +1,138 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "minitest/mock"
 
 module Clusters
   class StrictTipSyncJobTest < ActiveSupport::TestCase
-    class AdvisoryLockConnection < ActiveRecord::Base
-      self.abstract_class = true
-    end
+    test "does not schedule another job after cooperative yield" do
+      scheduler_wakeups = 0
 
-    test "owns the operational lock and invokes the syncer exactly once" do
-      job = StrictTipSyncJob.new
-      calls = []
-      released = 0
-      job.stub(:acquire_operational_lock, -> { job.instance_variable_set(:@lock_acquired, true) }) do
-        job.stub(:release_operational_lock, -> { released += 1 }) do
-          StrictTipSyncer.stub(:call, ->(**arguments) { calls << arguments; { ok: true, status: "synced" } }) do
-            StrictTipSyncer.stub(:work_available?, false) do
-              result = job.perform(limit: 3, start_height: 100)
-              assert_equal "synced", result[:status]
-            end
-          end
-        end
-      end
+      with_stubbed(
+        System::PipelineController,
+        :decision,
+        { allowed: true }
+      ) do
+        with_stubbed(StrictPipeline::StrictIoLease, :renew, true) do
+          with_stubbed(StrictPipeline::StrictIoLease, :release, true) do
+            with_stubbed(StrictPipeline::SchedulerWakeup, :request!, ->(**_kwargs) { scheduler_wakeups += 1 }) do
+              with_stubbed(
+                Clusters::StrictTipSyncer,
+                :call,
+                {
+                  ok: true,
+                  status: "yielded_to_layer1",
+                  from_height: 100,
+                  to_height: 101
+                }
+              ) do
+                job = Clusters::StrictTipSyncJob.new
 
-      assert_equal [{ limit: 3, start_height: 100 }], calls
-      assert_equal 1, released
-    end
+                job.define_singleton_method(:acquire_lock) { |_token| true }
+                job.define_singleton_method(:release_lock) { |_token| true }
+                job.define_singleton_method(:clear_schedule_marker) { true }
 
-    test "a held lock prevents sync and scheduling" do
-      job = StrictTipSyncJob.new
-      job.stub(:acquire_operational_lock, false) do
-        StrictTipSyncer.stub(:call, ->(**) { flunk "must not sync" }) do
-          assert_equal "operational_lock_held", job.perform[:reason]
-        end
-      end
-    end
+                result =
+                  job.perform(
+                    {
+                      "limit" => 2,
+                      "reschedule" => true,
+                      "strict_io_token" => "cluster-token"
+                    }
+                  )
 
-    test "schedules exactly once when the PostgreSQL probe finds remaining work" do
-      job = StrictTipSyncJob.new
-      scheduled = []
-      relation = Object.new
-      relation.define_singleton_method(:perform_later) { |**arguments| scheduled << arguments }
-      job.stub(:acquire_operational_lock, -> { job.instance_variable_set(:@lock_acquired, true) }) do
-        job.stub(:release_operational_lock, true) do
-          StrictTipSyncer.stub(:call, { ok: true, status: "synced" }) do
-            StrictTipSyncer.stub(:work_available?, true) do
-              StrictTipSyncJob.stub(:set, ->(wait:) {
-                assert_equal 1.second, wait
-                relation
-              }) do
-                job.perform(limit: 2)
+                assert_equal "yielded_to_layer1", result[:status]
               end
             end
           end
         end
       end
 
-      assert_equal [{ limit: 2, start_height: nil }], scheduled
+      assert_equal 1, scheduler_wakeups
     end
 
-    test "propagates sync errors and releases the lock without scheduling" do
-      job = StrictTipSyncJob.new
-      error = RuntimeError.new("sync failed")
-      released = 0
-      job.stub(:acquire_operational_lock, -> { job.instance_variable_set(:@lock_acquired, true) }) do
-        job.stub(:release_operational_lock, -> { released += 1 }) do
-          StrictTipSyncer.stub(:call, ->(**) { raise error }) do
-            raised = assert_raises(RuntimeError) { job.perform }
-            assert_same error, raised
+    test "cluster slice is capped at two blocks and ninety seconds" do
+      received = nil
+
+      with_stubbed(System::PipelineController, :decision, { allowed: true }) do
+        with_stubbed(StrictPipeline::StrictIoLease, :renew, true) do
+          with_stubbed(StrictPipeline::StrictIoLease, :release, true) do
+            with_stubbed(StrictPipeline::SchedulerWakeup, :request!, ->(**_kwargs) {}) do
+              with_stubbed(
+                Clusters::StrictTipSyncer,
+                :call,
+                lambda do |**kwargs|
+                  received = kwargs
+
+                  {
+                    ok: true,
+                    status: "synced",
+                    from_height: 100,
+                    to_height: 101
+                  }
+                end
+              ) do
+                job = Clusters::StrictTipSyncJob.new
+
+                job.define_singleton_method(:acquire_lock) { |_token| true }
+                job.define_singleton_method(:release_lock) { |_token| true }
+                job.define_singleton_method(:clear_schedule_marker) { true }
+
+                job.perform(
+                  {
+                    "limit" => 10,
+                    "reschedule" => true,
+                    "strict_io_token" => "cluster-token"
+                  }
+                )
+              end
+            end
           end
         end
       end
-      assert_equal 1, released
+
+      assert_equal 2, received[:limit]
+      assert_equal 90, received[:max_runtime_seconds]
     end
 
-    test "uses only the cluster strict queue" do
-      assert_equal "cluster_strict", StrictTipSyncJob.new.queue_name
-    end
+    test "strict io denial wakes scheduler once without uncontrolled enqueue" do
+      scheduler_wakeups = 0
 
-    test "the PostgreSQL operational lock admits only one owner" do
-      locked = Queue.new
-      release = Queue.new
-      holder_class = AdvisoryLockConnection
-      holder_class.establish_connection(ActiveRecord::Base.connection_db_config)
-      thread = Thread.new do
-        holder_class.connection_pool.with_connection do |connection|
-          connection.select_value(
-            "SELECT pg_advisory_lock(#{StrictTipSyncJob::LOCK_NAMESPACE}, #{StrictTipSyncJob::LOCK_ID})"
-          )
-          locked << true
-          release.pop
-          connection.select_value(
-            "SELECT pg_advisory_unlock(#{StrictTipSyncJob::LOCK_NAMESPACE}, #{StrictTipSyncJob::LOCK_ID})"
-          )
+      with_stubbed(StrictPipeline::StrictIoLease, :renew, false) do
+        with_stubbed(StrictPipeline::SchedulerWakeup, :request!, ->(**_kwargs) { scheduler_wakeups += 1 }) do
+          result =
+            Clusters::StrictTipSyncJob.new.perform(
+              {
+                "limit" => 2,
+                "strict_io_token" => "stale-token"
+              }
+            )
+
+          assert_equal "skipped", result[:status]
+          assert_equal "strict_io_lease_denied", result[:reason]
         end
       end
-      locked.pop
 
-      contender = StrictTipSyncJob.new
-      assert_equal false, contender.send(:acquire_operational_lock)
+      assert_equal 1, scheduler_wakeups
+    end
+
+    private
+
+    def with_stubbed(object, method_name, value = nil)
+      original = object.method(method_name)
+      replacement =
+        if value.respond_to?(:call)
+          value
+        else
+          ->(*_args, **_kwargs) { value }
+        end
+
+      object.define_singleton_method(method_name, &replacement)
+
+      yield
     ensure
-      release << true if release&.empty?
-      thread&.join
-      holder_class&.connection_pool&.disconnect!
+      object.define_singleton_method(method_name) do |*args, **kwargs, &block|
+        original.call(*args, **kwargs, &block)
+      end
     end
   end
 end

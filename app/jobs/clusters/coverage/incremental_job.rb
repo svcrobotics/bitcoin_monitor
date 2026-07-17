@@ -31,6 +31,11 @@ module Clusters
       )
         return disabled_result unless enabled?
 
+        decision =
+          System::PipelineController.decision(:coverage)
+
+        return pipeline_denied_result(decision) unless decision[:allowed]
+
         with_lock do
           prepared =
             Clusters::Coverage::PrepareBlock.call(
@@ -106,6 +111,22 @@ module Clusters
         {
           ok: true,
           status: "locked",
+          rescheduled: false
+        }
+      end
+
+      def pipeline_denied_result(decision)
+        Rails.logger.info(
+          "[cluster_coverage_incremental] " \
+          "skipped reason=pipeline_controller_denied " \
+          "decision=#{decision.inspect}"
+        )
+
+        {
+          ok: true,
+          status: "skipped",
+          reason: "pipeline_controller_denied",
+          decision: decision,
           rescheduled: false
         }
       end

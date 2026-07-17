@@ -353,7 +353,7 @@ en:
       footer: "Uso previsto: lectura de contexto, preparación de plan y seguimiento día a día."  
 
   footer:
-      brand: "Tansa"
+      brand: "Bitcoin Monitor"
       tagline: "Less noise. More discipline. Better-structured decisions."
       built_for: "Data • transparency • user control"
 
@@ -377,21 +377,21 @@ en:
       rights: "All rights reserved."
 
   about:
-    title: "About Tansa"
+    title: "About Bitcoin Monitor"
 
     hero:
-      headline: "About Tansa"
+      headline: "About Bitcoin Monitor"
       subtitle: "An international platform for neutral and structured Bitcoin market analysis."
 
     mission:
       title: "Our Mission"
-      p1: "Tansa provides analytical tools designed to deliver clear, methodical and transparent market insights."
+      p1: "Bitcoin Monitor provides analytical tools designed to deliver clear, methodical and transparent market insights."
       p2: "The platform is built for traders, analysts and long-term participants seeking structure, discipline and contextual understanding."
       p3: "We prioritize methodological consistency, analytical neutrality and data integrity."
 
     data:
       title: "Data Transparency"
-      p1: "Tansa processes exclusively publicly available blockchain and market data."
+      p1: "Bitcoin Monitor processes exclusively publicly available blockchain and market data."
       bullets:
         b1: "No user wallet connections"
         b2: "No private keys requested"
@@ -401,7 +401,7 @@ en:
 
     technology:
       title: "Technology & Artificial Intelligence"
-      p1: "Tansa integrates artificial intelligence models as advanced analytical tools."
+      p1: "Bitcoin Monitor integrates artificial intelligence models as advanced analytical tools."
       p2: "AI is used to structure information, explore scenarios and accelerate analysis."
       p3: "Architecture, validation and decision-making remain under human oversight."
 
@@ -410,4 +410,4 @@ en:
       p1: "To build an independent, scalable and international analytical infrastructure aligned with the evolving Bitcoin market."
       p2: "To provide an environment where data is prioritized, methodology is explicit, and users retain control."
 
-    disclaimer: "The information provided by Tansa is for educational and informational purposes only and does not constitute financial advice. Digital assets are volatile and involve risk."
+    disclaimer: "The information provided by Bitcoin Monitor is for educational and informational purposes only and does not constitute financial advice. Digital assets are volatile and involve risk."

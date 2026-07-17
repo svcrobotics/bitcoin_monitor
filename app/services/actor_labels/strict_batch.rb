@@ -2,10 +2,14 @@
 
 module ActorLabels
   class StrictBatch
-    DEFAULT_LIMIT = 500
-    MAX_LIMIT = 20_000
+    DEFAULT_LIMIT = 100
+    MAX_LIMIT = 5_000
 
-    RULE_SET = ActorLabels::StrictRuleSetV2
+    RULE_SET =
+      ActorLabels::StrictRuleSet
+
+    WRITER =
+      ActorLabels::StrictWriter
 
     def self.call(
       limit: DEFAULT_LIMIT,
@@ -30,7 +34,7 @@ module ActorLabels
         [after_id.to_i, 0].max
 
       @dry_run =
-        dry_run
+        dry_run == true
     end
 
     def call
@@ -38,10 +42,6 @@ module ActorLabels
         Process.clock_gettime(
           Process::CLOCK_MONOTONIC
         )
-
-      tip = cluster_tip
-
-      raise "Cluster strict tip missing" if tip.zero?
 
       counters =
         Hash.new(0)
@@ -51,17 +51,16 @@ module ActorLabels
 
       errors = []
 
-      profiles =
-        profiles_scope.to_a
+      snapshots =
+        snapshots_scope.to_a
 
-      profiles.each do |profile|
+      snapshots.each do |snapshot|
         counters[:scanned] += 1
 
         begin
           result =
-            ActorLabels::StrictWriter.call(
-              profile: profile,
-              cluster_tip: tip,
+            WRITER.call(
+              snapshot: snapshot,
               dry_run: dry_run
             )
 
@@ -91,11 +90,18 @@ module ActorLabels
             )
 
           if expected_labels.any?
-            counters[:profiles_with_labels] += 1
+            counters[:snapshots_with_labels] += 1
+
             counters[:expected_labels] +=
               expected_labels.size
+
+            expected_labels.each do |label|
+              counters[
+                :"expected_#{label}"
+              ] += 1
+            end
           else
-            counters[:profiles_without_labels] += 1
+            counters[:snapshots_without_labels] += 1
           end
 
           counters[:written_labels] +=
@@ -108,11 +114,14 @@ module ActorLabels
 
           if errors.size < 20
             errors << {
+              actor_behavior_snapshot_id:
+                snapshot.id,
+
               actor_profile_id:
-                profile.id,
+                snapshot.actor_profile_id,
 
               cluster_id:
-                profile.cluster_id,
+                snapshot.cluster_id,
 
               error_class:
                 error.class.name,
@@ -125,16 +134,21 @@ module ActorLabels
       end
 
       last_id =
-        profiles.last&.id ||
+        snapshots.last&.id ||
         after_id
 
       has_more =
         certified_scope
           .where(
-            "actor_profiles.id > ?",
+            "actor_behavior_snapshots.id > ?",
             last_id
           )
           .exists?
+
+      reconciliation =
+        reconcile_obsolete_labels(
+          cycle_completed: !has_more
+        )
 
       {
         ok:
@@ -148,6 +162,9 @@ module ActorLabels
 
         rule_version:
           RULE_SET::RULE_VERSION,
+
+        behavior_version:
+          RULE_SET::BEHAVIOR_VERSION,
 
         cursor: {
           after_id:
@@ -164,18 +181,15 @@ module ActorLabels
         },
 
         heights: {
-          cluster_tip:
-            tip,
-
           profile_height_min:
-            profiles
-              .map(&:last_computed_height)
+            snapshots
+              .map(&:profile_height)
               .compact
               .min,
 
           profile_height_max:
-            profiles
-              .map(&:last_computed_height)
+            snapshots
+              .map(&:profile_height)
               .compact
               .max
         },
@@ -193,14 +207,17 @@ module ActorLabels
           ineligible:
             counters[:ineligible],
 
-          profiles_with_labels:
-            counters[:profiles_with_labels],
+          snapshots_with_labels:
+            counters[:snapshots_with_labels],
 
-          profiles_without_labels:
-            counters[:profiles_without_labels],
+          snapshots_without_labels:
+            counters[:snapshots_without_labels],
 
           expected_labels:
             counters[:expected_labels],
+
+          expected_by_label:
+            expected_by_label(counters),
 
           written_labels:
             counters[:written_labels],
@@ -216,14 +233,14 @@ module ActorLabels
           rejection_reasons.sort.to_h,
 
         database: {
-          actor_labels:
-            ActorLabel.count,
-
           strict_actor_labels:
             ActorLabel.where(
               source: RULE_SET::SOURCE
             ).count
         },
+
+        reconciliation:
+          reconciliation,
 
         errors:
           errors,
@@ -238,27 +255,68 @@ module ActorLabels
     attr_reader :limit, :after_id, :dry_run
 
     def certified_scope
-      ActorProfiles::CertifiedScope.call
+      ActorBehaviors::CertifiedScope.call
     end
 
-    def profiles_scope
+    def snapshots_scope
       certified_scope
-        .includes(:cluster)
         .where(
-          "actor_profiles.id > ?",
+          "actor_behavior_snapshots.id > ?",
           after_id
         )
         .order(
-          "actor_profiles.id ASC"
+          "actor_behavior_snapshots.id ASC"
         )
         .limit(limit)
     end
 
-    def cluster_tip
-      ClusterProcessedBlock
-        .where(status: "processed")
-        .maximum(:height)
-        .to_i
+    def expected_by_label(counters)
+      ActorLabel::LABELS.to_h do |label|
+        [
+          label,
+          counters[
+            :"expected_#{label}"
+          ].to_i
+        ]
+      end
+    end
+
+    def reconcile_obsolete_labels(cycle_completed:)
+      unless cycle_completed
+        return {
+          performed: false,
+          reason: "cycle_not_completed",
+          expected_deletions: 0,
+          deleted: 0
+        }
+      end
+
+      obsolete_scope =
+        ActorLabel
+          .where(source: RULE_SET::SOURCE)
+          .where.not(
+            cluster_id:
+              certified_scope.select(:cluster_id)
+          )
+
+      expected_deletions =
+        obsolete_scope.count
+
+      deleted =
+        if dry_run
+          0
+        else
+          obsolete_scope.delete_all
+        end
+
+      {
+        performed: true,
+        dry_run: dry_run,
+        expected_deletions:
+          expected_deletions,
+        deleted:
+          deleted
+      }
     end
 
     def elapsed_ms(started_at)

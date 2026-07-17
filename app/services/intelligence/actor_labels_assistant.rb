@@ -3,7 +3,10 @@
 module Intelligence
   class ActorLabelsAssistant
     def self.call(question:, context:)
-      new(question:, context:).call
+      new(
+        question: question,
+        context: context
+      ).call
     end
 
     def initialize(question:, context:)
@@ -12,38 +15,62 @@ module Intelligence
     end
 
     def call
-      counts = @context[:counts] || {}
-      activity = @context[:activity] || {}
-      queues = @context[:queues] || {}
+      pipeline =
+        context[:pipeline] || {}
 
-      warnings = []
+      behaviors =
+        context[:actor_behaviors] || {}
 
-      if activity[:last_actor_label_at].present? &&
-         activity[:last_actor_label_at] < 6.hours.ago
-        warnings << "les Actor Labels semblent anciens"
-      end
+      labels =
+        context[:actor_labels] || {}
 
-      if activity[:last_actor_profile_at].present? &&
-         activity[:last_actor_label_at].present? &&
-         activity[:last_actor_label_at] < activity[:last_actor_profile_at]
-        warnings << "les Actor Labels sont en retard par rapport aux Actor Profiles"
-      end
+      version =
+        behaviors[:behavior_version].presence ||
+        pipeline[:required_behavior_version].presence ||
+        "inconnue"
 
-      warnings << "la queue actor_labels contient du backlog" if queues["actor_labels"].to_i > 100
+      answer =
+        +"ActorLabels est raccordé au pipeline strict via ActorBehavior."
 
-      if @context[:status].to_s == "healthy"
-        answer = +"Actor Labels fonctionne normalement. Les classifications économiques sont récentes."
+      answer <<
+        "\n\nSa source comportementale certifiée est ActorBehavior " \
+        "#{version}. Les règles ActorLabels ne lisent pas " \
+        "directement ActorProfile pour classifier."
+
+      if pipeline[:dependency_ready] == true || behaviors[:ready] == true
+        answer <<
+          "\n\nActorBehavior expose des snapshots certifiés. " \
+          "ActorLabels peut les traiter progressivement sans attendre " \
+          "100 % de couverture."
       else
-        answer = +"Actor Labels nécessite une surveillance : les classifications ne semblent pas à jour par rapport aux profils acteurs."
+        answer <<
+          "\n\nActorBehavior est encore en construction : " \
+          "#{behaviors[:snapshots_current].to_i} snapshots actuels, " \
+          "#{behaviors[:snapshots_missing].to_i} manquants, " \
+          "#{format('%.2f', behaviors[:coverage_percent].to_f)} % " \
+          "de couverture."
       end
 
-      answer << "\n\nDistribution actuelle : #{counts[:exchange_like].to_i} exchange-like, #{counts[:whale_like].to_i} whale-like, #{counts[:etf_like].to_i} ETF-like."
+      answer <<
+        "\n\nRègles comportementales actives : whale_like, " \
+        "whale_candidate, exchange_like, service_like et " \
+        "etf_candidate. etf_like reste une identité vérifiée " \
+        "séparément, retail_like reste désactivé."
 
-      answer << "\n\nPoint à surveiller : #{warnings.any? ? warnings.join(', ') : 'aucun signal critique immédiat'}."
+      answer <<
+        "\n\nLabels actuellement enregistrés : " \
+        "#{labels[:total].to_i}. Zéro label est un résultat valide " \
+        "si aucun snapshot ne satisfait les seuils certifiés."
 
-      answer << "\n\nAction recommandée : relancer ou vérifier le pipeline de rafraîchissement des labels depuis les Actor Profiles."
+      answer <<
+        "\n\nLe writer ne supprime que les labels de sa propre source : " \
+        "#{pipeline[:source] || 'actor_labels_from_behavior_strict_v2'}."
 
       answer
     end
+
+    private
+
+    attr_reader :question, :context
   end
 end

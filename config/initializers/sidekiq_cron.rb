@@ -1,18 +1,15 @@
 # frozen_string_literal: true
 
-require "sidekiq/cron/job"
-require Rails.root.join("lib/strict_pipeline/watchdog_schedule").to_s
+if !(defined?(Sidekiq) && Sidekiq.respond_to?(:server?) && Sidekiq.server?)
+  Rails.logger.info("[sidekiq_cron] skipped outside Sidekiq server") if defined?(Rails)
+elsif ENV["LAYER1_STRICT_ONLY"] == "1"
+  Rails.logger.info("[sidekiq_cron] disabled because LAYER1_STRICT_ONLY=1") if defined?(Rails)
+elsif ENV["SIDEKIQ_LEGACY_CRON"] != "1"
+  Rails.logger.info("[sidekiq_cron] disabled because SIDEKIQ_LEGACY_CRON!=1") if defined?(Rails)
+else
+  require "sidekiq/cron/job"
 
-if Sidekiq.server?
   schedule = {
-    "strict_pipeline_watchdog" => {
-      "cron" => StrictPipeline::WatchdogSchedule.cron,
-      "class" => "StrictPipeline::SchedulerWatchdogJob",
-      "queue" => "scheduler",
-      "active_job" => true,
-      "description" => "Repair bounded strict pipeline job chains"
-    },
-
     # ------------------------------------------------------------
     # BTC / MARKET - jobs légers, OK via Sidekiq cron
     # ------------------------------------------------------------
@@ -82,12 +79,7 @@ if Sidekiq.server?
       "description" => "Detect Cluster V3 signals"
     },
 
-    "system_snapshots_refresh" => {
-      "class" => "SystemSnapshotsRefreshJob",
-      "cron" => "*/5 * * * *",
-      "queue" => "low"
-    },
-
+    
     "search_refresh" => {
       "class" => "SearchRefreshJob",
       "cron" => "*/10 * * * *",
@@ -100,23 +92,16 @@ if Sidekiq.server?
       "queue" => "low"
     },
 
+
     "layer1_balance" => {
       "class" => "Layer1BalanceJob",
       "cron" => "*/1 * * * *",
       "queue" => "low"
     },
 
-    "layer1_orchestrator" => {
-      "class" => "Layer1::OrchestratorJob",
-      "cron" => "*/30 * * * * *",
-      "queue" => "process"
-    },
+    # "layer1_orchestrator" désactivé : pipeline strict uniquement
 
-    "cluster_input_orchestrator" => {
-      "class" => "Clusters::ClusterInputOrchestratorJob",
-      "cron" => "*/1 * * * *",
-      "queue" => "p3_clusters_scan"
-    },
+    # "cluster_input_orchestrator" désactivé : pipeline strict uniquement
 
     "economic_indicators_dollar" => {
       "cron" => "0 18 * * 1-5",
@@ -147,7 +132,7 @@ if Sidekiq.server?
       "class" => "EconomicIndicators::FetchNasdaqJob",
       "cron" => "25 18 * * 1-5",
       "queue" => "low"
-    }  
+    }
     # ------------------------------------------------------------
     # DÉSACTIVÉS ICI VOLONTAIREMENT
     # ------------------------------------------------------------
@@ -163,13 +148,6 @@ if Sidekiq.server?
     # Ces jobs sont trop lourds ou déjà pilotés par cron shell.
     # Les laisser ici provoque des backlogs Sidekiq massifs.
   }
-
-  legacy_cluster_input_orchestrator_enabled =
-    %w[1 true yes on].include?(
-      ENV["TANSA_LEGACY_CLUSTER_INPUT_ORCHESTRATOR_ENABLED"].to_s
-    )
-
-  schedule.delete("cluster_input_orchestrator") unless legacy_cluster_input_orchestrator_enabled
 
   Sidekiq::Cron::Job.load_from_hash!(schedule)
 end

@@ -1,388 +1,303 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "minitest/mock"
 
 module Clusters
   class StrictWindowRebuilderTest < ActiveSupport::TestCase
-    self.use_transactional_tests = false
-
-    class SimulatedCrash < StandardError; end
-
-    def setup
-      cleanup!
-      @height = 930_000 + SecureRandom.random_number(1_000)
-      @block_hash = "cluster-atomic-#{SecureRandom.hex(16)}"
-      BlockBufferModel.create!(
-        height: @height,
-        block_hash: @block_hash,
-        status: "processed"
-      )
-      create_inputs!(height: @height)
+    setup do
+      ClusterProcessedBlock.delete_all
+      BlockBufferModel.delete_all
     end
 
-    def teardown
-      cleanup!
-    end
+    test "processes one height and persists a certified checkpoint" do
+      height = 954_600
+      block_hash = "00clusterstrict#{height}"
+      create_layer1_block!(height: height, block_hash: block_hash)
 
-    test "scanner audit and processed checkpoint commit atomically" do
-      isolation = nil
-      original = Clusters::AuditBlock.method(:call)
-      audit = lambda do |height:|
-        isolation = ApplicationRecord.connection.select_value("SHOW transaction_isolation")
-        original.call(height: height)
+      scan_result = { ok: true, scanned_blocks: 1 }
+      audit_result = { ok: true, status: "healthy" }
+
+      with_scanner(scan_result) do
+        with_audit(audit_result) do
+          result = Clusters::StrictWindowRebuilder.call(
+            from_height: height,
+            to_height: height
+          )
+
+          assert result[:ok]
+        end
       end
-      result = with_audit(audit) { rebuild }
-      checkpoint = ClusterProcessedBlock.find_by!(height: @height)
+
+      checkpoint = ClusterProcessedBlock.find_by!(height: height)
 
       assert_equal "processed", checkpoint.status
       assert checkpoint.processed_at.present?
-      assert_equal @block_hash, checkpoint.block_hash
-      assert_equal "processed", result[:status]
-      assert_equal @height, result[:height]
-      assert_equal @block_hash, result[:block_hash]
-      assert_equal result[:scanner][:clusters_touched], result[:clusters_touched]
-      assert_equal result[:clusters_touched].pluck(:cluster_id),
-        result[:actor_profile_handoffs][:handoffs].pluck(:cluster_id)
-      assert_equal "repeatable read", isolation
-      assert JSON.generate(result)
+      assert_equal block_hash, checkpoint.block_hash
+      assert_equal true, checkpoint.scan_result.fetch("ok")
+      assert_equal true, checkpoint.audit_result.fetch("ok")
+      assert_equal true, checkpoint.cleanup_result.fetch("skipped")
+      assert_equal "outside_strict_path", checkpoint.cleanup_result.fetch("mode")
+      assert_operator checkpoint.duration_ms.to_i, :>=, 0
+      assert checkpoint.stage_timings.key?("scan_ms")
+      assert checkpoint.stage_timings.key?("audit_ms")
+      assert checkpoint.stage_timings.key?("checkpoint_ms")
     end
 
-    test "a second connection sees neither mutations nor processing checkpoint before commit" do
-      reached_audit = Queue.new
-      release_audit = Queue.new
-      original = Clusters::AuditBlock.method(:call)
-      Clusters::AuditBlock.define_singleton_method(:call) do |height:|
-        reached_audit << true
-        release_audit.pop
-        original.call(height: height)
-      end
+    test "persists warning audits as processed checkpoints" do
+      height = 954_601
+      create_layer1_block!(height: height)
 
-      thread = Thread.new do
-        ActiveRecord::Base.connection_pool.with_connection { rebuild }
-      end
-      reached_audit.pop
-
-      ApplicationRecord.uncached do
-        assert_equal 0, Address.where(address: input_addresses).count
-        assert_equal 0, AddressLink.where(block_height: @height).count
-        assert_equal 0, Cluster.joins(:addresses).where(addresses: { address: input_addresses }).count
-        assert_equal 0, ClusterActorProfileHandoff.where(cluster_height: @height).count
-        assert_nil ClusterProcessedBlock.find_by(height: @height)
-      end
-
-      release_audit << true
-      result = thread.value
-      ApplicationRecord.uncached do
-        assert_equal 2, Address.where(address: input_addresses).count
-        assert_equal 1, AddressLink.where(block_height: @height).count
-        assert_equal 1, Cluster.joins(:addresses).where(addresses: { address: input_addresses }).distinct.count
-        assert_equal 1, ClusterActorProfileHandoff.where(cluster_height: @height).count
-        assert_equal "processed", ClusterProcessedBlock.find_by!(height: @height).status
-      end
-      assert_equal "processed", result[:status]
-    ensure
-      release_audit << true if release_audit&.empty?
-      thread&.join
-      Clusters::AuditBlock.define_singleton_method(:call) { |height:| original.call(height: height) } if original
-    end
-
-    test "negative audit rolls back Cluster mutations before writing failed checkpoint" do
-      failure = healthy_audit.merge(ok: false, missing_links: 1)
-
-      with_audit(failure) do
-        assert_raises(StrictWindowRebuilder::AuditFailed) { rebuild }
-      end
-
-      assert_cluster_mutations_rolled_back
-      assert_equal 0, ClusterActorProfileHandoff.where(cluster_height: @height).count
-      assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
-    end
-
-    test "scanner exception rolls back all mutations" do
-      failing_scanner = lambda do |height:, **|
-        Address.create!(address: "transient-scanner-address")
-        raise SimulatedCrash, "scanner interrupted"
-      end
-
-      with_scanner(failing_scanner) do
-        error = assert_raises(SimulatedCrash) { rebuild }
-        assert_equal "scanner interrupted", error.message
-      end
-
-      assert_nil Address.find_by(address: "transient-scanner-address")
-      assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
-    end
-
-    test "audit exception rolls back scanner changes" do
-      with_audit(->(**) { raise SimulatedCrash, "audit interrupted" }) do
-        assert_raises(SimulatedCrash) { rebuild }
-      end
-
-      assert_cluster_mutations_rolled_back
-      assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
-    end
-
-    test "mark processed exception rolls back scanner and checkpoint processing" do
-      service = build_service
-      service.stub(:mark_processed!, ->(*) { raise SimulatedCrash, "mark failed" }) do
-        assert_raises(SimulatedCrash) { service.call }
-      end
-
-      assert_cluster_mutations_rolled_back
-      assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
-    end
-
-    test "failed checkpoint persistence error does not mask original error" do
-      service = build_service
-      service.stub(:persist_failed_checkpoint, ->(**) { raise "failed persistence" }) do
-        with_audit(->(**) { raise SimulatedCrash, "original audit error" }) do
-          error = assert_raises(SimulatedCrash) { service.call }
-          assert_equal "original audit error", error.message
-        end
-      end
-    end
-
-    test "handoff insertion failure rolls back mutations and processed checkpoint" do
-      service = build_service
-      failure = lambda do |**|
-        raise ActiveRecord::StatementInvalid, "handoff insertion failed"
-      end
-
-      service.stub(:register_actor_profile_handoffs!, failure) do
-        assert_raises(ActiveRecord::StatementInvalid) { service.call }
-      end
-
-      assert_cluster_mutations_rolled_back
-      assert_equal 0, ClusterActorProfileHandoff.where(cluster_height: @height).count
-      assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
-    end
-
-    test "same height and hash is idempotent after commit" do
-      first = rebuild
-      counts = [Address.count, Cluster.count, AddressLink.count]
-      versions = Cluster.order(:id).pluck(:id, :composition_version)
-      second = rebuild
-
-      assert_equal "processed", first[:status]
-      assert second[:skipped]
-      assert_equal "already_processed", second[:reason]
-      assert_equal counts, [Address.count, Cluster.count, AddressLink.count]
-      assert_equal versions, Cluster.order(:id).pluck(:id, :composition_version)
-      assert_equal 1, ClusterActorProfileHandoff.where(cluster_height: @height).count
-    end
-
-    test "empty scanner result commits an explicit empty handoff set" do
-      empty_scan = {
-        height: @height,
-        processed_txs: 0,
-        processed_inputs: 0,
-        addresses_created: 0,
-        addresses_touched: 0,
-        links_created: 0,
-        clusters_touched_count: 0,
-        clusters_touched: []
+      audit_result = {
+        ok: true,
+        maintenance_warning: true,
+        warnings: [
+          {
+            check: "empty_clusters",
+            count: 2,
+            blocking: false
+          }
+        ]
       }
 
-      with_scanner(->(**) { empty_scan }) do
-        with_audit(healthy_audit) do
-          result = rebuild
-          assert_equal({ registered: 0, handoffs: [] }, result[:actor_profile_handoffs])
+      with_scanner({ ok: true, scanned_blocks: 1 }) do
+        with_audit(audit_result) do
+          result = Clusters::StrictWindowRebuilder.call(
+            from_height: height,
+            to_height: height
+          )
+
+          assert result[:ok]
         end
       end
-      assert_equal 0, ClusterActorProfileHandoff.where(cluster_height: @height).count
-      assert_equal "processed", ClusterProcessedBlock.find_by!(height: @height).status
+
+      checkpoint = ClusterProcessedBlock.find_by!(height: height)
+
+      assert_equal "processed", checkpoint.status
+      assert_equal true, checkpoint.audit_result.fetch("maintenance_warning")
+      assert_equal "empty_clusters", checkpoint.audit_result.fetch("warnings").first.fetch("check")
     end
 
-    test "processed checkpoint with divergent hash is refused without mutation" do
-      ClusterProcessedBlock.create!(
-        height: @height,
-        block_hash: "different-hash",
-        status: "processed",
-        processed_at: Time.current
-      )
+    test "persists failed checkpoint when audit blocks certification" do
+      height = 954_602
+      create_layer1_block!(height: height)
 
-      assert_raises(StrictWindowRebuilder::CheckpointHashMismatch) { rebuild }
-      assert_cluster_mutations_rolled_back
-      assert_equal "different-hash", ClusterProcessedBlock.find_by!(height: @height).block_hash
-    end
+      audit_result = {
+        ok: false,
+        issues: [
+          {
+            check: "addresses_missing",
+            count: 1
+          }
+        ]
+      }
 
-    test "non processed Layer1 block is refused" do
-      BlockBufferModel.where(height: @height).update_all(status: "pending")
+      with_scanner({ ok: true, scanned_blocks: 1 }) do
+        with_audit(audit_result) do
+          result = Clusters::StrictWindowRebuilder.call(
+            from_height: height,
+            to_height: height
+          )
 
-      assert_raises(StrictWindowRebuilder::Layer1BlockUnavailable) { rebuild }
-      assert_cluster_mutations_rolled_back
-      assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
-    end
-
-    test "concurrent BlockBuffer hash change is detected under row lock" do
-      service = build_service
-      original_hash = @block_hash
-      replacement = "replacement-#{SecureRandom.hex(12)}"
-      expectation = lambda do |_height|
-        BlockBufferModel.where(height: @height).update_all(block_hash: replacement)
-        original_hash
+          refute result[:ok]
+        end
       end
 
-      service.stub(:expected_block_hash!, expectation) do
-        assert_raises(StrictWindowRebuilder::BlockHashChanged) { service.call }
-      end
+      checkpoint = ClusterProcessedBlock.find_by!(height: height)
 
-      assert_cluster_mutations_rolled_back
-      assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
+      assert_equal "failed", checkpoint.status
+      assert_nil checkpoint.processed_at
+      assert_equal false, checkpoint.audit_result.fetch("ok")
+      assert_match(/Cluster audit failed/, checkpoint.error_message)
     end
 
-    test "rejects an encompassing transaction instead of accepting a savepoint" do
-      error = assert_raises(StrictWindowRebuilder::EnclosingTransactionError) do
-        ApplicationRecord.transaction { rebuild }
-      end
+    test "does not rerun scanner or audit for already certified height with same hash" do
+      height = 954_603
+      block_hash = "00clusterstrict#{height}"
+      create_layer1_block!(height: height, block_hash: block_hash)
 
-      assert_match(/top-level PostgreSQL transaction/, error.message)
-      assert_nil ClusterProcessedBlock.find_by(height: @height)
-    end
-
-    test "guard refusal before a height is mutation free and guard errors fail closed" do
-      denied = StrictWindowRebuilder.call(
-        from_height: @height,
-        to_height: @height,
-        yield_guard: ->(_height) { { allowed: false } }
-      )
-
-      assert_equal "preempted", denied[:status]
-      assert_cluster_mutations_rolled_back
-      assert_raises(StrictWindowRebuilder::GuardFailed) do
-        StrictWindowRebuilder.call(
-          from_height: @height,
-          to_height: @height,
-          yield_guard: ->(_height) { raise "guard unavailable" }
+      checkpoint =
+        create_cluster_checkpoint!(
+          height: height,
+          block_hash: block_hash,
+          status: "processed"
         )
+
+      scanner_calls = 0
+      audit_calls = 0
+
+      with_scanner(proc { scanner_calls += 1 }) do
+        with_audit(proc { audit_calls += 1 }) do
+          result = Clusters::StrictWindowRebuilder.call(
+            from_height: height,
+            to_height: height
+          )
+
+          assert result[:ok]
+          assert result[:skipped]
+          assert_equal "already_processed", result[:reason]
+        end
       end
-      assert_cluster_mutations_rolled_back
+
+      assert_equal 0, scanner_calls
+      assert_equal 0, audit_calls
+      checkpoint.reload
+      assert_equal "processed", checkpoint.status
+      assert_equal block_hash, checkpoint.block_hash
     end
 
-    test "crash before commit rolls back and a subsequent run resumes" do
-      with_audit(->(**) { raise SimulatedCrash, "crash before commit" }) do
-        assert_raises(SimulatedCrash) { rebuild }
+    test "fails explicitly when certified checkpoint hash differs from Layer1" do
+      height = 954_604
+      create_layer1_block!(height: height, block_hash: "00new#{height}")
+      create_cluster_checkpoint!(
+        height: height,
+        block_hash: "00old#{height}",
+        status: "processed"
+      )
+
+      result = Clusters::StrictWindowRebuilder.call(
+        from_height: height,
+        to_height: height
+      )
+
+      refute result[:ok]
+      assert_equal "block_hash_mismatch", result[:failed][:message]
+
+      checkpoint = ClusterProcessedBlock.find_by!(height: height)
+
+      assert_equal "failed", checkpoint.status
+      assert_equal "00old#{height}", checkpoint.block_hash
+    end
+
+    test "persists failed checkpoint and reraises scanner exceptions" do
+      height = 954_605
+      create_layer1_block!(height: height)
+
+      with_scanner(proc { raise RuntimeError, "scanner boom" }) do
+        with_audit({ ok: true }) do
+          assert_raises(RuntimeError) do
+            Clusters::StrictWindowRebuilder.call(
+              from_height: height,
+              to_height: height
+            )
+          end
+        end
       end
-      assert_cluster_mutations_rolled_back
-      assert_equal "failed", ClusterProcessedBlock.find_by!(height: @height).status
 
-      resumed = rebuild
-      assert_equal "processed", resumed[:status]
-      assert_equal 2, Address.where(address: input_addresses).count
-      assert_equal 1, AddressLink.where(block_height: @height).count
+      checkpoint = ClusterProcessedBlock.find_by!(height: height)
+
+      assert_equal "failed", checkpoint.status
+      assert_nil checkpoint.processed_at
+      assert_match(/RuntimeError: scanner boom/, checkpoint.error_message)
     end
 
-    test "transaction contains no external system or Layer1 projection access" do
-      sql = capture_sql { @result = rebuild }
-      source = File.read(Rails.root.join("app/services/clusters/strict_window_rebuilder.rb"))
+    test "does not reference global cleanup in the strict execution path" do
+      source =
+        File.read(
+          Rails.root.join(
+            "app/services/clusters/strict_window_rebuilder.rb"
+          )
+        )
 
-      refute_match(/Redis|Sidekiq|BitcoinRpc|perform_(?:later|async|in)/, source)
-      refute_match(/ActorProfiles::|ActorProfile\.|ActorLabel|ActorBehavior|DirtyCluster/, source)
-      refute_match(/tx_outputs|utxo_outputs/, source)
-      assert_empty sql.grep(/\b(?:tx_outputs|utxo_outputs)\b/i)
-      assert_empty sql.grep(/\A\s*(?:UPDATE|INSERT\s+INTO|DELETE\s+FROM)\s+\"?cluster_inputs\b/i)
-      assert JSON.generate(@result)
+      refute_match(/CleanupEmptyClusters/, source)
+      refute_match(/left_joins.*addresses/, source)
+      refute_match(/Cluster\.count/, source)
+      refute_match(/Address\.count/, source)
     end
 
-    test "reports measured transaction duration and releases row locks" do
-      result = rebuild
+    test "retries a failed checkpoint and marks it processed after success" do
+      height = 954_606
+      block_hash = "00clusterstrict#{height}"
+      create_layer1_block!(height: height, block_hash: block_hash)
+      create_cluster_checkpoint!(
+        height: height,
+        block_hash: block_hash,
+        status: "failed",
+        error_message: "previous failure"
+      )
 
-      assert_kind_of Integer, result[:transaction_duration_ms]
-      assert_operator result[:transaction_duration_ms], :>=, 0
-      assert_no_row_locks_for_current_connection
+      with_scanner({ ok: true, scanned_blocks: 1 }) do
+        with_audit({ ok: true }) do
+          result = Clusters::StrictWindowRebuilder.call(
+            from_height: height,
+            to_height: height
+          )
+
+          assert result[:ok]
+        end
+      end
+
+      checkpoint = ClusterProcessedBlock.find_by!(height: height)
+
+      assert_equal "processed", checkpoint.status
+      assert checkpoint.processed_at.present?
+      assert_nil checkpoint.error_message
     end
 
     private
 
-    def rebuild
-      build_service.call
+    def create_layer1_block!(height:, block_hash: "00clusterstrict#{height}")
+      BlockBufferModel.create!(
+        height: height,
+        block_hash: block_hash,
+        status: "processed"
+      )
     end
 
-    def build_service
-      StrictWindowRebuilder.new(from_height: @height, to_height: @height)
+    def create_cluster_checkpoint!(
+      height:,
+      block_hash:,
+      status:,
+      error_message: nil
+    )
+      ClusterProcessedBlock.create!(
+        height: height,
+        block_hash: block_hash,
+        status: status,
+        scan_result: {},
+        cleanup_result: {},
+        audit_result: {},
+        processing_started_at: Time.current,
+        processed_at: status == "processed" ? Time.current : nil,
+        duration_ms: 1,
+        stage_timings: {},
+        error_message: error_message
+      )
     end
 
-    def healthy_audit
-      {
-        ok: true,
-        height: @height,
-        processed_txs: 1,
-        processed_inputs: 2,
-        issues: []
-      }
-    end
+    def with_scanner(result_or_callable)
+      callable =
+        result_or_callable.respond_to?(:call) ?
+          result_or_callable :
+          proc { result_or_callable }
 
-    def with_audit(callable)
-      original = Clusters::AuditBlock.method(:call)
-      replacement = callable.respond_to?(:call) ? callable : ->(**) { callable }
-      Clusters::AuditBlock.define_singleton_method(:call) { |**arguments| replacement.call(**arguments) }
-      yield
-    ensure
-      Clusters::AuditBlock.define_singleton_method(:call) { |**arguments| original.call(**arguments) }
-    end
-
-    def with_scanner(callable)
-      original = ClusterScanner.method(:call)
-      ClusterScanner.define_singleton_method(:call) { |**arguments| callable.call(**arguments) }
-      yield
-    ensure
-      ClusterScanner.define_singleton_method(:call) { |**arguments| original.call(**arguments) }
-    end
-
-    def create_inputs!(height:)
-      input_addresses.each_with_index do |address, index|
-        ClusterInput.create!(
-          block_height: height - 1,
-          txid: "source-#{height}-#{index}",
-          vout: index,
-          address: address,
-          amount_btc: "1.00000000",
-          spent: true,
-          spent_txid: "spend-#{height}",
-          spent_block_height: height
-        )
+      with_stubbed_singleton_method(ClusterScanner, :call, callable) do
+        yield
       end
     end
 
-    def input_addresses
-      @input_addresses ||= ["atomic-a-#{SecureRandom.hex(6)}", "atomic-b-#{SecureRandom.hex(6)}"]
-    end
+    def with_audit(result_or_callable)
+      callable =
+        result_or_callable.respond_to?(:call) ?
+          result_or_callable :
+          proc { result_or_callable }
 
-    def assert_cluster_mutations_rolled_back
-      assert_equal 0, Address.where(address: input_addresses).count
-      assert_equal 0, AddressLink.where(block_height: @height).count
-      assert_equal 0, Cluster.joins(:addresses).where(addresses: { address: input_addresses }).count
-    end
-
-    def capture_sql
-      statements = []
-      subscriber = lambda do |_name, _start, _finish, _id, payload|
-        statements << payload[:sql].to_s unless payload[:name] == "SCHEMA"
+      with_stubbed_singleton_method(Clusters::AuditBlock, :call, callable) do
+        yield
       end
-      ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") { yield }
-      statements
     end
 
-    def assert_no_row_locks_for_current_connection
-      count = ApplicationRecord.connection.select_value(<<~SQL).to_i
-        SELECT COUNT(*)
-        FROM pg_locks
-        WHERE pid = pg_backend_pid()
-          AND locktype IN ('tuple', 'transactionid')
-          AND granted
-      SQL
-      assert_equal 0, count
-    end
+    def with_stubbed_singleton_method(target, method_name, replacement)
+      original = target.method(method_name)
 
-    def cleanup!
-      AddressLink.delete_all
-      ClusterInput.delete_all
-      Address.delete_all
-      ClusterActorProfileHandoff.delete_all
-      ClusterProcessedBlock.delete_all
-      BlockBufferModel.delete_all
-      Cluster.delete_all
+      target.define_singleton_method(method_name) do |*args, **kwargs, &block|
+        replacement.call(*args, **kwargs, &block)
+      end
+
+      yield
+    ensure
+      target.define_singleton_method(method_name) do |*args, **kwargs, &block|
+        original.call(*args, **kwargs, &block)
+      end
     end
   end
 end

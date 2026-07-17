@@ -68,7 +68,6 @@ module Layer1
           projected_outputs_value_btc: projected_outputs_value_btc,
           rows_inserted: rows_inserted,
           rows_skipped: rows_skipped,
-          attempts: 0,
           duration_ms: @projection_block.duration_ms.to_i + duration_ms,
           completed_at: Time.current,
           last_error: nil,
@@ -95,7 +94,6 @@ module Layer1
 
         @projection_block.update_columns(
           status: "failed",
-          attempts: @projection_block.attempts.to_i + 1,
           duration_ms: @projection_block.duration_ms.to_i + duration_ms,
           last_attempt_at: Time.current,
           last_error: "#{e.class}: #{e.message}".first(2_000),
@@ -115,7 +113,8 @@ module Layer1
       def mark_processing!
         @projection_block.update!(
           status: "processing",
-          started_at: @projection_block.started_at || Time.current,
+          attempts: @projection_block.attempts.to_i + 1,
+          started_at: Time.current,
           last_attempt_at: Time.current,
           completed_at: nil,
           last_error: nil

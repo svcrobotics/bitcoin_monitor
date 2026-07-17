@@ -1,187 +1,656 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require "minitest/mock"
 
 module ActorProfiles
-  class OperationalSnapshotTest < ActiveSupport::TestCase
+  class OperationalSnapshotTest <
+    ActiveSupport::TestCase
+
+    self.use_transactional_tests = false
+
     def setup
-      @now = Time.zone.parse("2026-07-16 12:00:00")
-      @runtime = {
-        available: true,
-        queue_size: 0,
-        queue_latency_seconds: 0.0,
-        scheduled_jobs: 1,
-        worker_count: 1,
-        busy_workers: 0
+      cleanup_records
+      clear_cache
+    end
+
+    def teardown
+      clear_cache
+      cleanup_records
+    end
+
+    test "reports inactive epoch without historical backlog" do
+      snapshot =
+        OperationalSnapshot.refresh!
+
+      assert_equal(
+        "inactive",
+        snapshot[:status]
+      )
+
+      assert_equal(
+        false,
+        snapshot.dig(
+          :certification,
+          :epoch_active
+        )
+      )
+
+      assert_equal(
+        0,
+        snapshot.dig(
+          :progress,
+          :pending_profiles
+        )
+      )
+
+      assert_equal(
+        0,
+        snapshot.dig(
+          :progress,
+          :pending_profiles_since_epoch
+        )
+      )
+
+      assert_equal(
+        "inactive",
+        snapshot.dig(
+          :activity,
+          :pipeline_state
+        )
+      )
+
+      assert_equal(
+        "certification_epoch_inactive",
+        snapshot.dig(
+          :activity,
+          :wait_reason
+        )
+      )
+    end
+
+    test "refresh from batch counts only active epoch scope" do
+      epoch =
+        ActorProfileCertificationEpoch.create!(
+          profile_version:
+            StrictBuildFromCluster::
+              PROFILE_VERSION,
+
+          start_height:
+            100,
+
+          activated_at:
+            Time.current,
+
+          source:
+            ActorProfileCertificationEpoch::
+              SOURCE_CLUSTER_STRICT_CHECKPOINT,
+
+          metadata: {}
+        )
+
+      create_cluster(
+        last_seen_height: 99
+      )
+
+      create_cluster(
+        last_seen_height: 100
+      )
+
+      create_cluster(
+        last_seen_height: 101
+      )
+
+      snapshot =
+        OperationalSnapshot.refresh_from_batch(
+          status:
+            "completed",
+
+          actor_profiles_count:
+            1,
+
+          missing_profiles_count:
+            1,
+
+          stale_profiles_count:
+            0,
+
+          layer1_tip:
+            101,
+
+          cluster_tip:
+            101,
+
+          selected:
+            1,
+
+          built:
+            1,
+
+          deferred:
+            0,
+
+          failed:
+            0,
+
+          duration_ms:
+            10,
+
+          avg_runtime_ms:
+            10,
+
+          selection_ms:
+            1,
+
+          build_loop_ms:
+            8,
+
+          counts_ms:
+            1,
+
+          successful_runtime_ms:
+            8,
+
+          deferred_or_overhead_runtime_ms:
+            0,
+
+          unattributed_runtime_ms:
+            0
+        )
+
+      assert_equal(
+        true,
+        snapshot.dig(
+          :certification,
+          :epoch_active
+        )
+      )
+
+      assert_equal(
+        epoch.start_height,
+        snapshot.dig(
+          :certification,
+          :certification_epoch_height
+        )
+      )
+
+      assert_equal(
+        2,
+        snapshot.dig(
+          :progress,
+          :active_clusters_since_epoch
+        )
+      )
+
+      assert_equal(
+        1,
+        snapshot.dig(
+          :progress,
+          :historical_clusters_outside_epoch
+        )
+      )
+
+      assert_equal(
+        1,
+        snapshot.dig(
+          :progress,
+          :certified_profiles_since_epoch
+        )
+      )
+
+      assert_equal(
+        1,
+        snapshot.dig(
+          :progress,
+          :pending_profiles_since_epoch
+        )
+      )
+
+      assert_equal(
+        50.0,
+        snapshot.dig(
+          :progress,
+          :completion_pct
+        )
+      )
+    end
+
+    test "read reports automation missing when cached wait reason says backlog empty but backlog is positive" do
+      cached = {
+        module:
+          "actor_profiles_strict",
+        source:
+          "actor_profiles_operational_snapshot",
+        available:
+          true,
+        generated_at:
+          Time.current,
+        status:
+          "healthy",
+        progress: {
+          pending_profiles:
+            81_127,
+          pending_profiles_since_epoch:
+            81_127
+        },
+        certification: {
+          epoch_active:
+            true,
+          certification_epoch_height:
+            957_815
+        },
+        activity: {
+          pipeline_state:
+            "idle_synced",
+          wait_reason:
+            "backlog_empty"
+        },
+        issues:
+          []
       }
-    end
 
-    test "reports canonical certified missing stale and AddressSpend metrics" do
-      certified_cluster = create_cluster(version: 2)
-      stale_cluster = create_cluster(version: 3)
-      create_cluster(version: 1)
-      create_profile(certified_cluster, version: 2, certified_at: @now - 5.minutes)
-      create_profile(stale_cluster, version: 2, certified_at: @now - 2.hours)
-      create_checkpoints(height: 100)
-
-      snapshot = snapshot()
-
-      assert_equal 3, snapshot.dig(:profiles, :total_clusters)
-      assert_equal 2, snapshot.dig(:profiles, :present)
-      assert_equal 1, snapshot.dig(:profiles, :certified)
-      assert_equal 1, snapshot.dig(:profiles, :missing)
-      assert_equal 1, snapshot.dig(:profiles, :stale)
-      assert_equal 33.33, snapshot.dig(:profiles, :coverage_pct)
-      assert_equal 1, snapshot.dig(:profiles, :certified_last_10m)
-      assert_equal 100, snapshot.dig(:address_spend, :tip)
-      assert_equal 0, snapshot.dig(:address_spend, :lag)
-      assert JSON.generate(snapshot)
-    end
-
-    test "detects admissible backlog without automation" do
-      cluster = create_cluster(version: 1)
-      create_checkpoints(height: 101)
-      create_handoff(cluster, height: 101)
-      runtime = @runtime.merge(scheduled_jobs: 0, worker_count: 0)
-
-      result = snapshot(sidekiq_runtime: runtime)
-
-      assert_equal 1, result.dig(:handoffs, :admissible)
-      assert_equal true, result.dig(:automation, :automation_missing)
-      assert_includes result[:issues], "automation_missing"
-    end
-
-    test "does not report automation missing when AddressSpend is behind" do
-      cluster = create_cluster(version: 1)
-      ClusterProcessedBlock.create!(height: 102, block_hash: "cluster-102", status: "processed", processed_at: @now)
-      create_handoff(cluster, height: 102, block_hash: "cluster-102")
-
-      result = snapshot(sidekiq_runtime: @runtime.merge(scheduled_jobs: 0, worker_count: 0))
-
-      assert_equal 0, result.dig(:handoffs, :admissible)
-      assert_equal false, result.dig(:automation, :automation_missing)
-    end
-
-    test "Sidekiq unavailable remains unavailable without false zeros" do
-      result = snapshot(sidekiq_runtime: { available: false })
-
-      assert_equal "unavailable", result[:status]
-      assert_equal false, result.dig(:automation, :available)
-      assert_nil result.dig(:automation, :queue_size)
-      assert_nil result.dig(:automation, :worker_count)
-      assert_equal false, result.dig(:automation, :automation_missing)
-    end
-
-    test "stale failed and processing handoffs remain distinct" do
-      cluster = create_cluster(version: 1)
-      create_checkpoints(height: 103)
-      failed = create_handoff(cluster, height: 103)
-      failed.update!(status: "processing", claimed_at: @now - 1.hour)
-      failed.update!(status: "failed", last_error_class: "Failure")
-      processing = create_handoff(cluster, height: 103, version: 2)
-      processing.update!(status: "processing", claimed_at: @now - 1.hour)
-
-      result = snapshot()
-
-      assert_equal 1, result.dig(:handoffs, :failed)
-      assert_equal 1, result.dig(:handoffs, :processing)
-      assert_equal 1, result.dig(:handoffs, :stale)
-    end
-
-    test "pipeline refusal is observable without controlling the data truth" do
-      result = snapshot(pipeline_decision: { allowed: false })
-
-      assert_equal false, result.dig(:admission, :allowed)
-      assert_includes result[:issues], "pipeline_controller_refused"
-    end
-
-    test "PipelineController derives ActorProfile work from admissible PostgreSQL handoffs" do
-      source = {
-        available: true,
-        profiles: { latest_height: 100 },
-        handoffs: { admissible: 2, processing: 0, failed: 0 },
-        automation: { queue_size: 0, busy_workers: 0 }
-      }
-
-      ActorProfiles::OperationalSnapshot.stub(:read, source) do
-        result = System::PipelineController.actor_profile_snapshot(cluster_processed: 100)
-        assert_equal 2, result[:pending_work]
-        assert_equal true, result[:checkpoint_available]
-        assert_equal false, result[:caught_up_to_cluster]
+      Sidekiq.redis do |redis|
+        redis.set(
+          OperationalSnapshot::CACHE_KEY,
+          ActiveSupport::JSON.encode(cached)
+        )
       end
-    end
 
-    test "database failure is unavailable and metrics are nil" do
-      service = StrictHealthSnapshot.new(now: @now, sidekiq_runtime: @runtime, pipeline_decision: nil)
-      service.stub(:database_snapshot, -> { raise ActiveRecord::StatementInvalid, "unavailable" }) do
-        result = service.call
-        assert_equal "unavailable", result[:status]
-        assert_equal false, result[:available]
-        assert_nil result.dig(:profiles, :certified)
-        assert_nil result.dig(:handoffs, :pending)
+      snapshot = OperationalSnapshot.new
+
+      snapshot.define_singleton_method(:runtime_snapshot) do
+        {
+          process_present: true,
+          process_count: 1,
+          busy_workers: 0,
+          queue_size: 0,
+          scheduled_jobs: 0,
+          retries: 0,
+          dead_jobs: 0,
+          lock_ttl: -2,
+          schedule_marker_ttl: -2
+        }
       end
+
+      snapshot.define_singleton_method(:address_spend_snapshot) do
+        {
+          available: true,
+          sync: {
+            caught_up_to_cluster: true
+          }
+        }
+      end
+
+      result =
+        snapshot.read
+
+      assert_equal(
+        "automation_missing",
+        result.dig(
+          :activity,
+          :pipeline_state
+        )
+      )
+
+      assert_equal(
+        "automation_missing",
+        result.dig(
+          :activity,
+          :wait_reason
+        )
+      )
+
+      assert_includes(
+        result[:issues],
+        "automation_missing"
+      )
     end
 
-    test "snapshot SQL is read-only and never references Redis admission" do
-      sql = capture_sql { @result = snapshot() }
-      mutations = sql.grep(/\A\s*(?:INSERT|UPDATE|DELETE)\b/i)
-      source = File.read(Rails.root.join("app/services/actor_profiles/strict_health_snapshot.rb"))
+    test "missing cache keeps inactive epoch explicit" do
+      snapshot =
+        operational_snapshot_with(
+          address_spend: {
+            available: true,
+            sync: {
+              caught_up_to_cluster: true
+            }
+          }
+        ).read
 
-      assert_empty mutations
-      assert_no_match(/DirtyMarker|DirtyClusterQueue|StrictBatchJob/, source)
-      assert JSON.generate(@result)
+      assert_equal(
+        false,
+        snapshot.dig(
+          :certification,
+          :epoch_active
+        )
+      )
+
+      assert_equal(
+        0,
+        snapshot.dig(
+          :progress,
+          :pending_profiles_since_epoch
+        )
+      )
+
+      assert_equal(
+        "inactive",
+        snapshot.dig(
+          :activity,
+          :pipeline_state
+        )
+      )
+
+      assert_equal(
+        "certification_epoch_inactive",
+        snapshot.dig(
+          :activity,
+          :wait_reason
+        )
+      )
+    end
+
+    test "missing cache and active epoch wait for address spend while preserving positive backlog" do
+      create_tips(height: 120)
+      create_epoch(start_height: 100)
+      create_cluster(last_seen_height: 120)
+
+      snapshot =
+        operational_snapshot_with(
+          address_spend: {
+            available: true,
+            sync: {
+              caught_up_to_cluster: false
+            }
+          }
+        ).read
+
+      assert_equal(
+        true,
+        snapshot.dig(
+          :certification,
+          :epoch_active
+        )
+      )
+
+      assert_operator(
+        snapshot.dig(
+          :progress,
+          :pending_profiles_since_epoch
+        ),
+        :>,
+        0
+      )
+
+      assert_equal(
+        "waiting_for_address_spend",
+        snapshot.dig(
+          :activity,
+          :pipeline_state
+        )
+      )
+
+      assert_equal(
+        "address_spend_projection_not_ready",
+        snapshot.dig(
+          :activity,
+          :wait_reason
+        )
+      )
+    end
+
+    test "missing cache and ready projection expose positive backlog to pipeline controller" do
+      create_tips(height: 120)
+      create_epoch(start_height: 100)
+      create_cluster(last_seen_height: 120)
+
+      snapshot =
+        operational_snapshot_with(
+          address_spend: {
+            available: true,
+            sync: {
+              caught_up_to_cluster: true
+            }
+          }
+        ).read
+
+      assert_operator(
+        snapshot.dig(
+          :progress,
+          :pending_profiles_since_epoch
+        ),
+        :>,
+        0
+      )
+
+      assert_equal(
+        "automation_missing",
+        snapshot.dig(
+          :activity,
+          :pipeline_state
+        )
+      )
+
+      actor_profile =
+        with_stubbed(
+          OperationalSnapshot,
+          :read,
+          snapshot
+        ) do
+          System::PipelineController.send(
+            :actor_profile_snapshot,
+            cluster_processed: 120
+          )
+        end
+
+      assert_operator(
+        actor_profile[:pending_work],
+        :>,
+        0
+      )
+
+      assert_equal true,
+                   actor_profile[
+                     :checkpoint_available
+                   ]
+    end
+
+    test "missing cache and ready projection keep empty backlog empty" do
+      create_tips(height: 120)
+      create_epoch(start_height: 100)
+      cluster =
+        create_cluster(last_seen_height: 120)
+      create_certified_profile(
+        cluster,
+        height: 120,
+        epoch_height: 100
+      )
+
+      snapshot =
+        operational_snapshot_with(
+          address_spend: {
+            available: true,
+            sync: {
+              caught_up_to_cluster: true
+            }
+          }
+        ).read
+
+      assert_equal(
+        0,
+        snapshot.dig(
+          :progress,
+          :pending_profiles_since_epoch
+        )
+      )
+
+      assert_equal(
+        "idle_synced",
+        snapshot.dig(
+          :activity,
+          :pipeline_state
+        )
+      )
     end
 
     private
 
-    def snapshot(**options)
-      OperationalSnapshot.call(
-        now: @now,
-        sidekiq_runtime: @runtime,
-        **options
+    def operational_snapshot_with(address_spend:)
+      snapshot =
+        OperationalSnapshot.new
+
+      snapshot.define_singleton_method(:runtime_snapshot) do
+        {
+          process_present: true,
+          process_count: 1,
+          busy_workers: 0,
+          queue_size: 0,
+          scheduled_jobs: 0,
+          retries: 0,
+          dead_jobs: 0,
+          lock_ttl: -2,
+          schedule_marker_ttl: -2
+        }
+      end
+
+      snapshot.define_singleton_method(:address_spend_snapshot) do
+        address_spend
+      end
+
+      snapshot
+    end
+
+    def create_tips(height:)
+      BlockBufferModel.create!(
+        height: height,
+        block_hash:
+          unique_hash("layer1"),
+        status: "processed",
+        processed_at: Time.current
+      )
+
+      ClusterProcessedBlock.create!(
+        height: height,
+        block_hash:
+          unique_hash("cluster"),
+        status: "processed",
+        processed_at: Time.current
       )
     end
 
-    def create_cluster(version:)
-      Cluster.create!(composition_version: version, first_seen_height: 1, last_seen_height: 100)
+    def create_epoch(start_height:)
+      ActorProfileCertificationEpoch.create!(
+        profile_version:
+          StrictBuildFromCluster::
+            PROFILE_VERSION,
+        start_height: start_height,
+        activated_at: Time.current,
+        source:
+          ActorProfileCertificationEpoch::
+            SOURCE_CLUSTER_STRICT_CHECKPOINT,
+        metadata: {}
+      )
     end
 
-    def create_profile(cluster, version:, certified_at:)
+    def create_cluster(last_seen_height:)
+      Cluster.create!(
+        address_count:
+          2,
+
+        first_seen_height:
+          last_seen_height - 10,
+
+        last_seen_height:
+          last_seen_height,
+
+        composition_version:
+          1
+      )
+    end
+
+    def create_certified_profile(
+      cluster,
+      height:,
+      epoch_height:
+    )
       ActorProfile.create!(
         cluster: cluster,
-        cluster_composition_version: version,
-        last_computed_height: 100,
-        certification_epoch_height: 100,
-        certification_scope: "strict",
-        certified_at: certified_at,
+        balance_btc: "1.0",
+        total_received_btc: "1.0",
+        total_sent_btc: "0.0",
+        net_btc: "1.0",
+        tx_count: 1,
+        inflow_count: 1,
+        outflow_count: 0,
         dirty: false,
-        traits: { profile_version: StrictBuildFromCluster::PROFILE_VERSION },
-        metadata: { strict: true, runtime_ms: 10 }
+        last_computed_height: height,
+        cluster_composition_version:
+          cluster.composition_version,
+        certification_epoch_height:
+          epoch_height,
+        certification_scope:
+          ActorProfile::
+            CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH,
+        certified_at: Time.current,
+        traits: {
+          "profile_version" =>
+            StrictBuildFromCluster::
+              PROFILE_VERSION
+        },
+        metadata: {
+          "strict" => true
+        }
       )
     end
 
-    def create_checkpoints(height:)
-      hash = "cluster-#{height}"
-      ClusterProcessedBlock.create!(height: height, block_hash: hash, status: "processed", processed_at: @now)
-      AddressSpendProjectionBlock.create!(height: height, block_hash: hash, status: "completed", completed_at: @now)
-    end
-
-    def create_handoff(cluster, height:, block_hash: nil, version: 1)
-      ActorProfileBuildAdmission.create!(
-        cluster: cluster,
-        source_height: height,
-        source_hash: block_hash || "cluster-#{height}",
-        cluster_composition_version: version,
-        reason: "address_spend"
+    def unique_hash(prefix)
+      Digest::SHA256.hexdigest(
+        "#{prefix}-#{SecureRandom.hex(16)}"
       )
     end
 
-    def capture_sql
-      statements = []
-      subscriber = ->(_name, _start, _finish, _id, payload) { statements << payload[:sql].to_s unless payload[:name] == "SCHEMA" }
-      ActiveSupport::Notifications.subscribed(subscriber, "sql.active_record") { yield }
-      statements
+    def with_stubbed(object, method_name, replacement)
+      original =
+        object.method(method_name)
+
+      object.define_singleton_method(
+        method_name
+      ) do |*args, **kwargs, &block|
+        if replacement.respond_to?(:call)
+          replacement.call(
+            *args,
+            **kwargs,
+            &block
+          )
+        else
+          replacement
+        end
+      end
+
+      yield
+    ensure
+      object.define_singleton_method(
+        method_name,
+        original
+      )
+    end
+
+    def clear_cache
+      Sidekiq.redis do |redis|
+        redis.del(
+          OperationalSnapshot::CACHE_KEY,
+          OperationalSnapshot::RECENT_BATCHES_KEY
+        )
+      end
+    end
+
+    def cleanup_records
+      ActorLabel.delete_all
+      ActorProfile.delete_all
+      Address.delete_all
+      ActorProfileCertificationEpoch.delete_all
+      ClusterProcessedBlock.delete_all
+      BlockBufferModel.delete_all
+      Cluster.delete_all
     end
   end
 end

@@ -1,287 +1,928 @@
 # frozen_string_literal: true
 
+require "sidekiq/api"
 require "json"
 
 module ActorProfiles
   class StrictHealthSnapshot
     QUEUE_NAME = "actor_profile_strict"
-    PROFILE_VERSION = StrictBuildFromCluster::PROFILE_VERSION
-    STALE_AFTER = BuildDispatcher::STALE_AFTER
+    JOB_CLASS = "ActorProfiles::StrictBatchJob"
+    PROFILE_VERSION =
+      ActorProfiles::StrictBuildFromCluster::PROFILE_VERSION
 
-    def self.call(now: Time.current, sidekiq_runtime: nil, pipeline_decision: nil)
-      new(
-        now: now,
-        sidekiq_runtime: sidekiq_runtime,
-        pipeline_decision: pipeline_decision
-      ).call
-    end
-
-    def initialize(now:, sidekiq_runtime:, pipeline_decision:)
-      @now = now
-      @sidekiq_runtime_override = sidekiq_runtime
-      @pipeline_decision = pipeline_decision
+    def self.call
+      new.call
     end
 
     def call
-      database = database_snapshot
-      runtime = runtime_snapshot
-      admissible = database.dig(:handoffs, :admissible).to_i
+      now = Time.current
 
-      automation_missing =
-        runtime[:available] == true &&
-        admissible.positive? &&
-        runtime.values_at(:queue_size, :scheduled_jobs, :worker_count, :busy_workers)
-          .compact.sum.zero?
+      layer1_tip = current_layer1_tip
+      cluster_tip = current_cluster_tip
 
-      status = if runtime[:available] != true
-        "unavailable"
-      elsif database[:available] != true
-        "unavailable"
-      elsif database.dig(:address_spend, :lag).to_i.positive? ||
-            database.dig(:profiles, :pending).to_i.positive?
-        automation_missing ? "warning" : "syncing"
-      else
-        "healthy"
+      epoch =
+        ActorProfiles::
+          CertificationEpoch::
+          current
+
+      unless epoch
+        return inactive_snapshot(
+          now: now,
+          layer1_tip: layer1_tip,
+          cluster_tip: cluster_tip
+        )
       end
 
-      database.merge(
+      @epoch = epoch
+      @cluster_tip = cluster_tip
+
+      total_clusters =
+        clusters_scope.count
+
+      historical_clusters_outside_epoch =
+        historical_clusters_outside_epoch_count
+
+      actor_profiles_count =
+        ActorProfile.count
+
+      profiles_in_scope =
+        profiles_in_scope_count
+
+      missing_profiles =
+        missing_profiles_count
+
+      dirty_profiles =
+        profiles_where_count(
+          "actor_profiles.dirty IS TRUE"
+        )
+
+      composition_mismatches =
+        profiles_where_count(
+          "actor_profiles.cluster_composition_version " \
+          "IS DISTINCT FROM clusters.composition_version"
+        )
+
+      height_stale_profiles =
+        profiles_where_count(
+          "COALESCE(actor_profiles.last_computed_height, 0) " \
+          "< COALESCE(clusters.last_seen_height, 0)"
+        )
+
+      provenance_mismatches =
+        profiles_where_count(
+          provenance_mismatch_condition
+        )
+
+      stale_profiles =
+        profiles_where_count(
+          stale_condition
+        )
+
+      certified_profiles =
+        profiles_where_count(
+          certified_condition
+        )
+
+      strict_core_profiles =
+        profiles_where_count(
+          "actor_profiles.traits ->> 'profile_version' = " \
+          "#{quoted(PROFILE_VERSION)}"
+        )
+
+      invalid_profile_refs =
+        invalid_profile_refs_count
+
+      partition_delta =
+        total_clusters -
+        (
+          missing_profiles +
+          stale_profiles +
+          certified_profiles
+        )
+
+      profile_max_height =
+        ActorProfiles::
+          CertifiedScope
+          .call
+          .maximum(:last_computed_height)
+          .to_i
+
+      certified_profile_max_height =
+        certified_profile_max_height_value
+
+      current_height_profiles =
+        if cluster_tip.positive?
+          profiles_where_count(
+            "#{certified_condition} " \
+            "AND actor_profiles.last_computed_height = " \
+            "#{cluster_tip}"
+          )
+        else
+          0
+        end
+
+      queue_size =
+        sidekiq_queue_size
+
+      scheduled_jobs =
+        scheduled_job_count
+
+      active_workers =
+        active_worker_count
+
+      automation_ok =
+        scheduled_jobs.positive? ||
+        queue_size.positive? ||
+        active_workers.positive?
+
+      pending_profiles =
+        missing_profiles +
+        stale_profiles
+
+      completion_pct =
+        if total_clusters.positive?
+          (
+            certified_profiles.to_f /
+            total_clusters *
+            100
+          ).round(2)
+        else
+          0.0
+        end
+
+      last_profile_at =
+        ActorProfiles::
+          CertifiedScope
+          .call
+          .maximum(:updated_at)
+
+      strict_tips_aligned =
+        layer1_tip.positive? &&
+        cluster_tip.positive? &&
+        layer1_tip == cluster_tip
+
+      issues = []
+
+      issues << "layer1_tip_missing" if layer1_tip.zero?
+      issues << "cluster_tip_missing" if cluster_tip.zero?
+
+      unless strict_tips_aligned
+        issues <<
+          "strict_tips_not_aligned=" \
+          "#{cluster_tip}/#{layer1_tip}"
+      end
+
+      if invalid_profile_refs.positive?
+        issues <<
+          "invalid_profile_refs=" \
+          "#{invalid_profile_refs}"
+      end
+
+      unless partition_delta.zero?
+        issues <<
+          "profile_partition_delta=" \
+          "#{partition_delta}"
+      end
+
+      if !automation_ok &&
+         pending_profiles.positive?
+        issues << "automation_missing"
+      end
+
+      if queue_size > 1_000
+        issues <<
+          "queue_high=#{queue_size}"
+      end
+
+      critical_issue =
+        layer1_tip.zero? ||
+        cluster_tip.zero? ||
+        invalid_profile_refs.positive? ||
+        !partition_delta.zero?
+
+      status =
+        if critical_issue
+          "critical"
+
+        elsif !automation_ok &&
+              pending_profiles.positive?
+          "warning"
+
+        elsif queue_size > 1_000
+          "warning"
+
+        elsif pending_profiles.positive? ||
+              !strict_tips_aligned
+          "syncing"
+
+        else
+          "healthy"
+        end
+
+      verdict =
+        case status
+        when "healthy"
+          "ActorProfile est certifié : tous les clusters " \
+          "disposent d’un profil #{PROFILE_VERSION} calculé sur " \
+          "leur composition actuelle."
+
+        when "syncing"
+          "ActorProfile reconstruit progressivement les profils " \
+          "depuis les clusters certifiés et enregistre la version " \
+          "exacte de leur composition."
+
+        when "warning"
+          "Des profils restent à construire ou à reconstruire, " \
+          "mais aucune automatisation ActorProfile active ou " \
+          "planifiée n’est actuellement observée."
+
+        else
+          "ActorProfile présente une anomalie d’intégrité ou une " \
+          "source stricte indisponible. Une vérification est nécessaire."
+        end
+
+      {
         module: "actor_profiles_strict",
-        source: "canonical_postgresql_chain",
-        generated_at: @now,
+        source:
+          "actor_profiles_strict_health_snapshot",
+        generated_at: now,
+
         status: status,
-        automation: runtime.merge(
-          automation_missing: automation_missing
-        ),
-        admission: {
-          allowed: normalized_pipeline_allowed
+        verdict: verdict,
+
+        sync: {
+          layer1_tip: layer1_tip,
+          cluster_tip: cluster_tip,
+          strict_tips_aligned:
+            strict_tips_aligned,
+
+          profile_max_height:
+            profile_max_height,
+
+          certified_profile_max_height:
+            certified_profile_max_height,
+
+          current_height_profiles:
+            current_height_profiles
         },
-        issues: issues(database, runtime, automation_missing)
-      )
-    rescue ActiveRecord::ActiveRecordError
-      unavailable_database_snapshot
+
+        progress: {
+          total_clusters:
+            total_clusters,
+
+          active_clusters_since_epoch:
+            total_clusters,
+
+          historical_clusters_outside_epoch:
+            historical_clusters_outside_epoch,
+
+          profiles_in_scope:
+            profiles_in_scope,
+
+          actor_profiles:
+            actor_profiles_count,
+
+          missing_profiles:
+            missing_profiles,
+
+          stale_profiles:
+            stale_profiles,
+
+          certified_profiles:
+            certified_profiles,
+
+          certified_profiles_since_epoch:
+            certified_profiles,
+
+          pending_profiles:
+            pending_profiles,
+
+          pending_profiles_since_epoch:
+            pending_profiles,
+
+          completion_pct:
+            completion_pct
+        },
+
+        certification: {
+          epoch_active:
+            true,
+
+          certification_epoch_height:
+            @epoch.start_height,
+
+          certification_scope:
+            ActorProfile::
+              CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH,
+
+          required_profile_version:
+            PROFILE_VERSION,
+
+          strict_core_profiles:
+            strict_core_profiles,
+
+          certified_profiles:
+            certified_profiles,
+
+          dirty_profiles:
+            dirty_profiles,
+
+          composition_mismatches:
+            composition_mismatches,
+
+          height_stale_profiles:
+            height_stale_profiles,
+
+          provenance_mismatches:
+            provenance_mismatches
+        },
+
+        automation: {
+          queue_name:
+            QUEUE_NAME,
+
+          queue_size:
+            queue_size,
+
+          scheduled_jobs:
+            scheduled_jobs,
+
+          active_workers:
+            active_workers,
+
+          automation_ok:
+            automation_ok
+        },
+
+        integrity: {
+          invalid_profile_refs:
+            invalid_profile_refs,
+
+          profile_partition_delta:
+            partition_delta,
+
+          profile_partition_ok:
+            partition_delta.zero?
+        },
+
+        freshness: {
+          last_profile_at:
+            last_profile_at,
+
+          profiles_last_10m:
+            ActorProfile
+              .where(
+                "updated_at >= ?",
+                10.minutes.ago
+              )
+              .count,
+
+          profiles_last_1h:
+            ActorProfile
+              .where(
+                "updated_at >= ?",
+                1.hour.ago
+              )
+              .count
+        },
+
+        totals: {
+          clusters:
+            Cluster.count,
+
+          clusters_with_addresses:
+            total_clusters,
+
+          actor_profiles:
+            actor_profiles_count
+        },
+
+        issues: issues
+      }
     end
 
     private
 
-    def database_snapshot
-      connection = ApplicationRecord.connection
-      profile_row = connection.select_one(profile_aggregate_sql)
-      handoff_rows = ActorProfileBuildAdmission.group(:status).count
-      cluster_tip = ClusterProcessedBlock.where(status: "processed").maximum(:height)
-      address_spend_tip = AddressSpendProjectionBlock.completed.maximum(:height)
-      total_clusters = profile_row.fetch("total_clusters").to_i
-      certified = profile_row.fetch("certified_profiles").to_i
-      present = profile_row.fetch("profiles_present").to_i
-      missing = profile_row.fetch("missing_profiles").to_i
-      stale = profile_row.fetch("stale_profiles").to_i
-
-      {
-        available: true,
-        profiles: {
-          total_clusters: total_clusters,
-          present: present,
-          certified: certified,
-          missing: missing,
-          stale: stale,
-          pending: missing + stale,
-          coverage_pct: total_clusters.positive? ? (certified.fdiv(total_clusters) * 100).round(2) : 0.0,
-          latest_height: integer_or_nil(profile_row["latest_height"]),
-          latest_certified_at: profile_row["latest_certified_at"],
-          certified_last_10m: profile_row.fetch("certified_last_10m").to_i,
-          certified_last_1h: profile_row.fetch("certified_last_1h").to_i
-        },
-        handoffs: {
-          pending: handoff_rows.fetch("pending", 0),
-          processing: handoff_rows.fetch("processing", 0),
-          failed: handoff_rows.fetch("failed", 0),
-          completed: handoff_rows.fetch("completed", 0),
-          stale: stale_handoff_count,
-          admissible: admissible_handoff_count,
-          oldest_age_seconds: oldest_handoff_age
-        },
-        address_spend: {
-          cluster_tip: integer_or_nil(cluster_tip),
-          tip: integer_or_nil(address_spend_tip),
-          lag: checkpoint_lag(cluster_tip, address_spend_tip)
-        },
-        build_metrics: runtime_metrics
-      }
+    def clusters_scope
+      Cluster.where(eligible_cluster_condition)
     end
 
-    def profile_aggregate_sql
-      connection = ApplicationRecord.connection
-      version = connection.quote(PROFILE_VERSION)
-      ten_minutes_ago = connection.quote(@now - 10.minutes)
-      one_hour_ago = connection.quote(@now - 1.hour)
-      <<~SQL.squish
-        SELECT
-          COUNT(clusters.id)::bigint AS total_clusters,
-          COUNT(actor_profiles.id)::bigint AS profiles_present,
-          COUNT(*) FILTER (WHERE actor_profiles.id IS NULL)::bigint AS missing_profiles,
-          COUNT(*) FILTER (
-            WHERE actor_profiles.id IS NOT NULL
-              AND actor_profiles.cluster_composition_version IS DISTINCT FROM clusters.composition_version
-          )::bigint AS stale_profiles,
-          COUNT(*) FILTER (
-            WHERE actor_profiles.certified_at IS NOT NULL
-              AND actor_profiles.dirty IS NOT TRUE
-              AND actor_profiles.cluster_composition_version = clusters.composition_version
-              AND actor_profiles.last_computed_height IS NOT NULL
-              AND actor_profiles.certification_epoch_height = actor_profiles.last_computed_height
-              AND actor_profiles.certification_scope = 'strict'
-              AND actor_profiles.traits ->> 'profile_version' = #{version}
-              AND actor_profiles.metadata ->> 'strict' = 'true'
-          )::bigint AS certified_profiles,
-          MAX(actor_profiles.last_computed_height) FILTER (
-            WHERE actor_profiles.certified_at IS NOT NULL
-          ) AS latest_height,
-          MAX(actor_profiles.certified_at) AS latest_certified_at,
-          COUNT(*) FILTER (WHERE actor_profiles.certified_at >= #{ten_minutes_ago})::bigint AS certified_last_10m,
-          COUNT(*) FILTER (WHERE actor_profiles.certified_at >= #{one_hour_ago})::bigint AS certified_last_1h
+    def profiles_in_scope_count
+      sql = <<~SQL.squish
+        SELECT COUNT(*)
+        FROM actor_profiles
+
+        INNER JOIN clusters
+          ON clusters.id =
+             actor_profiles.cluster_id
+
+        WHERE #{eligible_cluster_condition}
+      SQL
+
+      select_count(sql)
+    end
+
+    def missing_profiles_count
+      sql = <<~SQL.squish
+        SELECT COUNT(*)
         FROM clusters
-        LEFT JOIN actor_profiles ON actor_profiles.cluster_id = clusters.id
+
+        LEFT JOIN actor_profiles
+          ON actor_profiles.cluster_id =
+             clusters.id
+
+        WHERE actor_profiles.id IS NULL
+          AND #{eligible_cluster_condition}
       SQL
+
+      select_count(sql)
     end
 
-    def stale_handoff_count
-      ActorProfileBuildAdmission.where(status: "processing")
-        .where("claimed_at IS NULL OR claimed_at < ?", @now - STALE_AFTER).count
+    def profiles_where_count(condition)
+      sql = <<~SQL.squish
+        SELECT COUNT(*)
+        FROM actor_profiles
+
+        INNER JOIN clusters
+          ON clusters.id =
+             actor_profiles.cluster_id
+
+        WHERE #{eligible_cluster_condition}
+          AND (
+            #{condition}
+          )
+      SQL
+
+      select_count(sql)
     end
 
-    def admissible_handoff_count
-      BuildDispatcher.claimable_scope(now: @now).count
-    end
+    def certified_condition
+      <<~SQL.squish
+        actor_profiles.dirty IS NOT TRUE
 
-    def oldest_handoff_age
-      created = ActorProfileBuildAdmission.where(status: %w[pending processing failed]).minimum(:created_at)
-      created ? [(@now - created).to_f, 0.0].max : nil
-    end
+        AND actor_profiles.cluster_composition_version =
+            clusters.composition_version
 
-    def runtime_metrics
-      row = ApplicationRecord.connection.select_one(<<~SQL.squish)
-        WITH finite_metrics AS (
-          SELECT (metadata ->> 'runtime_ms')::double precision AS runtime_ms
-          FROM actor_profiles
-          WHERE certified_at IS NOT NULL
-            AND metadata ->> 'runtime_ms' ~ '^[0-9]+(?:\\.[0-9]+)?$'
+        AND COALESCE(
+          actor_profiles.last_computed_height,
+          0
+        ) >= COALESCE(
+          clusters.last_seen_height,
+          0
         )
-        SELECT
-          AVG(runtime_ms) AS average_ms,
-          percentile_cont(0.5) WITHIN GROUP (ORDER BY runtime_ms) AS median_ms,
-          percentile_cont(0.9) WITHIN GROUP (ORDER BY runtime_ms) AS p90_ms,
-          MAX(runtime_ms) AS maximum_ms
-        FROM finite_metrics
+
+        AND COALESCE(
+          actor_profiles.last_computed_height,
+          0
+        ) >= #{@epoch.start_height.to_i}
+
+        AND actor_profiles.certification_epoch_height =
+            #{@epoch.start_height.to_i}
+
+        AND actor_profiles.certification_scope =
+            #{quoted(
+              ActorProfile::
+                CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH
+            )}
+
+        AND actor_profiles.certified_at IS NOT NULL
+
+        AND actor_profiles.traits ->> 'profile_version' =
+            #{quoted(PROFILE_VERSION)}
+
+        AND COALESCE(
+          actor_profiles.metadata ->> 'strict',
+          'false'
+        ) = 'true'
       SQL
+    end
+
+    def stale_condition
+      <<~SQL.squish
+        actor_profiles.dirty IS TRUE
+
+        OR actor_profiles.cluster_composition_version
+          IS DISTINCT FROM
+          clusters.composition_version
+
+        OR COALESCE(
+          actor_profiles.last_computed_height,
+          0
+        ) < COALESCE(
+          clusters.last_seen_height,
+          0
+        )
+
+        OR (
+          #{provenance_mismatch_condition}
+        )
+      SQL
+    end
+
+    def provenance_mismatch_condition
+      <<~SQL.squish
+        COALESCE(
+          actor_profiles.traits ->> 'profile_version',
+          ''
+        ) <> #{quoted(PROFILE_VERSION)}
+
+        OR COALESCE(
+          actor_profiles.metadata ->> 'strict',
+          'false'
+        ) <> 'true'
+
+        OR actor_profiles.certification_epoch_height
+          IS DISTINCT FROM
+          #{@epoch.start_height.to_i}
+
+        OR COALESCE(
+          actor_profiles.certification_scope,
+          ''
+        ) <> #{quoted(
+          ActorProfile::
+            CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH
+        )}
+
+        OR actor_profiles.certified_at IS NULL
+      SQL
+    end
+
+    def invalid_profile_refs_count
+      sql = <<~SQL.squish
+        SELECT COUNT(*)
+        FROM actor_profiles
+
+        LEFT JOIN clusters
+          ON clusters.id =
+             actor_profiles.cluster_id
+
+        WHERE clusters.id IS NULL
+      SQL
+
+      select_count(sql)
+    end
+
+    def eligible_cluster_condition
+      @eligible_cluster_condition ||=
+        ActorProfiles::
+          CertificationTargetScope::
+          sql_condition(
+            checkpoint_height:
+              @cluster_tip
+          )
+    end
+
+    def base_eligible_cluster_condition
+      if include_singletons?
+        "clusters.address_count > 0"
+      else
+        "clusters.address_count > 1"
+      end
+    end
+
+    def historical_clusters_outside_epoch_count
+      Cluster
+        .where(
+          base_eligible_cluster_condition
+        )
+        .where(
+          "COALESCE(clusters.last_seen_height, 0) < ?",
+          @epoch.start_height
+        )
+        .count
+    end
+
+    def include_singletons?
+      ActiveModel::Type::Boolean
+        .new
+        .cast(
+          ENV.fetch(
+            "ACTOR_PROFILE_STRICT_INCLUDE_SINGLETONS",
+            "false"
+          )
+        )
+    end
+
+    def address_exists_condition
+      <<~SQL.squish
+        EXISTS (
+          SELECT 1
+          FROM addresses
+          WHERE addresses.cluster_id = clusters.id
+        )
+      SQL
+    end
+
+    def certified_profile_max_height_value
+      sql = <<~SQL.squish
+        SELECT COALESCE(
+          MAX(
+            actor_profiles.last_computed_height
+          ),
+          0
+        )
+        FROM actor_profiles
+
+        INNER JOIN clusters
+          ON clusters.id =
+             actor_profiles.cluster_id
+
+        WHERE #{eligible_cluster_condition}
+          AND (
+            #{certified_condition}
+          )
+      SQL
+
+      ActiveRecord::Base
+        .connection
+        .select_value(sql)
+        .to_i
+    end
+
+    def select_count(sql)
+      ActiveRecord::Base
+        .connection
+        .select_value(sql)
+        .to_i
+    end
+
+    def quoted(value)
+      ActiveRecord::Base
+        .connection
+        .quote(value)
+    end
+
+    def current_layer1_tip
+      return 0 unless defined?(
+        BlockBufferModel
+      )
+
+      BlockBufferModel
+        .where(status: "processed")
+        .maximum(:height)
+        .to_i
+    end
+
+    def current_cluster_tip
+      return 0 unless defined?(
+        ClusterProcessedBlock
+      )
+
+      ClusterProcessedBlock
+        .where(status: "processed")
+        .maximum(:height)
+        .to_i
+    end
+
+    def inactive_snapshot(
+      now:,
+      layer1_tip:,
+      cluster_tip:
+    )
       {
-        average_ms: numeric_or_nil(row["average_ms"]),
-        median_ms: numeric_or_nil(row["median_ms"]),
-        p90_ms: numeric_or_nil(row["p90_ms"]),
-        maximum_ms: numeric_or_nil(row["maximum_ms"])
+        module:
+          "actor_profiles_strict",
+
+        source:
+          "actor_profiles_strict_health_snapshot",
+
+        generated_at:
+          now,
+
+        status:
+          "inactive",
+
+        verdict:
+          "L’époque de certification ActorProfile n’est pas encore "           "activée. Aucun cluster historique n’est compté comme "           "travail en attente.",
+
+        sync: {
+          layer1_tip:
+            layer1_tip,
+
+          cluster_tip:
+            cluster_tip,
+
+          strict_tips_aligned:
+            layer1_tip.positive? &&
+            cluster_tip.positive? &&
+            layer1_tip == cluster_tip,
+
+          profile_max_height:
+            0,
+
+          certified_profile_max_height:
+            0,
+
+          current_height_profiles:
+            0
+        },
+
+        progress: {
+          total_clusters:
+            0,
+
+          active_clusters_since_epoch:
+            0,
+
+          historical_clusters_outside_epoch:
+            nil,
+
+          profiles_in_scope:
+            0,
+
+          actor_profiles:
+            ActorProfile.count,
+
+          missing_profiles:
+            0,
+
+          stale_profiles:
+            0,
+
+          certified_profiles:
+            0,
+
+          certified_profiles_since_epoch:
+            0,
+
+          pending_profiles:
+            0,
+
+          pending_profiles_since_epoch:
+            0,
+
+          completion_pct:
+            0.0
+        },
+
+        certification: {
+          epoch_active:
+            false,
+
+          certification_epoch_height:
+            nil,
+
+          certification_scope:
+            ActorProfile::
+              CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH,
+
+          required_profile_version:
+            PROFILE_VERSION,
+
+          strict_core_profiles:
+            0,
+
+          certified_profiles:
+            0,
+
+          dirty_profiles:
+            0,
+
+          composition_mismatches:
+            0,
+
+          height_stale_profiles:
+            0,
+
+          provenance_mismatches:
+            0
+        },
+
+        automation: {
+          queue_name:
+            QUEUE_NAME,
+
+          queue_size:
+            sidekiq_queue_size,
+
+          scheduled_jobs:
+            scheduled_job_count,
+
+          active_workers:
+            active_worker_count,
+
+          automation_ok:
+            true
+        },
+
+        integrity: {
+          invalid_profile_refs:
+            invalid_profile_refs_count,
+
+          profile_partition_delta:
+            nil,
+
+          profile_partition_ok:
+            nil
+        },
+
+        freshness: {
+          last_profile_at:
+            nil,
+
+          profiles_last_10m:
+            0,
+
+          profiles_last_1h:
+            0
+        },
+
+        totals: {
+          clusters:
+            Cluster.count,
+
+          clusters_with_addresses:
+            nil,
+
+          actor_profiles:
+            ActorProfile.count
+        },
+
+        issues: [
+          "certification_epoch_inactive"
+        ]
       }
     end
 
-    def runtime_snapshot
-      return normalize_runtime(@sidekiq_runtime_override) if @sidekiq_runtime_override
-
-      require "sidekiq/api"
-      queue = Sidekiq::Queue.new(QUEUE_NAME)
-      processes = Sidekiq::ProcessSet.new.select { |process| Array(process["queues"]).include?(QUEUE_NAME) }
-      {
-        available: true,
-        queue_name: QUEUE_NAME,
-        queue_size: queue.size,
-        queue_latency_seconds: numeric_or_nil(queue.latency),
-        scheduled_jobs: Sidekiq::ScheduledSet.new.count { |job| job.queue.to_s == QUEUE_NAME },
-        worker_count: processes.size,
-        busy_workers: processes.sum { |process| process["busy"].to_i }
-      }
+    def sidekiq_queue_size
+      Sidekiq::Queue
+        .new(QUEUE_NAME)
+        .count do |job|
+          payload_matches?(
+            job.item
+          )
+        end
     rescue StandardError
-      unavailable_runtime
+      0
     end
 
-    def normalize_runtime(value)
-      return unavailable_runtime unless value.is_a?(Hash) && value[:available] == true
-
-      {
-        available: true,
-        queue_name: QUEUE_NAME,
-        queue_size: value[:queue_size].to_i,
-        queue_latency_seconds: numeric_or_nil(value[:queue_latency_seconds]),
-        scheduled_jobs: value[:scheduled_jobs].to_i,
-        worker_count: value[:worker_count].to_i,
-        busy_workers: value[:busy_workers].to_i
-      }
+    def scheduled_job_count
+      Sidekiq::ScheduledSet
+        .new
+        .count do |job|
+          payload_matches?(
+            job.item
+          )
+        end
+    rescue StandardError
+      0
     end
 
-    def unavailable_runtime
-      {
-        available: false,
-        queue_name: QUEUE_NAME,
-        queue_size: nil,
-        queue_latency_seconds: nil,
-        scheduled_jobs: nil,
-        worker_count: nil,
-        busy_workers: nil,
-        automation_missing: false
-      }
+    def active_worker_count
+      Sidekiq::WorkSet
+        .new
+        .count do |_process_id, _thread_id, work|
+
+          queue =
+            if work.respond_to?(:queue)
+              work.queue
+            else
+              work.to_h["queue"]
+            end
+
+          payload =
+            if work.respond_to?(:payload)
+              work.payload
+            else
+              work.to_h["payload"]
+            end
+
+          queue.to_s == QUEUE_NAME &&
+            payload_matches?(payload)
+        end
+    rescue StandardError
+      0
     end
 
-    def unavailable_database_snapshot
-      {
-        module: "actor_profiles_strict",
-        source: "canonical_postgresql_chain",
-        generated_at: @now,
-        available: false,
-        status: "unavailable",
-        profiles: unavailable_profile_metrics,
-        handoffs: unavailable_handoff_metrics,
-        address_spend: { cluster_tip: nil, tip: nil, lag: nil },
-        build_metrics: { average_ms: nil, median_ms: nil, p90_ms: nil, maximum_ms: nil },
-        automation: unavailable_runtime,
-        admission: { allowed: normalized_pipeline_allowed },
-        issues: ["postgresql_unavailable"]
-      }
+    def payload_matches?(payload)
+      payload =
+        JSON.parse(payload) if payload.is_a?(
+          String
+        )
+
+      payload ||= {}
+
+      return true if
+        payload["class"].to_s ==
+          JOB_CLASS
+
+      return true if
+        payload["wrapped"].to_s ==
+          JOB_CLASS
+
+      active_job_payload =
+        Array(
+          payload["args"]
+        ).first
+
+      active_job_payload.is_a?(Hash) &&
+        active_job_payload[
+          "job_class"
+        ].to_s == JOB_CLASS
+    rescue JSON::ParserError
+      false
     end
 
-    def unavailable_profile_metrics
-      %i[total_clusters present certified missing stale pending coverage_pct latest_height latest_certified_at certified_last_10m certified_last_1h].to_h { |key| [key, nil] }
-    end
 
-    def unavailable_handoff_metrics
-      %i[pending processing failed completed stale admissible oldest_age_seconds].to_h { |key| [key, nil] }
-    end
-
-    def issues(database, runtime, automation_missing)
-      result = []
-      result << "sidekiq_unavailable" unless runtime[:available]
-      result << "address_spend_lag" if database.dig(:address_spend, :lag).to_i.positive?
-      result << "failed_handoffs" if database.dig(:handoffs, :failed).to_i.positive?
-      result << "stale_handoffs" if database.dig(:handoffs, :stale).to_i.positive?
-      result << "automation_missing" if automation_missing
-      result << "pipeline_controller_refused" if normalized_pipeline_allowed == false
-      result
-    end
-
-    def checkpoint_lag(cluster_tip, projection_tip)
-      return nil unless cluster_tip && projection_tip
-      [cluster_tip.to_i - projection_tip.to_i, 0].max
-    end
-
-    def normalized_pipeline_allowed
-      return nil unless @pipeline_decision.is_a?(Hash)
-      value = @pipeline_decision[:allowed]
-      [true, false].include?(value) ? value : nil
-    end
-
-    def integer_or_nil(value)
-      value.nil? ? nil : value.to_i
-    end
-
-    def numeric_or_nil(value)
-      number = Float(value)
-      number.finite? && !number.negative? ? number : nil
-    rescue ArgumentError, TypeError
-      nil
-    end
   end
 end

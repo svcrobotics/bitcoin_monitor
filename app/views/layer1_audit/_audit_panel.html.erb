@@ -1,141 +1,355 @@
 <%= turbo_frame_tag "layer1_audit_panel" do %>
-  <% last_audit ||= nil %>
-  <% last_audits = Array(last_audits) %>
-  <% checks = last_audit&.checks || {} %>
-  <% total = checks.size %>
-  <% ok = checks.count { |_name, result| result["passed"] } %>
-  <% compliance = total.zero? ? 0 : ((ok.to_f / total) * 100).round %>
+  <%
+    audit =
+      (snapshot || {}).with_indifferent_access
 
-  <section class="mt-8 rounded-2xl border border-slate-800 bg-slate-950 p-6 text-slate-100">
-    <div class="flex flex-col gap-4 md:flex-row md:items-start md:justify-between">
+    status =
+      audit[:status].to_s.presence || "unknown"
+
+    activity_data =
+      audit[:activity]
+
+    activity =
+      if activity_data.is_a?(Hash)
+        activity_data =
+          activity_data.with_indifferent_access
+
+        activity_data[:state] ||
+          activity_data[:status] ||
+          activity_data[:activity]
+      else
+        activity_data
+      end
+
+    activity =
+      activity.to_s.presence || "unknown"
+
+    queue_data =
+      audit[:queue].is_a?(Hash) ?
+        audit[:queue].with_indifferent_access :
+        {}
+
+    worker_data =
+      audit[:workers].is_a?(Hash) ?
+        audit[:workers].with_indifferent_access :
+        {}
+
+    queue_size =
+      audit[:queue_size] ||
+      queue_data[:size] ||
+      queue_data[:queue_size] ||
+      audit.dig(:queues, "layer1_audit") ||
+      0
+
+    busy_workers =
+      audit[:busy_workers] ||
+      worker_data[:busy] ||
+      worker_data[:busy_workers] ||
+      0
+
+    recent_data =
+      audit[:recent_runs]
+
+    recent_items =
+      if recent_data.is_a?(Array)
+        recent_data
+      elsif recent_data.is_a?(Hash)
+        recent_data =
+          recent_data.with_indifferent_access
+
+        Array(
+          recent_data[:items] ||
+          recent_data[:runs]
+        )
+      else
+        []
+      end
+
+    recent_summary =
+      recent_data.is_a?(Hash) ?
+        recent_data.with_indifferent_access :
+        {}
+
+    recent_healthy =
+      recent_summary[:healthy] ||
+      recent_summary[:passed] ||
+      recent_summary[:healthy_count] ||
+      recent_items.count do |run|
+        run =
+          run.with_indifferent_access
+
+        run[:status].to_s == "healthy"
+      end
+
+    recent_failed =
+      recent_summary[:failed] ||
+      recent_summary[:failures] ||
+      recent_summary[:unhealthy] ||
+      recent_summary[:failed_count] ||
+      0
+
+    recent_errors =
+      recent_summary[:errors] ||
+      recent_summary[:error] ||
+      recent_summary[:error_count] ||
+      0
+
+    recent_total =
+      recent_summary[:total] ||
+      recent_summary[:sample_size] ||
+      recent_summary[:count] ||
+      recent_summary[:runs_count]
+
+    recent_total =
+      recent_healthy.to_i +
+      recent_failed.to_i +
+      recent_errors.to_i if recent_total.blank?
+
+    recent_total =
+      recent_items.size if recent_total.to_i.zero? &&
+                           recent_items.any?
+
+    last_run =
+      (
+        audit[:last_run] ||
+        audit[:last_attempted_run] ||
+        {}
+      ).with_indifferent_access
+
+    last_run_status =
+      last_run[:status].to_s
+
+    last_duration_ms =
+      last_run[:duration_ms] ||
+      (
+        last_run[:duration_seconds].present? ?
+          last_run[:duration_seconds].to_f * 1_000 :
+          nil
+      )
+
+    if last_duration_ms.blank? &&
+       last_run[:started_at].present? &&
+       last_run[:finished_at].present?
+      last_duration_ms =
+        (
+          last_run[:finished_at].to_time -
+          last_run[:started_at].to_time
+        ) * 1_000
+    end
+
+    status_styles =
+      case status
+      when "healthy", "synced"
+        {
+          panel: "border-emerald-400/20",
+          badge: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+          label: "HEALTHY"
+        }
+      when "warning"
+        {
+          panel: "border-amber-400/20",
+          badge: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+          label: "WARNING"
+        }
+      when "critical", "failed"
+        {
+          panel: "border-rose-400/20",
+          badge: "border-rose-400/30 bg-rose-400/10 text-rose-200",
+          label: status == "failed" ? "FAILED" : "CRITICAL"
+        }
+      when "unavailable"
+        {
+          panel: "border-slate-800",
+          badge: "border-slate-700 bg-slate-900 text-slate-300",
+          label: "UNAVAILABLE"
+        }
+      else
+        {
+          panel: "border-slate-800",
+          badge: "border-slate-700 bg-slate-900 text-slate-300",
+          label: status.upcase.presence || "UNKNOWN"
+        }
+      end
+
+    activity_styles =
+      if %w[idle waiting].include?(activity)
+        "border-slate-700 bg-slate-900 text-slate-300"
+      elsif %w[running active].include?(activity)
+        "border-cyan-400/30 bg-cyan-400/10 text-cyan-200"
+      elsif %w[queued].include?(activity)
+        "border-amber-400/30 bg-amber-400/10 text-amber-200"
+      else
+        "border-slate-700 bg-slate-900 text-slate-300"
+      end
+
+    format_height = lambda do |value|
+      if value.present?
+        number_with_delimiter(
+          value.to_i,
+          delimiter: " "
+        )
+      else
+        "—"
+      end
+    end
+
+    format_duration = lambda do |milliseconds|
+      if milliseconds.blank?
+        "—"
+      elsif milliseconds.to_f < 1_000
+        "#{milliseconds.to_f.round} ms"
+      elsif milliseconds.to_f < 60_000
+        "#{(milliseconds.to_f / 1_000).round(2)} s"
+      else
+        "#{(milliseconds.to_f / 60_000).round(1)} min"
+      end
+    end
+  %>
+
+  <section class="rounded-lg border <%= status_styles[:panel] %> bg-slate-950 p-4 text-slate-100 md:p-5">
+    <div class="flex flex-col gap-4 border-b border-slate-800 pb-4 md:flex-row md:items-start md:justify-between">
       <div>
-        <p class="text-sm font-semibold text-blue-400">Preuve Layer1</p>
+        <p class="font-mono text-xs uppercase tracking-[0.18em] text-violet-300">
+          03 / Audit lourd
+        </p>
 
-        <h2 class="mt-1 text-2xl font-bold text-white">
-          Bitcoin Core ↔ Tansa
+        <h2 class="mt-2 text-lg font-semibold text-white">
+          Bitcoin Core ↔ faits stricts
         </h2>
 
-        <p class="mt-2 max-w-3xl text-sm text-slate-400">
-          Les données affichées par Tansa sont comparées directement à Bitcoin Core,
-          la source de vérité du réseau Bitcoin.
+        <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+          Vérification indépendante des blocs certifiés. L’audit fonctionne dans une
+          queue basse priorité et ne bloque jamais le chemin temps réel.
         </p>
       </div>
 
-      <%= button_to "Vérifier maintenant",
+      <div class="flex flex-wrap items-center gap-2">
+        <span class="rounded-md border px-2.5 py-1.5 font-mono text-xs font-semibold <%= status_styles[:badge] %>">
+          <%= status_styles[:label] %>
+        </span>
+
+        <span class="rounded-md border px-2.5 py-1.5 font-mono text-xs font-semibold uppercase <%= activity_styles %>">
+          <%= activity %>
+        </span>
+      </div>
+    </div>
+
+    <div class="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div class="rounded-lg border border-slate-800 bg-black/25 p-3">
+        <p class="font-mono text-[11px] uppercase text-slate-500">
+          Dernier bloc tenté
+        </p>
+
+        <p class="mt-2 font-mono text-xl font-semibold text-white">
+          <%= format_height.call(audit[:last_attempted_height]) %>
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-slate-800 bg-black/25 p-3">
+        <p class="font-mono text-[11px] uppercase text-slate-500">
+          Dernier audit sain
+        </p>
+
+        <p class="mt-2 font-mono text-xl font-semibold text-emerald-200">
+          <%= format_height.call(audit[:last_healthy_height]) %>
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-slate-800 bg-black/25 p-3">
+        <p class="font-mono text-[11px] uppercase text-slate-500">
+          Plus haut sain
+        </p>
+
+        <p class="mt-2 font-mono text-xl font-semibold text-cyan-200">
+          <%= format_height.call(audit[:highest_healthy_height]) %>
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-slate-800 bg-black/25 p-3">
+        <p class="font-mono text-[11px] uppercase text-slate-500">
+          Résultats récents
+        </p>
+
+        <p class="mt-2 font-mono text-xl font-semibold <%= recent_total.to_i.positive? && recent_healthy.to_i == recent_total.to_i ? 'text-emerald-200' : 'text-amber-200' %>">
+          <%= recent_healthy.to_i %>/<%= recent_total.to_i %>
+        </p>
+      </div>
+    </div>
+
+    <div class="mt-4 grid gap-3 md:grid-cols-3">
+      <div class="rounded-lg border border-slate-800 p-3">
+        <p class="text-xs uppercase tracking-wide text-slate-500">
+          Queue
+        </p>
+
+        <p class="mt-2 font-mono text-sm <%= queue_size.to_i.zero? ? 'text-slate-300' : 'text-amber-200' %>">
+          <%=
+            case queue_size.to_i
+            when 0
+              "aucun travail"
+            when 1
+              "1 travail"
+            else
+              "#{queue_size.to_i} travaux"
+            end
+          %>
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-slate-800 p-3">
+        <p class="text-xs uppercase tracking-wide text-slate-500">
+          Worker
+        </p>
+
+        <p class="mt-2 font-mono text-sm text-slate-200">
+          <%= busy_workers.to_i.positive? ? "occupé" : "au repos" %>
+        </p>
+      </div>
+
+      <div class="rounded-lg border border-slate-800 p-3">
+        <p class="text-xs uppercase tracking-wide text-slate-500">
+          Dernière durée
+        </p>
+
+        <p class="mt-2 font-mono text-sm text-slate-200">
+          <%= format_duration.call(last_duration_ms) %>
+        </p>
+      </div>
+    </div>
+
+    <p class="mt-4 text-sm leading-6 text-slate-400">
+      <% if status == "healthy" %>
+        Le dernier audit terminé confirme les faits stricts du bloc contrôlé.
+      <% elsif activity == "queued" %>
+        Audit demandé — en attente de disponibilité du pipeline strict.
+      <% else %>
+        Un audit peut être en attente, différé ou en échec sans dégrader le statut du pipeline temps réel.
+      <% end %>
+    </p>
+
+    <div class="mt-4 flex flex-col gap-3 border-t border-slate-800 pt-4 md:flex-row md:items-center md:justify-between">
+      <p class="text-xs leading-5 text-slate-500">
+        Un audit peut être en attente, différé ou en échec sans dégrader le statut du pipeline temps réel.
+      </p>
+
+      <%= button_to "Lancer un audit",
         system_layer1_audit_run_path,
         method: :post,
         data: { turbo_stream: true },
-        class: "rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500" %>
+        class: "w-fit rounded-md border border-violet-400/30 bg-violet-400/10 px-3 py-2 font-mono text-xs font-semibold text-violet-100 hover:bg-violet-400/20" %>
     </div>
 
-    <% if last_audit %>
-      <div class="mt-6 grid gap-3 md:grid-cols-4">
-        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-          <p class="text-xs uppercase tracking-wide text-slate-500">
-            Bloc audité
-          </p>
-          <p class="mt-2 text-3xl font-bold text-white">
-            <%= last_audit.audited_height %>
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-          <p class="text-xs uppercase tracking-wide text-slate-500">
-            Conformité
-          </p>
-          <p class="mt-2 text-3xl font-bold text-emerald-400">
-            <%= compliance %>%
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-          <p class="text-xs uppercase tracking-wide text-slate-500">
-            Contrôles
-          </p>
-          <p class="mt-2 text-3xl font-bold text-white">
-            <%= ok %>/<%= total %>
-          </p>
-        </div>
-
-        <div class="rounded-xl border border-slate-800 bg-slate-900 p-4">
-          <p class="text-xs uppercase tracking-wide text-slate-500">
-            Dernière vérification
-          </p>
-          <p class="mt-2 text-lg font-bold text-white">
-            <%= last_audit.created_at.strftime("%d/%m %H:%M") %>
-          </p>
-        </div>
+    <% if audit[:error].present? %>
+      <div class="mt-4 rounded-lg border border-rose-400/20 bg-rose-400/[0.04] p-3">
+        <p class="font-mono text-xs leading-5 text-rose-200">
+          <%= audit[:error] %>
+        </p>
       </div>
-
-      <div class="mt-6 rounded-xl border <%= compliance == 100 ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-red-500/20 bg-red-500/5' %> p-4">
-        <% if compliance == 100 %>
-          <p class="text-sm text-emerald-300">
-            ✓ Les données affichées par Tansa sont actuellement conformes à Bitcoin Core.
-            Aucune divergence n'a été détectée lors du dernier audit.
-          </p>
-        <% else %>
-          <p class="text-sm text-red-300">
-            ⚠ Une divergence a été détectée entre Bitcoin Core et les données stockées par Tansa.
-          </p>
-        <% end %>
-      </div>
-
-      <% mapping = {
-        "tx_count_matches" => "Transactions",
-        "block_exists_in_db" => "Bloc",
-        "block_hash_matches" => "Hash",
-        "outputs_count_matches" => "Outputs",
-        "outputs_value_matches" => "Valeur BTC"
-      } %>
-
-      <div class="mt-6 overflow-hidden rounded-xl border border-slate-800">
-        <table class="w-full text-sm">
-          <thead class="bg-slate-900 text-slate-400">
-            <tr>
-              <th class="px-4 py-3 text-left">Contrôle</th>
-              <th class="px-4 py-3 text-left">Bitcoin Core</th>
-              <th class="px-4 py-3 text-left">Tansa</th>
-              <th class="px-4 py-3 text-left">Validation</th>
-            </tr>
-          </thead>
-
-          <tbody>
-            <% checks.each do |name, result| %>
-              <% passed = result["passed"] %>
-
-              <tr class="border-t border-slate-800">
-                <td class="px-4 py-3 font-medium text-white">
-                  <%= mapping[name] || name.humanize %>
-                </td>
-
-                <td class="px-4 py-3 font-mono text-xs text-slate-300">
-                  <%= result["bitcoin_core"] || "—" %>
-                </td>
-
-                <td class="px-4 py-3 font-mono text-xs text-slate-300">
-                  <%= result["postgresql"] || "—" %>
-                </td>
-
-                <td class="px-4 py-3">
-                  <% if passed %>
-                    <span class="inline-flex rounded-full bg-emerald-500/10 px-3 py-1 text-xs font-semibold text-emerald-300 ring-1 ring-emerald-500/30">
-                      Conforme
-                    </span>
-                  <% else %>
-                    <span class="inline-flex rounded-full bg-red-500/10 px-3 py-1 text-xs font-semibold text-red-300 ring-1 ring-red-500/30">
-                      Divergence
-                    </span>
-                  <% end %>
-                </td>
-              </tr>
-            <% end %>
-          </tbody>
-        </table>
-      </div>
-    <% else %>
-      <div class="mt-6 rounded-xl border border-yellow-900/40 bg-yellow-950/20 p-4">
-        <p class="text-sm text-yellow-200">
-          Aucun audit disponible. Lancez une vérification pour comparer Bitcoin Core et Tansa.
+    <% elsif last_run_status.present? && last_run_status != "healthy" %>
+      <div class="mt-4 rounded-lg border border-amber-400/20 bg-amber-400/[0.04] p-3">
+        <p class="font-mono text-xs leading-5 text-amber-200">
+          Le dernier audit exécuté possède le statut
+          <%= last_run_status.upcase %>.
         </p>
       </div>
     <% end %>

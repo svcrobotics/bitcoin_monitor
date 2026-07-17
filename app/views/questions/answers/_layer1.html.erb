@@ -1,298 +1,35 @@
 <%
-  dashboard = Layer1::DashboardSnapshot.call(snapshot: snapshot)
+  raw_snapshot =
+    snapshot || {}
 
-  status = dashboard[:status].to_s
-  sync = dashboard[:sync] || {}
-  buffers = dashboard[:buffers] || {}
-  pipeline = dashboard[:pipeline] || {}
-  automation = dashboard[:automation] || {}
-  performance = dashboard[:performance] || {}
-  current_block = dashboard[:current_block]
-  proof = dashboard[:proof] || {}
-  counts = dashboard[:counts] || {}
-  cursors = dashboard[:cursors] || {}
+  source =
+    (
+      raw_snapshot[:source] ||
+      raw_snapshot["source"]
+    ).to_s
 
-  lag = sync[:lag].to_i
-  catchup_progress = Layer1::CatchupProgressSnapshot.call(current_lag: sync[:lag])
-  buffers_total = buffers[:outputs].to_i + buffers[:spent].to_i
-  audit_total = proof[:total_checks].to_i
-  audit_passed = proof[:passed_checks].to_i
-  audit_label = audit_total.positive? ? "#{audit_passed}/#{audit_total}" : "non disponible"
-  recent_blocks = Array(performance[:recent_blocks]).first(5)
-
-  format_height = lambda do |height|
-    height.present? ? number_with_delimiter(height.to_i, delimiter: " ") : "non disponible"
-  end
-
-  format_number = lambda do |value|
-    value.present? ? number_with_delimiter(value.to_i, delimiter: " ") : "non disponible"
-  end
-
-  format_duration = lambda do |duration_ms|
-    if duration_ms.blank?
-      "non disponible"
-    elsif duration_ms.to_f < 60_000
-      "#{number_with_precision(duration_ms.to_f / 1000, precision: 1, strip_insignificant_zeros: true)} s"
+  overview =
+    if source ==
+       "layer1_overview_snapshot"
+      raw_snapshot
     else
-      "#{number_with_precision(duration_ms.to_f / 60_000, precision: 1, strip_insignificant_zeros: true)} min"
-    end
-  end
-
-  tone_class = lambda do |tone|
-    case tone
-    when :ok
-      "text-emerald-200"
-    when :warn
-      "text-amber-200"
-    when :critical
-      "text-rose-200"
-    else
-      "text-slate-300"
-    end
-  end
-
-  badge_class = lambda do |tone|
-    case tone
-    when :ok
-      "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
-    when :warn
-      "border-amber-400/25 bg-amber-400/10 text-amber-200"
-    when :critical
-      "border-rose-400/25 bg-rose-400/10 text-rose-200"
-    else
-      "border-slate-700 bg-slate-900/70 text-slate-300"
-    end
-  end
-
-  status_tone =
-    case status
-    when "healthy"
-      :ok
-    when "warning"
-      :warn
-    when "critical"
-      :critical
-    else
-      :unknown
+      Layer1::OverviewSnapshot.call(
+        realtime: raw_snapshot
+      )
     end
 
-  lag_tone =
-    if lag <= 1
-      :ok
-    else
-      :warn
-    end
-
-  buffers_tone = buffers_total.zero? ? :ok : :warn
-  audit_tone = proof[:conformant] ? :ok : (audit_total.zero? ? :warn : :critical)
-  action_tone = status == "critical" ? :critical : (status == "warning" || lag_tone != :ok || buffers_tone != :ok ? :warn : :ok)
-  data_tone = proof[:conformant] ? :ok : (audit_total.zero? ? :warn : :critical)
-  pipeline_state = pipeline[:state].to_s
-  pipeline_tone =
-    if pipeline_state.start_with?("blocked")
-      :critical
-    elsif pipeline_state == "active"
-      :warn
-    elsif status == "critical"
-      :critical
-    elsif status == "warning"
-      :warn
-    else
-      :ok
-    end
-  pipeline_label =
-    case pipeline_tone
-    when :ok
-      "opérationnel"
-    when :warn
-      "sous surveillance"
-    else
-      "bloqué"
-    end
-
-  answer =
-    case status
-    when "healthy"
-      "Layer1 fonctionne correctement."
-    when "warning"
-      "Layer1 fonctionne correctement, avec un retard observé de #{lag} bloc#{'s' unless lag == 1}."
-    when "critical"
-      "Layer1 nécessite une vérification."
-    else
-      "Layer1 est dans un état incomplet."
-    end
-
-  action_label =
-    case action_tone
-    when :ok
-      "aucune"
-    when :warn
-      "surveillance"
-    else
-      "intervention"
-    end
-
-  status_label = status.present? ? status.upcase : "UNKNOWN"
-  audit_label = "#{audit_label} #{proof[:conformant] ? 'conforme' : 'à vérifier'}"
-  data_label = proof[:conformant] ? "conformes" : "non conformes"
-  buffers_label = buffers_total.zero? ? "vides" : "#{number_with_delimiter(buffers_total, delimiter: ' ')} en attente"
-  worker_label = current_block.present? ? "en traitement" : "au repos"
-  scheduler_label = automation[:scheduler_enabled] ? "activé" : "désactivé"
-
-  conclusion =
-    if status == "critical" && proof[:conformant]
-      "Les blocs déjà certifiés restent conformes à Bitcoin Core. L’intervention concerne la reprise du pipeline strict, pas une divergence des données."
-    elsif status == "critical"
-      "Une divergence ou une condition stricte doit être vérifiée avant de considérer Layer1 sain."
-    elsif proof[:conformant]
-      "Aucune divergence avec Bitcoin Core n’a été détectée."
-    else
-      "L’audit doit être vérifié avant de conclure définitivement."
-    end
+  dashboard =
+    Layer1::DashboardSnapshot.call(
+      snapshot: overview
+    )
 %>
 
-<section class="mx-auto max-w-2xl text-slate-100">
-  <header class="space-y-4">
-    <div class="space-y-2">
-      <p class="text-xs font-medium uppercase tracking-[0.16em] text-slate-500">
-        Layer1
-      </p>
+<%= render(
+      "questions/answers/layer1_catchup_indicators",
+      overview: overview
+    ) %>
 
-      <h1 class="text-xl font-semibold leading-tight text-white md:text-2xl">
-        État strict Bitcoin
-      </h1>
-
-      <p class="text-sm leading-6 text-slate-300 md:text-base">
-        <%= answer %>
-      </p>
-    </div>
-
-    <div class="space-y-1.5 text-sm leading-6 text-slate-300">
-      <p class="flex gap-3">
-        <span class="w-32 shrink-0 text-slate-500">État</span>
-        <span class="font-mono <%= tone_class.call(status_tone) %>"><%= status_label %></span>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-32 shrink-0 text-slate-500">Données</span>
-        <span class="font-mono <%= tone_class.call(data_tone) %>"><%= data_label %></span>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-32 shrink-0 text-slate-500">Retard</span>
-        <span class="font-mono <%= tone_class.call(lag_tone) %>"><%= lag %> bloc<%= "s" unless lag == 1 %></span>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-32 shrink-0 text-slate-500">Pipeline</span>
-        <span class="inline-flex rounded border px-1.5 py-0.5 font-mono text-xs <%= badge_class.call(pipeline_tone) %>">
-          <%= pipeline_label %>
-        </span>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-32 shrink-0 text-slate-500">Audit</span>
-        <span class="font-mono <%= tone_class.call(audit_tone) %>"><%= audit_label %></span>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-32 shrink-0 text-slate-500">Buffers</span>
-        <span class="font-mono <%= tone_class.call(buffers_tone) %>"><%= buffers_label %></span>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-32 shrink-0 text-slate-500">Action requise</span>
-        <span class="font-mono <%= tone_class.call(action_tone) %>"><%= action_label %></span>
-      </p>
-    </div>
-
-    <p class="text-sm leading-6 text-slate-400">
-      <%= conclusion %>
-    </p>
-  </header>
-
-  <div class="my-5 border-t border-slate-800"></div>
-
-  <%= render "questions/answers/layer1_catchup_indicators",
-    progress: catchup_progress %>
-
-  <section class="space-y-3">
-    <h2 class="text-sm font-semibold text-slate-200">
-      Vitesse récente
-    </h2>
-
-    <% if recent_blocks.any? %>
-      <ol class="space-y-1 text-sm text-slate-400">
-        <% recent_blocks.each do |block| %>
-          <li class="grid max-w-sm grid-cols-[8rem_1fr] gap-4 font-mono">
-            <span class="text-slate-300"><%= format_height.call(block[:height]) %></span>
-            <span><%= format_duration.call(block[:duration_ms]) %></span>
-          </li>
-        <% end %>
-      </ol>
-    <% else %>
-      <p class="text-sm text-slate-500">Non disponible dans le snapshot actuel.</p>
-    <% end %>
-  </section>
-
-  <details class="group mt-5 border-t border-slate-800 pt-4">
-    <summary class="flex cursor-pointer list-none items-center justify-between gap-4">
-      <span class="text-sm font-semibold text-slate-200">Voir les détails techniques</span>
-      <span class="font-mono text-xs text-slate-500 transition group-open:rotate-180">v</span>
-    </summary>
-
-    <div class="mt-4 space-y-1.5 text-sm leading-6 text-slate-300">
-      <p class="flex gap-3">
-        <span class="w-40 shrink-0 text-slate-500">Bitcoin Core</span>
-        <strong class="font-mono font-medium text-cyan-200"><%= format_height.call(sync[:bitcoin_core_height]) %></strong>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-40 shrink-0 text-slate-500">Dernier bloc certifié</span>
-        <strong class="font-mono font-medium text-emerald-200"><%= format_height.call(sync[:processed_height]) %></strong>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-40 shrink-0 text-slate-500">Bloc en cours</span>
-        <strong class="font-mono font-medium text-slate-100"><%= current_block.present? ? format_height.call(current_block[:height]) : "aucun" %></strong>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-40 shrink-0 text-slate-500">Worker</span>
-        <strong class="font-mono font-medium text-slate-100"><%= worker_label %></strong>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-40 shrink-0 text-slate-500">Scheduler</span>
-        <strong class="font-mono font-medium text-slate-100"><%= scheduler_label %></strong>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-40 shrink-0 text-slate-500">Pipeline</span>
-        <strong class="font-mono font-medium text-slate-100"><%= pipeline[:state] || "non disponible" %></strong>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-40 shrink-0 text-slate-500">Tables strictes</span>
-        <strong class="font-mono font-medium text-slate-100">
-          <%= format_number.call(counts[:block_buffers]) %> blocs /
-          <%= format_number.call(counts[:utxo_outputs]) %> sorties /
-          <%= format_number.call(counts[:cluster_inputs]) %> entrées
-        </strong>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-40 shrink-0 text-slate-500">Curseurs</span>
-        <strong class="font-mono font-medium text-slate-100">
-          UTXO <%= cursors[:utxo_min_height] || "non disponible" %> / <%= cursors[:utxo_max_height] || "non disponible" %>,
-          cluster <%= cursors[:cluster_max_spent_height] || "non disponible" %>
-        </strong>
-      </p>
-
-      <p class="flex gap-3">
-        <span class="w-40 shrink-0 text-slate-500">Buffers détaillés</span>
-        <strong class="font-mono font-medium text-slate-100"><%= format_number.call(buffers[:outputs]) %> sorties / <%= format_number.call(buffers[:spent]) %> dépenses</strong>
-      </p>
-    </div>
-  </details>
-</section>
+<%= render(
+      "questions/answers/layer1_pipeline",
+      dashboard: dashboard
+    ) %>

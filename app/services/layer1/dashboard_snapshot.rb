@@ -6,12 +6,38 @@ module Layer1
     AVERAGE_BLOCKS_LIMIT = 10
     RECENT_ROWS_LIMIT = AVERAGE_BLOCKS_LIMIT + 1
 
-    def self.call(snapshot:)
-      new(snapshot: snapshot).call
+    def self.call(
+      snapshot:,
+      overview: nil
+    )
+      new(
+        snapshot: snapshot,
+        overview: overview
+      ).call
     end
 
-    def initialize(snapshot:)
-      @snapshot = snapshot || {}
+    def initialize(
+      snapshot:,
+      overview: nil
+    )
+      @raw_snapshot =
+        overview.presence ||
+        snapshot ||
+        {}
+
+      @raw_snapshot =
+        @raw_snapshot.with_indifferent_access if
+          @raw_snapshot.respond_to?(
+            :with_indifferent_access
+          )
+
+      @overview =
+        if raw_source ==
+           "layer1_overview_snapshot"
+          @raw_snapshot
+        else
+          {}.with_indifferent_access
+        end
     end
 
     def call
@@ -36,6 +62,11 @@ module Layer1
       historical_projection = historical_projection_snapshot(sync: sync)
 
       {
+        source: "layer1_dashboard_snapshot",
+        generated_at:
+          overview_value(:generated_at) ||
+          Time.current,
+
         status: normalized_status,
         status_label: status_label,
         status_summary: status_summary(
@@ -58,6 +89,16 @@ module Layer1
           average_blocks_count: baseline_rows.size
         ),
         proof: proof,
+
+        audit:
+          overview_section(
+            :audit
+          ),
+
+        pace:
+          overview_section(
+            :pace
+          ),
         counts: value(snapshot, :counts) || {},
         cursors: value(snapshot, :cursors) || {},
         timestamps: value(snapshot, :timestamps) || {},
@@ -67,7 +108,54 @@ module Layer1
 
     private
 
-    attr_reader :snapshot
+    attr_reader :overview
+
+    def snapshot
+      @snapshot ||=
+        begin
+          realtime =
+            if raw_source ==
+               "layer1_overview_snapshot"
+              raw_value(
+                @raw_snapshot,
+                :realtime
+              ) || {}
+            else
+              @raw_snapshot
+            end
+
+          if realtime.respond_to?(
+               :with_indifferent_access
+             )
+            realtime.with_indifferent_access
+          else
+            realtime
+          end
+        end
+    end
+
+    def raw_source
+      raw_value(
+        @raw_snapshot,
+        :source
+      ).to_s
+    end
+
+    def raw_value(hash, key)
+      return nil unless
+        hash.respond_to?(
+          :key?
+        )
+
+      return hash[key] if
+        hash.key?(
+          key
+        )
+
+      hash[
+        key.to_s
+      ]
+    end
 
     def normalized_status
       value(snapshot, :status).to_s.presence || "unknown"
@@ -404,69 +492,484 @@ module Layer1
 
     def historical_projection_snapshot(sync:)
       raw =
-        value(snapshot, :historical_projection) ||
-        value(snapshot, :tx_outputs_async) ||
-        {}
-      enabled = truthy?(value(raw, :enabled))
-      certified_height = sync[:processed_height].to_i
-      last_synced_height = value(raw, :last_synced_height)
-      pending_count = value(raw, :pending_count).to_i
-      failed_count = value(raw, :failed_count).to_i
-      worker = value(raw, :worker) || {}
-      worker_present = truthy?(value(worker, :present))
-      worker_busy = value(worker, :busy).to_i
-      projection_lag = value(raw, :projection_lag_blocks)
+        overview_section(
+          :historical_projection
+        )
 
-      if projection_lag.nil? && last_synced_height.present?
-        projection_lag = [certified_height - last_synced_height.to_i, 0].max
+      raw =
+        value(
+          snapshot,
+          :historical_projection
+        ) if raw.blank?
+
+      raw =
+        value(
+          snapshot,
+          :tx_outputs_async
+        ) if raw.blank?
+
+      raw ||= {}
+
+      outputs_raw =
+        value(
+          raw,
+          :outputs
+        )
+
+      spent_sync_raw =
+        value(
+          raw,
+          :spent_sync
+        )
+
+      nested_contract =
+        outputs_raw.respond_to?(:key?) ||
+        spent_sync_raw.respond_to?(:key?)
+
+      unless nested_contract
+        return historical_component_snapshot(
+          raw: raw,
+          sync: sync,
+          default_enabled: false
+        )
       end
+
+      parent_enabled =
+        truthy?(
+          value(
+            raw,
+            :enabled
+          )
+        )
+
+      outputs =
+        historical_component_snapshot(
+          raw:
+            outputs_raw || {},
+
+          sync: sync,
+
+          default_enabled:
+            parent_enabled
+        )
+
+      spent_sync =
+        historical_component_snapshot(
+          raw:
+            spent_sync_raw || {},
+
+          sync: sync,
+
+          default_enabled:
+            parent_enabled
+        )
+
+      pending_count =
+        outputs[:pending_count].to_i +
+        spent_sync[:pending_count].to_i
+
+      failed_count =
+        outputs[:failed_count].to_i +
+        spent_sync[:failed_count].to_i
+
+      projection_lag =
+        [
+          outputs[
+            :projection_lag_blocks
+          ],
+
+          spent_sync[
+            :projection_lag_blocks
+          ]
+        ]
+          .compact
+          .map(&:to_i)
+          .max
+
+      state =
+        aggregate_historical_state(
+          outputs[:state],
+          spent_sync[:state],
+          value(
+            raw,
+            :status
+          )
+        )
+
+      label, description =
+        historical_projection_copy(
+          state: state,
+          projection_lag: projection_lag,
+          pending_count: pending_count,
+          failed_count: failed_count
+        )
+
+      {
+        enabled:
+          parent_enabled ||
+          outputs[:enabled] ||
+          spent_sync[:enabled],
+
+        status:
+          state,
+
+        state:
+          state,
+
+        label:
+          label,
+
+        description:
+          description,
+
+        certified_height:
+          sync[
+            :processed_height
+          ].to_i,
+
+        projection_lag_blocks:
+          projection_lag,
+
+        pending_count:
+          pending_count,
+
+        failed_count:
+          failed_count,
+
+        outputs:
+          outputs,
+
+        spent_sync:
+          spent_sync
+      }
+    end
+
+    def historical_component_snapshot(
+      raw:,
+      sync:,
+      default_enabled: false
+    )
+      raw ||= {}
+
+      enabled_value =
+        value(
+          raw,
+          :enabled
+        )
+
+      enabled =
+        if enabled_value.nil?
+          default_enabled
+        else
+          truthy?(
+            enabled_value
+          )
+        end
+
+      certified_height =
+        sync[
+          :processed_height
+        ].to_i
+
+      last_synced_height =
+        value(
+          raw,
+          :last_synced_height
+        )
+
+      pending_count =
+        value(
+          raw,
+          :pending_count
+        ).to_i
+
+      failed_count =
+        value(
+          raw,
+          :failed_count
+        ).to_i
+
+      worker =
+        value(
+          raw,
+          :worker
+        ) || {}
+
+      worker_present =
+        truthy?(
+          value(
+            worker,
+            :present
+          )
+        )
+
+      worker_busy =
+        value(
+          worker,
+          :busy
+        ).to_i
+
+      projection_lag =
+        value(
+          raw,
+          :projection_lag_blocks
+        )
+
+      if projection_lag.nil? &&
+         last_synced_height.present?
+        projection_lag =
+          [
+            certified_height -
+              last_synced_height.to_i,
+            0
+          ].max
+      end
+
+      raw_status =
+        value(
+          raw,
+          :status
+        ).to_s
 
       state =
         if !enabled
           "disabled"
-        elsif truthy?(value(raw, :migration_pending))
+
+        elsif truthy?(
+                value(
+                  raw,
+                  :migration_pending
+                )
+              )
           "setup_required"
-        elsif value(raw, :error).present?
+
+        elsif value(
+                raw,
+                :error
+              ).present? ||
+              raw_status == "unavailable"
           "error"
-        elsif failed_count.positive?
+
+        elsif failed_count.positive? ||
+              raw_status == "failed"
           "failed"
-        elsif last_synced_height.present? && projection_lag.to_i.zero? && pending_count.zero?
-          "synced"
-        elsif worker_busy.positive?
+
+        elsif worker_busy.positive? ||
+              raw_status == "processing"
           "processing"
-        elsif pending_count.positive? || projection_lag.to_i.positive?
-          sync[:lag].to_i.positive? ? "deferred" : "pending"
-        elsif last_synced_height.nil? && certified_height.positive?
+
+        elsif %w[
+                deferred
+                behind
+              ].include?(
+                raw_status
+              )
+          "deferred"
+
+        elsif pending_count.positive? ||
+              projection_lag.to_i.positive? ||
+              raw_status == "pending"
+          sync[:lag].to_i.positive? ?
+            "deferred" :
+            "pending"
+
+        elsif raw_status == "synced" ||
+              (
+                last_synced_height.present? &&
+                projection_lag.to_i.zero? &&
+                pending_count.zero?
+              )
+          "synced"
+
+        elsif last_synced_height.nil? &&
+              certified_height.positive?
           "initializing"
+
         else
           "idle"
         end
 
-      label, description = historical_projection_copy(
-        state: state,
-        projection_lag: projection_lag,
-        pending_count: pending_count,
-        failed_count: failed_count
-      )
+      label, description =
+        historical_projection_copy(
+          state: state,
+          projection_lag: projection_lag,
+          pending_count: pending_count,
+          failed_count: failed_count
+        )
 
       {
-        enabled: enabled,
-        state: state,
-        label: label,
-        description: description,
-        certified_height: certified_height,
-        last_synced_height: last_synced_height,
-        projection_lag_blocks: projection_lag,
-        pending_count: pending_count,
-        failed_count: failed_count,
-        oldest_pending_height: value(raw, :oldest_pending_height),
-        worker_present: worker_present,
-        worker_busy: worker_busy,
-        worker_pid: value(worker, :pid),
-        queue_size: value(raw, :queue_size).to_i,
-        scheduled_jobs: value(raw, :scheduled_jobs).to_i,
-        error: value(raw, :error)
+        enabled:
+          enabled,
+
+        status:
+          state,
+
+        state:
+          state,
+
+        label:
+          label,
+
+        description:
+          description,
+
+        certified_height:
+          certified_height,
+
+        last_synced_height:
+          last_synced_height,
+
+        projection_lag_blocks:
+          projection_lag,
+
+        pending_count:
+          pending_count,
+
+        failed_count:
+          failed_count,
+
+        oldest_pending_height:
+          value(
+            raw,
+            :oldest_pending_height
+          ),
+
+        oldest_processing_height:
+          value(
+            raw,
+            :oldest_processing_height
+          ),
+
+        oldest_processing_age_seconds:
+          value(
+            raw,
+            :oldest_processing_age_seconds
+          ),
+
+        next_record_height:
+          value(
+            raw,
+            :next_record_height
+          ),
+
+        worker_present:
+          worker_present,
+
+        worker_busy:
+          worker_busy,
+
+        worker_pid:
+          value(
+            worker,
+            :pid
+          ),
+
+        queue_size:
+          value(
+            raw,
+            :queue_size
+          ).to_i,
+
+        scheduled_jobs:
+          value(
+            raw,
+            :scheduled_jobs
+          ).to_i,
+
+        lock_present:
+          truthy?(
+            value(
+              raw,
+              :lock_present
+            )
+          ),
+
+        historical_budget:
+          value(
+            raw,
+            :historical_budget
+          ) || {},
+
+        recovery:
+          value(
+            raw,
+            :recovery
+          ) || {},
+
+        error:
+          value(
+            raw,
+            :error
+          )
       }
+    end
+
+    def aggregate_historical_state(
+      outputs_state,
+      spent_sync_state,
+      parent_state
+    )
+      states =
+        [
+          outputs_state,
+          spent_sync_state,
+          parent_state.to_s.presence
+        ]
+          .compact
+          .map(&:to_s)
+
+      return "failed" if
+        states.include?(
+          "failed"
+        )
+
+      return "error" if
+        (
+          states &
+          %w[
+            error
+            unavailable
+          ]
+        ).any?
+
+      return "processing" if
+        states.include?(
+          "processing"
+        )
+
+      return "deferred" if
+        states.include?(
+          "deferred"
+        )
+
+      return "pending" if
+        (
+          states &
+          %w[
+            pending
+            behind
+          ]
+        ).any?
+
+      return "synced" if
+        states.any? &&
+        states.all? do |state|
+          %w[
+            synced
+            idle
+            disabled
+          ].include?(
+            state
+          )
+        end
+
+      return "disabled" if
+        states.any? &&
+        states.all? do |state|
+          state == "disabled"
+        end
+
+      "idle"
     end
 
     def historical_projection_copy(state:, projection_lag:, pending_count:, failed_count:)
@@ -568,6 +1071,283 @@ module Layer1
             processed_at: processed_at || updated_at
           }
         end
+    end
+
+    def last_block_details(
+      height:,
+      fallback:
+    )
+      base =
+        fallback ||
+        {}
+
+      return base unless
+        height.present?
+
+      record =
+        BlockBufferModel
+          .where(
+            height: height,
+            status: "processed"
+          )
+          .first
+
+      return base.merge(
+        height: height.to_i
+      ) unless record
+
+      raw_metrics =
+        if record.respond_to?(
+             :strict_metrics
+           )
+          record.strict_metrics
+        else
+          record.attributes[
+            "strict_metrics"
+          ]
+        end
+
+      metrics =
+        normalized_hash(
+          raw_metrics
+        )
+
+      stage_timings =
+        normalized_hash(
+          value(
+            metrics,
+            :stage_timings
+          )
+        )
+
+      base.merge(
+        height:
+          record.height.to_i,
+
+        block_hash:
+          record.block_hash,
+
+        previous_hash:
+          record.previous_hash,
+
+        block_time:
+          record.block_time,
+
+        processed_at:
+          record.processed_at ||
+          record.updated_at,
+
+        tx_count:
+          record.tx_count,
+
+        size_bytes:
+          record.size_bytes,
+
+        attempts:
+          record.attempts,
+
+        duration_ms:
+          record.duration_ms ||
+          value(
+            metrics,
+            :duration_ms
+          ),
+
+        rpc_duration_ms:
+          record.rpc_duration_ms ||
+          value(
+            metrics,
+            :rpc_duration_ms
+          ),
+
+        parse_duration_ms:
+          record.parse_duration_ms ||
+          value(
+            metrics,
+            :parse_duration_ms
+          ),
+
+        flush_duration_ms:
+          record.flush_duration_ms ||
+          value(
+            metrics,
+            :flush_duration_ms
+          ),
+
+        metrics:
+          metrics,
+
+        stage_timings:
+          stage_timings,
+
+        flush_metrics:
+          normalized_hash(
+            value(
+              metrics,
+              :flush_metrics
+            )
+          ),
+
+        strict_outputs_count:
+          value(
+            metrics,
+            :strict_outputs
+          ),
+
+        cluster_inputs_count:
+          value(
+            metrics,
+            :cluster_inputs
+          ),
+
+        outputs_audit_ok:
+          value(
+            metrics,
+            :outputs_audit_ok
+          ),
+
+        inputs_audit_ok:
+          value(
+            metrics,
+            :inputs_audit_ok
+          ),
+
+        utxo_audit_ok:
+          value(
+            metrics,
+            :utxo_audit_ok
+          ),
+
+        outputs_audit_status:
+          value(
+            metrics,
+            :outputs_audit_status
+          ),
+
+        node_inputs_count:
+          value(
+            metrics,
+            :node_inputs_count
+          ),
+
+        db_inputs_count:
+          value(
+            metrics,
+            :db_inputs_count
+          ),
+
+        node_inputs_value_btc:
+          value(
+            metrics,
+            :node_inputs_value_btc
+          ),
+
+        db_inputs_value_btc:
+          value(
+            metrics,
+            :db_inputs_value_btc
+          ),
+
+        expected_live_outputs_count:
+          value(
+            metrics,
+            :expected_live_outputs_count
+          ),
+
+        actual_live_utxos_count:
+          value(
+            metrics,
+            :actual_live_utxos_count
+          ),
+
+        expected_live_value_btc:
+          value(
+            metrics,
+            :expected_live_value_btc
+          ),
+
+        actual_live_value_btc:
+          value(
+            metrics,
+            :actual_live_value_btc
+          ),
+
+        orphan_utxos_count:
+          value(
+            metrics,
+            :orphan_utxos_count
+          ),
+
+        spent_rows_still_in_utxo:
+          value(
+            metrics,
+            :spent_rows_still_in_utxo
+          ),
+
+        processor_mode:
+          value(
+            metrics,
+            :processor_mode
+          ),
+
+        processor_transactions:
+          value(
+            metrics,
+            :processor_transactions
+          ),
+
+        processor_outputs:
+          value(
+            metrics,
+            :processor_outputs
+          ),
+
+        processor_spent_outputs:
+          value(
+            metrics,
+            :processor_spent_outputs
+          ),
+
+        prevout_found:
+          value(
+            metrics,
+            :prevout_found
+          ),
+
+        prevout_missing:
+          value(
+            metrics,
+            :prevout_missing
+          ),
+
+        reconcile_spent_outputs:
+          value(
+            metrics,
+            :reconcile_spent_outputs
+          ) || {},
+
+        tx_output_projection_status:
+          value(
+            metrics,
+            :tx_output_projection_status
+          ),
+
+        tx_outputs_sync_status:
+          value(
+            metrics,
+            :tx_outputs_sync_status
+          )
+      )
+    rescue StandardError => error
+      Rails.logger.warn(
+        "[layer1_dashboard_snapshot] " \
+        "last_block_details_error " \
+        "#{error.class}: #{error.message}"
+      )
+
+      base.merge(
+        height: height.to_i
+      )
     end
 
     def build_recent_blocks(rows)
@@ -675,6 +1455,13 @@ module Layer1
         ratio: ratio,
         deviation_pct: deviation_pct,
         recent_blocks: recent_blocks,
+
+        last_block:
+          last_block_details(
+            height: last_height,
+            fallback: recent_blocks.first
+          ),
+
         max_recent_duration_ms:
           recent_blocks.map { |row| row[:duration_ms] }.max.to_f
       }
@@ -727,6 +1514,65 @@ module Layer1
 
     def formatted_integer(number)
       number.to_i.to_s.reverse.scan(/.{1,3}/).join(" ").reverse
+    end
+
+    def overview_section(key)
+      return {} unless
+        raw_source ==
+          "layer1_overview_snapshot"
+
+      section =
+        raw_value(
+          @raw_snapshot,
+          key
+        )
+
+      return {} unless
+        section.is_a?(
+          Hash
+        )
+
+      if section.respond_to?(
+           :with_indifferent_access
+         )
+        section.with_indifferent_access
+      else
+        section
+      end
+    end
+
+    def overview_value(key)
+      return nil unless
+        raw_source ==
+          "layer1_overview_snapshot"
+
+      raw_value(
+        @raw_snapshot,
+        key
+      )
+    end
+
+    def normalized_hash(raw)
+      result =
+        case raw
+        when Hash
+          raw
+        when String
+          JSON.parse(raw)
+        else
+          {}
+        end
+
+      if result.respond_to?(
+           :with_indifferent_access
+         )
+        result.with_indifferent_access
+      else
+        result
+      end
+    rescue JSON::ParserError,
+           TypeError
+      {}.with_indifferent_access
     end
 
     def value(hash, key)

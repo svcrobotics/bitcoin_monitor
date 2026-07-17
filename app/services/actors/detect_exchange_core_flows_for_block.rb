@@ -2,7 +2,7 @@
 
 module Actors
   class DetectExchangeCoreFlowsForBlock
-    SOURCE = "actor_profile_exchange_like"
+    SOURCE = ActorLabels::StrictWriter::SOURCE
     ECONOMIC_ADDRESS = "__economic_exchange_flow__"
 
     def self.call(block_height:)

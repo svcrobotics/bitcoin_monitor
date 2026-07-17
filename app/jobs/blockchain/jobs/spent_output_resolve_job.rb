@@ -105,7 +105,7 @@ module Blockchain
       private
 
       def refresh_health_snapshots(block_height)
-        Layer1::CachedHealthSnapshot.refresh!
+        Layer1::Realtime::CachedHealthSnapshot.refresh!
         Clusters::CachedHealthSnapshot.refresh!
 
         Rails.logger.info(

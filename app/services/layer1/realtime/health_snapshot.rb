@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "json"
+
 module Layer1
   module Realtime
     class HealthSnapshot
@@ -9,6 +11,15 @@ module Layer1
       STRICT_CRON_NAME = "layer1_strict_tip_sync_kick"
       SCHEDULER_QUEUE = "scheduler"
       LOCK_KEY = Layer1::StrictTipSyncer::LOCK_KEY
+      SCHEDULER_RUNTIME_STATUS_KEY =
+        "strict_pipeline:scheduler:runtime_status"
+      LAYER1_LAST_ENQUEUE_KEY =
+        "strict_pipeline:layer1:last_enqueue"
+      LAYER1_STALLED_SINCE_KEY =
+        "strict_pipeline:layer1:stalled_since"
+      SCHEDULER_HEARTBEAT_STALE_SECONDS = 60
+      LAYER1_STALLED_LAG_BLOCKS = 10
+      LAYER1_STALLED_SECONDS = 60
 
       DISPLAY_QUEUES = %w[
         layer1_strict
@@ -45,9 +56,32 @@ module Layer1
         worker = strict_worker_process
         scheduler = strict_scheduler_snapshot
         scheduler_process = queue_process(SCHEDULER_QUEUE)
+        scheduler_runtime = scheduler_runtime_status(redis)
         lock = lock_snapshot(redis)
         strict_queue_size = queue_size(STRICT_QUEUE)
+        strict_scheduled_jobs = scheduled_queue_size(STRICT_QUEUE)
+        strict_retry_jobs = retry_queue_size(STRICT_QUEUE)
         buffers = buffer_snapshot(redis)
+        workers = layer1_workers
+        layer1_work_active =
+          processing_block.present? ||
+          workers.any?
+
+        layer1_work_queued =
+          strict_queue_size.to_i.positive? ||
+          strict_scheduled_jobs.to_i.positive? ||
+          strict_retry_jobs.to_i.positive?
+
+        stalled =
+          layer1_stall_snapshot(
+            redis: redis,
+            lag: lag,
+            layer1_work_active: layer1_work_active,
+            layer1_work_queued: layer1_work_queued
+          )
+
+        last_enqueue =
+          layer1_last_enqueue(redis)
 
         status = health_status(
           rpc_error: rpc_error,
@@ -78,9 +112,37 @@ module Layer1
             worker: worker,
             scheduler: scheduler,
             scheduler_process: scheduler_process,
+            scheduler_configured:
+              scheduler[:registered] == true &&
+                scheduler[:enabled] == true,
+            scheduler_alive:
+              scheduler_runtime[:alive] == true,
+            last_scheduler_tick_at:
+              scheduler_runtime[:observed_at],
+            scheduler_runtime:
+              scheduler_runtime.except(:alive, :observed_at),
             lock: lock,
             queue_size: strict_queue_size,
-            scheduled_jobs: scheduled_queue_size(STRICT_QUEUE),
+            scheduled_jobs: strict_scheduled_jobs,
+            retry_jobs: strict_retry_jobs,
+            catch_up_active:
+              development_backfill_phase(redis) == "layer1_catchup",
+            layer1_work_active: layer1_work_active,
+            layer1_work_queued: layer1_work_queued,
+            last_enqueue_at:
+              last_enqueue["enqueued_at"],
+            last_enqueue_reason:
+              last_enqueue["reason"],
+            stalled:
+              stalled[:stalled],
+            stalled_since:
+              stalled[:stalled_since],
+            stalled_seconds:
+              stalled[:stalled_seconds],
+            stalled_reason:
+              stalled[:reason],
+            anomaly:
+              stalled[:stalled] ? "layer1_stalled" : nil,
             processing_block: block_state(processing_block),
             processing_stale_seconds: processing_stale_seconds,
             failed_block: block_state(failed_block)
@@ -107,7 +169,7 @@ module Layer1
           },
 
           queues: sidekiq_queues,
-          workers: layer1_workers,
+          workers: workers,
           processes: sidekiq_processes,
 
           activity: activity(
@@ -327,10 +389,118 @@ module Layer1
         { registered: false, enabled: false, error: e.message }
       end
 
+      def scheduler_runtime_status(redis)
+        payload =
+          parse_json(
+            redis.get(SCHEDULER_RUNTIME_STATUS_KEY)
+          )
+
+        observed_at =
+          safe_time(parse_time(payload["observed_at"]))
+
+        age =
+          seconds_ago(observed_at)
+
+        payload.merge(
+          observed_at: observed_at&.iso8601(6),
+          heartbeat_age_seconds: age,
+          alive:
+            observed_at.present? &&
+              age.to_i <= SCHEDULER_HEARTBEAT_STALE_SECONDS
+        ).symbolize_keys
+      rescue StandardError => e
+        {
+          alive: false,
+          observed_at: nil,
+          error: e.message
+        }
+      end
+
+      def layer1_last_enqueue(redis)
+        parse_json(
+          redis.get(LAYER1_LAST_ENQUEUE_KEY)
+        )
+      rescue StandardError
+        {}
+      end
+
+      def development_backfill_phase(redis)
+        parse_json(
+          redis.get(System::DevelopmentBackfillPhase::STATE_KEY)
+        ).fetch("phase", nil).to_s
+      rescue StandardError
+        nil
+      end
+
+      def layer1_stall_snapshot(
+        redis:,
+        lag:,
+        layer1_work_active:,
+        layer1_work_queued:
+      )
+        condition =
+          lag.to_i >= LAYER1_STALLED_LAG_BLOCKS &&
+          layer1_work_active != true &&
+          layer1_work_queued != true
+
+        unless condition
+          redis.del(LAYER1_STALLED_SINCE_KEY)
+
+          return {
+            stalled: false,
+            stalled_since: nil,
+            stalled_seconds: 0,
+            reason: nil
+          }
+        end
+
+        now = Time.current
+        raw = redis.get(LAYER1_STALLED_SINCE_KEY)
+
+        unless raw.present?
+          raw = now.iso8601(6)
+          redis.set(LAYER1_STALLED_SINCE_KEY, raw)
+        end
+
+        stalled_since =
+          safe_time(parse_time(raw)) || now
+
+        stalled_seconds =
+          seconds_ago(stalled_since).to_i
+
+        {
+          stalled:
+            stalled_seconds > LAYER1_STALLED_SECONDS,
+          stalled_since:
+            stalled_since.iso8601(6),
+          stalled_seconds: stalled_seconds,
+          reason:
+            "lag_without_strict_work"
+        }
+      rescue StandardError => e
+        {
+          stalled: false,
+          stalled_since: nil,
+          stalled_seconds: 0,
+          reason: "stall_snapshot_failed",
+          error: e.message
+        }
+      end
+
       def scheduled_queue_size(queue_name)
         require "sidekiq/api"
 
         Sidekiq::ScheduledSet.new.count do |job|
+          job.queue.to_s == queue_name.to_s
+        end
+      rescue StandardError
+        0
+      end
+
+      def retry_queue_size(queue_name)
+        require "sidekiq/api"
+
+        Sidekiq::RetrySet.new.count do |job|
           job.queue.to_s == queue_name.to_s
         end
       rescue StandardError
@@ -396,8 +566,11 @@ module Layer1
         lock:,
         strict_queue_size:
       )
+        last_activity_at =
+          last_activity_at(processing_block)
+
         last_processed_at =
-          BlockBufferModel.where(status: "processed").maximum(:updated_at)
+          latest_processed_activity_at
 
         last_utxo_at = safe_time(latest_created_at(UtxoOutput))
 
@@ -416,6 +589,8 @@ module Layer1
           ),
           bitcoin_core_height: node_tip,
           processed_height: processed,
+          last_activity_at: last_activity_at,
+          last_activity_seconds_ago: seconds_ago(last_activity_at),
           last_processed_seconds_ago: seconds_ago(last_processed_at),
           last_utxo_seconds_ago: seconds_ago(last_utxo_at),
           outputs_buffer: redis.llen(OUTPUTS_KEY),
@@ -424,6 +599,46 @@ module Layer1
           layer1_drain_queue: queue_size("layer1_drain"),
           spent_resolve_queue: queue_size("spent_resolve")
         }
+      end
+
+      def last_activity_at(processing_block)
+        heartbeat =
+          processing_block&.last_heartbeat_at
+
+        return safe_past_time(heartbeat) if safe_past_time(heartbeat)
+
+        processed =
+          latest_processed_activity_at
+
+        return processed if processed
+
+        safe_past_time(processing_block&.updated_at)
+      end
+
+      def latest_processed_activity_at
+        row =
+          BlockBufferModel
+            .where(status: "processed")
+            .order(height: :desc)
+            .pick(:processed_at, :updated_at)
+
+        return nil unless row
+
+        processed_at, updated_at = row
+
+        safe_past_time(processed_at) ||
+          safe_past_time(updated_at)
+      end
+
+      def safe_past_time(time)
+        return nil unless time
+
+        value =
+          time.respond_to?(:in_time_zone) ? time.in_time_zone : time
+
+        return nil if value > Time.current
+
+        value
       end
 
       def pipeline_state(
@@ -477,6 +692,7 @@ module Layer1
           "processing_started_at",
           "last_heartbeat_at",
           "processed_at",
+          "updated_at",
           "failed_at",
           "error_class",
           "error_message"
@@ -533,6 +749,22 @@ module Layer1
         return nil unless time
 
         time > Time.current ? Time.current : time
+      end
+
+      def parse_json(raw)
+        return {} if raw.blank?
+
+        JSON.parse(raw)
+      rescue JSON::ParserError
+        {}
+      end
+
+      def parse_time(value)
+        return nil if value.blank?
+
+        Time.zone.parse(value.to_s)
+      rescue ArgumentError, TypeError
+        nil
       end
     end
   end

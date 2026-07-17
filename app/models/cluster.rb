@@ -10,7 +10,8 @@ class Cluster < ApplicationRecord
   has_one :actor_profile, dependent: :destroy
   has_many :actor_labels, dependent: :destroy
 
-  validates :composition_version, presence: true
+  before_validation :ensure_initial_composition_version
+
   validates(
     :composition_version,
     numericality: {
@@ -40,5 +41,19 @@ class Cluster < ApplicationRecord
       last_seen_height: last_seen,
       updated_at: Time.current
     )
+  end
+
+  def self.next_composition_version_for(cluster_ids)
+    where(id: Array(cluster_ids).compact)
+      .maximum(:composition_version)
+      .to_i + 1
+  end
+
+  private
+
+  def ensure_initial_composition_version
+    self.composition_version =
+      INITIAL_COMPOSITION_VERSION if
+        composition_version.to_i < INITIAL_COMPOSITION_VERSION
   end
 end

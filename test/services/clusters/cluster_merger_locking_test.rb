@@ -7,7 +7,8 @@ module Clusters
     self.use_transactional_tests = false
 
     def setup
-      @prefix = "cluster-locking-#{SecureRandom.hex(8)}"
+      @prefix =
+        "cluster-locking-#{SecureRandom.hex(8)}"
     end
 
     def teardown
@@ -16,30 +17,56 @@ module Clusters
     end
 
     test "concurrent merge is blocked by deterministic row locks" do
-      first = Cluster.create!(composition_version: 1)
-      second = Cluster.create!(composition_version: 1)
-      first_address = Address.create!(address: "#{@prefix}-merge-a", cluster: first)
-      second_address = Address.create!(address: "#{@prefix}-merge-b", cluster: second)
+      first =
+        Cluster.create!(composition_version: 1)
+
+      second =
+        Cluster.create!(composition_version: 1)
+
+      first_address =
+        Address.create!(
+          address: "#{@prefix}-merge-a",
+          cluster: first
+        )
+
+      second_address =
+        Address.create!(
+          address: "#{@prefix}-merge-b",
+          cluster: second
+        )
+
       ready = Queue.new
       release = Queue.new
 
-      holder = Thread.new do
-        ActiveRecord::Base.connection_pool.with_connection do
-          ApplicationRecord.transaction do
-            Clusters::ClusterMerger.call(
-              address_records: [first_address.reload, second_address.reload]
-            )
-            ready << true
-            release.pop
+      holder =
+        Thread.new do
+          ActiveRecord::Base.connection_pool.with_connection do
+            ApplicationRecord.transaction do
+              Clusters::ClusterMerger.call(
+                address_records: [
+                  first_address.reload,
+                  second_address.reload
+                ]
+              )
+
+              ready << true
+              release.pop
+            end
           end
         end
-      end
+
       ready.pop
 
-      assert_raises(ActiveRecord::LockWaitTimeout, ActiveRecord::StatementInvalid) do
+      assert_raises(
+        ActiveRecord::LockWaitTimeout,
+        ActiveRecord::StatementInvalid
+      ) do
         with_short_lock_timeout do
           Clusters::ClusterMerger.call(
-            address_records: [second_address, first_address.reload]
+            address_records: [
+              first_address.reload,
+              second_address
+            ]
           )
         end
       end
@@ -49,29 +76,52 @@ module Clusters
     end
 
     test "concurrent attach is blocked by target cluster and address locks" do
-      cluster = Cluster.create!(composition_version: 1)
-      existing = Address.create!(address: "#{@prefix}-attach-existing", cluster: cluster)
-      unclustered = Address.create!(address: "#{@prefix}-attach-new")
+      cluster =
+        Cluster.create!(composition_version: 1)
+
+      existing =
+        Address.create!(
+          address: "#{@prefix}-attach-existing",
+          cluster: cluster
+        )
+
+      unclustered =
+        Address.create!(
+          address: "#{@prefix}-attach-new"
+        )
+
       ready = Queue.new
       release = Queue.new
 
-      holder = Thread.new do
-        ActiveRecord::Base.connection_pool.with_connection do
-          ApplicationRecord.transaction do
-            Clusters::ClusterMerger.call(
-              address_records: [unclustered.reload, existing.reload]
-            )
-            ready << true
-            release.pop
+      holder =
+        Thread.new do
+          ActiveRecord::Base.connection_pool.with_connection do
+            ApplicationRecord.transaction do
+              Clusters::ClusterMerger.call(
+                address_records: [
+                  existing.reload,
+                  unclustered.reload
+                ]
+              )
+
+              ready << true
+              release.pop
+            end
           end
         end
-      end
+
       ready.pop
 
-      assert_raises(ActiveRecord::LockWaitTimeout, ActiveRecord::StatementInvalid) do
+      assert_raises(
+        ActiveRecord::LockWaitTimeout,
+        ActiveRecord::StatementInvalid
+      ) do
         with_short_lock_timeout do
           Clusters::ClusterMerger.call(
-            address_records: [existing.reload, unclustered]
+            address_records: [
+              existing.reload,
+              unclustered
+            ]
           )
         end
       end
@@ -83,7 +133,9 @@ module Clusters
     private
 
     def with_short_lock_timeout
-      connection = ActiveRecord::Base.connection
+      connection =
+        ActiveRecord::Base.connection
+
       connection.execute("SET lock_timeout = '100ms'")
       yield
     ensure

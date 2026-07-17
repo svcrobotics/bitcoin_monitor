@@ -50,11 +50,6 @@ module Layer1
             )
 
           unless acquired
-            record_operational_event_best_effort(
-              event_type: :already_enqueued,
-              severity: :info,
-              audited_height: normalized_height
-            )
             return {
               ok: true,
               status: "already_enqueued",
@@ -67,13 +62,7 @@ module Layer1
             jid = perform_async(normalized_height, 0, token)
             raise EnqueueFailed, "Sidekiq did not create the Layer1 audit job" if jid.nil?
           rescue StandardError => enqueue_error
-            delete_owned_initial_marker(
-              connection,
-              key,
-              token,
-              enqueue_error,
-              height: normalized_height
-            )
+            delete_owned_initial_marker(connection, key, token, enqueue_error)
             raise enqueue_error
           end
 
@@ -103,39 +92,18 @@ module Layer1
           Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
         end
 
-        def delete_owned_initial_marker(connection, key, token, original_error, height:)
+        def delete_owned_initial_marker(connection, key, token, original_error)
           connection.eval(
             DELETE_OWNED_MARKER_SCRIPT,
             keys: [key],
             argv: [token]
           )
         rescue StandardError => cleanup_error
-          record_operational_event_best_effort(
-            event_type: :marker_cleanup_failed,
-            severity: :error,
-            audited_height: height,
-            error_class: cleanup_error.class.name
-          )
           Rails.logger.warn(
             "[layer1_audit_block_job] initial_marker_cleanup_failed " \
-            "height=#{height} error=#{cleanup_error.class} " \
+            "height_key=#{key} error=#{cleanup_error.class} " \
             "original_error=#{original_error.class}"
           )
-        end
-
-        def record_operational_event_best_effort(event_type:, severity:, **attributes)
-          Layer1::Audit::OperationalEventRecorder.call(
-            event_type: event_type,
-            severity: severity,
-            metadata: {},
-            **attributes
-          )
-        rescue StandardError => recorder_error
-          Rails.logger.warn(
-            "[layer1_audit_block_job] operational_event_recording_failed " \
-            "event_type=#{event_type} recorder_error_class=#{recorder_error.class}"
-          )
-          nil
         end
       end
 
@@ -156,7 +124,7 @@ module Layer1
 
         if attempt >= MAX_DEFER_ATTEMPTS
           result = defer_exhausted_result(normalized_height, attempt, decision)
-          release_initial_marker(normalized_height, token, defer_attempt: attempt)
+          release_initial_marker(normalized_height, token)
           return result
         end
 
@@ -243,12 +211,6 @@ module Layer1
           "[layer1_audit_block_job] deferred_exhausted " \
           "height=#{height} attempt=#{attempt}"
         )
-        record_operational_event_best_effort(
-          event_type: :deferred_exhausted,
-          severity: :warning,
-          audited_height: height,
-          defer_attempt: attempt
-        )
 
         result
       end
@@ -267,13 +229,6 @@ module Layer1
           begin
             delete_owned_marker(key, marker)
           rescue StandardError => cleanup_error
-            record_operational_event_best_effort(
-              event_type: :marker_cleanup_failed,
-              severity: :error,
-              audited_height: height,
-              defer_attempt: attempt,
-              error_class: cleanup_error.class.name
-            )
             Rails.logger.warn(
               "[layer1_audit_block_job] defer_marker_cleanup_failed " \
               "height=#{height} attempt=#{attempt} error=#{cleanup_error.class}"
@@ -288,58 +243,22 @@ module Layer1
 
       def renew_initial_marker!(height, token)
         renewed =
-          begin
-            redis.eval(
-              RENEW_OWNED_MARKER_SCRIPT,
-              keys: [initial_marker_key(height)],
-              argv: [token, INITIAL_MARKER_TTL_SECONDS]
-            )
-          rescue StandardError => renewal_error
-            record_operational_event_best_effort(
-              event_type: :marker_renewal_failed,
-              severity: :error,
-              audited_height: height,
-              error_class: renewal_error.class.name
-            )
-            raise
-          end
+          redis.eval(
+            RENEW_OWNED_MARKER_SCRIPT,
+            keys: [initial_marker_key(height)],
+            argv: [token, INITIAL_MARKER_TTL_SECONDS]
+          )
 
         return if renewed.to_i.positive?
 
-        ownership_error = InitialMarkerOwnershipLost.new(
-          "Layer1 audit initial marker ownership was lost for height #{height}"
-        )
-        record_operational_event_best_effort(
-          event_type: :initial_marker_ownership_lost,
-          severity: :critical,
-          audited_height: height,
-          error_class: ownership_error.class.name
-        )
-        raise ownership_error
+        raise InitialMarkerOwnershipLost,
+              "Layer1 audit initial marker ownership was lost for height #{height}"
       end
 
-      def release_initial_marker(height, token, defer_attempt: nil)
+      def release_initial_marker(height, token)
         return unless token
 
         delete_owned_marker(initial_marker_key(height), token)
-      rescue StandardError => cleanup_error
-        record_operational_event_best_effort(
-          event_type: :marker_cleanup_failed,
-          severity: :error,
-          audited_height: height,
-          defer_attempt: defer_attempt,
-          error_class: cleanup_error.class.name
-        )
-        raise
-      end
-
-      def record_operational_event_best_effort(event_type:, severity:, **attributes)
-        self.class.send(
-          :record_operational_event_best_effort,
-          event_type: event_type,
-          severity: severity,
-          **attributes
-        )
       end
 
       def delete_owned_marker(key, marker)

@@ -1,152 +1,948 @@
-<% status = snapshot[:status].to_s %>
-<% counts = snapshot[:counts] || {} %>
-<% activity = snapshot[:activity] || {} %>
-<% queues = snapshot[:queues] || {} %>
-<% workers = Array(snapshot[:workers]) %>
-<% last_actor_label_at = activity[:last_actor_label_at]&.in_time_zone %>
-<% last_actor_profile_at = activity[:last_actor_profile_at]&.in_time_zone %>
+<%
+  snapshot ||= {}
 
-<section class="rounded-2xl border border-slate-800 bg-slate-950 p-5 text-slate-100">
-  <div class="flex items-start justify-between gap-4">
-    <div>
-      <p class="text-xs uppercase tracking-wide text-slate-500">Actor Labels Health</p>
-      <h2 class="mt-1 text-xl font-semibold">État des classifications économiques</h2>
-      <p class="mt-2 text-sm text-slate-500">
-        Vérifie les labels exchange-like, whale-like, ETF-candidate, service-like et retail-like.
-      </p>
+  pipeline = snapshot[:pipeline] || {}
+  behaviors = snapshot[:actor_behaviors] || {}
+  labels = snapshot[:actor_labels] || {}
+  heavy = snapshot[:heavy] || {}
+  heavy_service =
+    snapshot[:heavy_service] || {}
+  final_resolution =
+    snapshot[:final_resolution] || {}
+  rules = snapshot[:rules] || {}
+  automation = snapshot[:automation] || {}
+  reasons = Array(snapshot[:reasons])
+
+  last_run = automation[:last_run] || {}
+  last_batch =
+    last_run["batch"] ||
+    last_run[:batch] ||
+    {}
+
+  value_for =
+    lambda do |hash, key|
+      hash[key] || hash[key.to_s]
+    end
+
+  batch_value =
+    lambda do |key|
+      value_for.call(last_batch, key).to_i
+    end
+
+  expected_by_label =
+    (
+      value_for.call(
+        last_batch,
+        :expected_by_label
+      ) || {}
+    ).to_h.transform_keys(&:to_s)
+
+  rejected_by_reason =
+    (
+      value_for.call(
+        last_run,
+        :rejected_by_reason
+      ) || {}
+    ).to_h
+
+  by_label =
+    (labels[:by_label] || {})
+      .to_h
+      .transform_keys(&:to_s)
+
+  active_rules =
+    Array(rules[:active])
+      .map(&:to_s)
+
+  disabled_rules =
+    Array(rules[:disabled])
+      .map(&:to_s)
+
+  all_labels =
+    ActorLabel::LABELS.reject do |label|
+      label ==
+        "exchange_infrastructure_candidate"
+    end
+
+  status_label =
+    snapshot[:status]
+      .to_s
+      .presence ||
+    "waiting"
+
+  status_classes =
+    case status_label
+    when "active"
+      "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+    when "processing"
+      "border-cyan-400/30 bg-cyan-400/10 text-cyan-200"
+    when "critical"
+      "border-red-400/30 bg-red-400/10 text-red-200"
+    else
+      "border-amber-400/30 bg-amber-400/10 text-amber-200"
+    end
+
+  coverage_pct =
+    behaviors[:coverage_percent]
+      .to_f
+      .clamp(0, 100)
+
+  runtime_ms =
+    automation[:last_runtime_ms].to_i
+
+  last_finished_at =
+    automation[:last_run_finished_at]
+
+  last_finished_label =
+    if last_finished_at.respond_to?(:strftime)
+      last_finished_at.strftime("%d/%m/%Y %H:%M:%S")
+    else
+      "—"
+    end
+
+  calculation_steps = [
+    {
+      number: 1,
+      title: "Sélection des comportements",
+      description:
+        "Lecture des snapshots ActorBehavior certifiés situés après le curseur courant.",
+      primary_label: "Examinés",
+      primary_value: batch_value.call(:scanned),
+      secondary:
+        "Limite du lot : #{batch_value.call(:limit)}"
+    },
+    {
+      number: 2,
+      title: "Contrôle d’éligibilité",
+      description:
+        "Vérification de la certification, de la version, des références et des signaux requis.",
+      primary_label: "Éligibles",
+      primary_value: batch_value.call(:eligible),
+      secondary:
+        "#{batch_value.call(:ineligible)} non éligible(s)"
+    },
+    {
+      number: 3,
+      title: "Application des règles",
+      description:
+        "Évaluation déterministe des signaux et scores produits par ActorBehavior.",
+      primary_label: "Labels attendus",
+      primary_value: batch_value.call(:expected_labels),
+      secondary:
+        "#{batch_value.call(:snapshots_with_labels)} snapshot(s) avec label"
+    },
+    {
+      number: 4,
+      title: "Écriture et réconciliation",
+      description:
+        "Création, actualisation ou suppression des labels stricts devenus obsolètes.",
+      primary_label: "Écrits",
+      primary_value: batch_value.call(:written_labels),
+      secondary:
+        "#{batch_value.call(:deleted_labels)} supprimé(s)"
+    }
+  ]
+
+%>
+
+<section
+  data-module-pipeline="actor-labels"
+  class="overflow-hidden rounded-3xl border border-pink-400/20 bg-[#080b13] text-slate-100 shadow-2xl shadow-black/30"
+>
+  <header class="border-b border-white/10 bg-gradient-to-r from-pink-500/10 via-purple-500/5 to-transparent p-6">
+    <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+      <div class="max-w-3xl">
+        <p class="text-xs font-semibold uppercase tracking-[0.22em] text-pink-300">
+          ActorLabels
+        </p>
+
+        <h2 class="mt-2 text-2xl font-semibold text-white">
+          Classification économique des acteurs
+        </h2>
+
+        <p class="mt-3 text-sm leading-6 text-slate-400">
+          ActorLabels produit d’abord des signaux stricts, puis utilise les
+          preuves Heavy pour résoudre les classifications ambiguës. Une
+          identité n’est jamais affirmée sans preuve externe.
+        </p>
+      </div>
+
+      <span class="inline-flex w-fit rounded-full border px-3 py-1.5 text-xs font-semibold tracking-wide <%= status_classes %>">
+        <%= status_label.upcase %>
+      </span>
     </div>
 
-    <div class="rounded-full px-3 py-1 text-xs font-semibold
-      <%= status == "healthy" ? "bg-emerald-500/10 text-emerald-300" : status == "warning" ? "bg-amber-500/10 text-amber-300" : "bg-red-500/10 text-red-300" %>">
-      <%= status.upcase.presence || "UNKNOWN" %>
-    </div>
-  </div>
-
-  <div class="mt-5 grid grid-cols-2 gap-3 md:grid-cols-4">
-    <%= render "questions/answers/layer1_metric",
-      label: "Actor labels",
-      value: number_with_delimiter(counts[:actor_labels].to_i) %>
-
-    <%= render "questions/answers/layer1_metric",
-      label: "Exchange-like",
-      value: number_with_delimiter(counts[:exchange_like].to_i) %>
-
-    <%= render "questions/answers/layer1_metric",
-      label: "Whale-like",
-      value: number_with_delimiter(counts[:whale_like].to_i) %>
-
-    <%= render "questions/answers/layer1_metric",
-      label: "ETF-candidate",
-      value: number_with_delimiter(counts[:etf_candidate].to_i) %>
-  </div>
-
-  <div class="mt-6 grid gap-4 md:grid-cols-2">
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">Distribution</h3>
-
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between">
-          <span>Service-like</span>
-          <strong><%= number_with_delimiter(counts[:service_like].to_i) %></strong>
+    <div class="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Backlog ActorLabels
         </div>
 
-        <div class="flex justify-between">
-          <span>Retail-like</span>
-          <strong><%= number_with_delimiter(counts[:retail_like].to_i) %></strong>
+        <div class="mt-2 text-2xl font-semibold text-cyan-300">
+          <%= number_with_delimiter(labels[:pending_for_labels].to_i) %>
         </div>
 
-        <div class="flex justify-between">
-          <span>Unknown</span>
-          <strong><%= number_with_delimiter(counts[:unknown].to_i) %></strong>
+        <div class="mt-1 text-xs text-slate-500">
+          comportements à analyser
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Retard ActorBehavior
+        </div>
+
+        <div class="mt-2 text-2xl font-semibold text-amber-300">
+          <%= number_with_delimiter(behaviors[:checkpoint_lag].to_i) %>
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          blocs derrière ActorProfile
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Dernier lot
+        </div>
+
+        <div class="mt-2 text-lg font-semibold text-violet-300">
+          <%= number_with_delimiter(batch_value.call(:scanned)) %>
+          examinés
+          ·
+          <%= number_with_delimiter(batch_value.call(:expected_labels)) %>
+          label
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          <% if runtime_ms.positive? %>
+            durée :
+            <%= number_with_precision(runtime_ms / 1_000.0, precision: 1) %> s
+          <% else %>
+            durée non disponible
+          <% end %>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Labels stricts stockés
+        </div>
+
+        <div class="mt-2 text-2xl font-semibold text-emerald-300">
+          <%= number_with_delimiter(labels[:total].to_i) %>
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          signaux et classifications internes
         </div>
       </div>
     </div>
+  </header>
 
-    <div class="rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-      <h3 class="font-semibold">Fraîcheur</h3>
+  <div class="space-y-5 p-6">
+    <!-- ÉTAPE 1 : ENTRÉES -->
+    <section class="rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-400/10 text-sm font-bold text-cyan-200">
+          1
+        </span>
 
-      <div class="mt-3 space-y-2 text-sm">
-        <div class="flex justify-between">
-          <span>Dernier actor label</span>
-          <strong class="<%= last_actor_label_at.present? && last_actor_label_at < 6.hours.ago ? "text-amber-300" : "text-slate-100" %>">
-            <%= last_actor_label_at&.strftime("%d/%m %H:%M:%S") || "—" %>
-          </strong>
-        </div>
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+            Entrées
+          </p>
 
-        <div class="flex justify-between">
-          <span>Dernier actor profile</span>
-          <strong>
-            <%= last_actor_profile_at&.strftime("%d/%m %H:%M:%S") || "—" %>
-          </strong>
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Données reçues par ActorLabels
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            ActorProfile constitue l’origine amont. ActorBehavior est
+            l’entrée directe réellement lue par les règles de classification.
+          </p>
         </div>
       </div>
-    </div>
 
-    <% by_label = activity[:by_label] || {} %>
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-xs uppercase tracking-wide text-slate-500">
+                Origine amont
+              </p>
 
-    <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4 md:col-span-2">
-      <h3 class="font-semibold">Fraîcheur par label</h3>
-
-      <div class="mt-3 space-y-2 text-sm">
-        <% %w[exchange_like whale_like etf_candidate service_like retail_like unknown].each do |label| %>
-          <% updated_at = by_label[label]&.in_time_zone(Time.zone) %>
-
-          <div class="flex justify-between gap-4">
-            <span><%= label %></span>
-
-            <strong class="text-right <%= updated_at.present? && updated_at < 6.hours.ago ? "text-amber-300" : "text-slate-100" %>">
-              <% if updated_at.present? %>
-                <%= updated_at.strftime("%d/%m %H:%M:%S") %>
-                <span class="ml-2 text-xs text-slate-500">
-                  <%= time_ago_in_words(updated_at) %>
-                </span>
-              <% else %>
-                —
-              <% end %>
-            </strong>
-          </div>
-        <% end %>
-      </div>
-    </div>
-  </div>
-
-  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <h3 class="font-semibold">Queues Actor Labels</h3>
-
-    <div class="mt-3 grid grid-cols-2 gap-2 text-sm md:grid-cols-3">
-      <% queues.each do |name, size| %>
-        <div class="flex justify-between rounded-lg bg-slate-950 px-3 py-2">
-          <span class="text-slate-400"><%= name %></span>
-          <strong><%= size %></strong>
-        </div>
-      <% end %>
-    </div>
-  </div>
-
-  <div class="mt-6 rounded-xl border border-slate-800 bg-slate-900/60 p-4">
-    <h3 class="font-semibold">Workers Actor Labels actifs</h3>
-
-    <% if workers.any? %>
-      <div class="mt-3 space-y-2 text-sm">
-        <% workers.each do |worker| %>
-          <div class="rounded-lg bg-slate-950 px-3 py-2">
-            <div class="flex justify-between gap-3">
-              <span class="text-slate-400"><%= worker[:queue] %></span>
-              <strong class="text-slate-200"><%= worker[:klass] %></strong>
+              <h4 class="mt-1 font-semibold text-white">
+                ActorProfile
+              </h4>
             </div>
 
-            <% if worker[:args].present? %>
-              <div class="mt-1 font-mono text-xs text-slate-500">
-                <%= worker[:args].inspect.truncate(120) %>
+            <span class="rounded-full border border-slate-600/60 px-2.5 py-1 text-xs text-slate-300">
+              indirect
+            </span>
+          </div>
+
+          <p class="mt-3 text-sm leading-6 text-slate-400">
+            Profils certifiés ayant servi à produire les comportements.
+            ActorLabels ne lit pas directement leurs métriques.
+          </p>
+
+          <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">Profils certifiés</dt>
+              <dd class="mt-1 font-semibold text-white">
+                <%= number_with_delimiter(behaviors[:actor_profiles_certified].to_i) %>
+              </dd>
+            </div>
+
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">Checkpoint</dt>
+              <dd class="mt-1 font-mono font-semibold text-white">
+                <%= number_with_delimiter(behaviors[:actor_profile_max_height].to_i) %>
+              </dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="rounded-2xl border border-cyan-400/20 bg-black/20 p-5">
+          <div class="flex items-center justify-between gap-3">
+            <div>
+              <p class="text-xs uppercase tracking-wide text-cyan-400">
+                Entrée directe
+              </p>
+
+              <h4 class="mt-1 font-semibold text-white">
+                ActorBehavior
+              </h4>
+            </div>
+
+            <span class="rounded-full border border-emerald-400/30 bg-emerald-400/10 px-2.5 py-1 text-xs text-emerald-200">
+              certifié
+            </span>
+          </div>
+
+          <p class="mt-3 text-sm leading-6 text-slate-400">
+            Snapshots comportementaux certifiés, version
+            <span class="font-mono text-slate-200"><%= pipeline[:required_behavior_version] || "—" %></span>,
+            contenant les signaux et scores évalués par ActorLabels.
+          </p>
+
+          <dl class="mt-4 grid grid-cols-2 gap-3 text-sm">
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">Snapshots courants</dt>
+              <dd class="mt-1 font-semibold text-cyan-300">
+                <%= number_with_delimiter(behaviors[:snapshots_current].to_i) %>
+              </dd>
+            </div>
+
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">Couverture</dt>
+              <dd class="mt-1 font-semibold text-cyan-300">
+                <%= number_with_precision(coverage_pct, precision: 2) %> %
+              </dd>
+            </div>
+
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">Manquants</dt>
+              <dd class="mt-1 font-semibold text-amber-300">
+                <%= number_with_delimiter(behaviors[:snapshots_missing].to_i) %>
+              </dd>
+            </div>
+
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <dt class="text-slate-500">Périmés</dt>
+              <dd class="mt-1 font-semibold text-amber-300">
+                <%= number_with_delimiter(behaviors[:snapshots_stale].to_i) %>
+              </dd>
+            </div>
+          </dl>
+        </article>
+      </div>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600" aria-hidden="true">
+      ↓
+    </div>
+
+    <!-- ÉTAPE 2 : CALCULS -->
+    <section class="rounded-3xl border border-violet-400/20 bg-violet-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-400/30 bg-violet-400/10 text-sm font-bold text-violet-200">
+          2
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
+            Calculs
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Transformations effectuées
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Le dernier lot a été mesuré globalement.
+            Le temps détaillé de chaque sous-calcul n’est pas encore instrumenté.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 xl:grid-cols-2">
+        <% calculation_steps.each do |step| %>
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start gap-3">
+              <span class="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-violet-400/10 text-xs font-bold text-violet-200">
+                <%= step[:number] %>
+              </span>
+
+              <div>
+                <h4 class="font-semibold text-white">
+                  <%= step[:title] %>
+                </h4>
+
+                <p class="mt-1 text-sm leading-6 text-slate-400">
+                  <%= step[:description] %>
+                </p>
               </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-2 gap-3">
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  <%= step[:primary_label] %>
+                </div>
+
+                <div class="mt-1 text-xl font-semibold text-white">
+                  <%= number_with_delimiter(step[:primary_value]) %>
+                </div>
+
+                <div class="mt-1 text-xs text-slate-500">
+                  <%= step[:secondary] %>
+                </div>
+              </div>
+
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  Durée individuelle
+                </div>
+
+                <div class="mt-1 text-sm font-semibold text-slate-300">
+                  Non mesurée
+                </div>
+
+                <div class="mt-1 text-xs text-slate-500">
+                  incluse dans la durée totale
+                </div>
+              </div>
+            </div>
+          </article>
+        <% end %>
+      </div>
+
+      <div class="mt-4 grid gap-3 md:grid-cols-4">
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">Durée totale</div>
+          <div class="mt-1 font-semibold text-violet-200">
+            <% if runtime_ms.positive? %>
+              <%= number_with_precision(runtime_ms / 1_000.0, precision: 1) %> s
+            <% else %>
+              —
             <% end %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">Sans label</div>
+          <div class="mt-1 font-semibold text-white">
+            <%= number_with_delimiter(batch_value.call(:snapshots_without_labels)) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">Échecs</div>
+          <div class="mt-1 font-semibold <%= batch_value.call(:failed).zero? ? "text-emerald-300" : "text-red-300" %>">
+            <%= number_with_delimiter(batch_value.call(:failed)) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">Dernier calcul</div>
+          <div class="mt-1 text-sm font-semibold text-white">
+            <%= last_finished_label %>
+          </div>
+        </div>
+      </div>
+
+      <div class="mt-6 border-t border-white/10 pt-6">
+        <div class="mb-4">
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
+            Résolutions Heavy
+          </p>
+
+          <h4 class="mt-1 text-lg font-semibold text-white">
+            Analyses approfondies des classifications ambiguës
+          </h4>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Les règles strictes sélectionnent les candidats. Heavy Exchange
+            et Heavy Service approfondissent ensuite les preuves avant toute
+            conclusion comportementale.
+          </p>
+        </div>
+
+        <div class="space-y-5">
+          <%= render "questions/answers/actor_labels_heavy",
+            heavy: heavy %>
+
+          <%= render "questions/answers/actor_labels_heavy_service",
+            service: heavy_service %>
+        </div>
+      </div>
+
+      <% if rejected_by_reason.present? %>
+        <div class="mt-4 rounded-2xl border border-amber-400/20 bg-amber-400/[0.06] p-4">
+          <h4 class="text-sm font-semibold text-amber-200">
+            Données rejetées
+          </h4>
+
+          <div class="mt-3 flex flex-wrap gap-2">
+            <% rejected_by_reason.each do |reason, count| %>
+              <span class="rounded-full border border-amber-400/20 bg-black/20 px-3 py-1 text-xs text-amber-100/80">
+                <%= reason %> :
+                <%= number_with_delimiter(count.to_i) %>
+              </span>
+            <% end %>
+          </div>
+        </div>
+      <% end %>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600" aria-hidden="true">
+      ↓
+    </div>
+
+    <!-- ÉTAPE 3 : SORTIES -->
+    <%
+      final_counts =
+        value_for.call(
+          final_resolution,
+          :final
+        ) || {}
+
+      exchange_output_count =
+        value_for.call(
+          final_counts,
+          :exchange_infrastructure
+        ).to_i
+
+      whale_output_count =
+        by_label.fetch(
+          "whale_like",
+          0
+        ).to_i
+
+      service_output_count =
+        value_for.call(
+          final_counts,
+          :service_infrastructure
+        ).to_i
+
+      etf_output_count =
+        by_label.fetch(
+          "etf_like",
+          0
+        ).to_i
+
+      etf_candidate_search_active =
+        active_rules.include?(
+          "etf_candidate"
+        )
+
+      output_contracts = [
+        {
+          title:
+            "Exchange Flow",
+
+          count:
+            exchange_output_count,
+
+          unit:
+            "infrastructure(s) exchange confirmée(s)",
+
+          contract:
+            "exchange_infrastructure_candidate",
+
+          producer:
+            "Heavy Exchange",
+
+          state:
+            if exchange_output_count.positive?
+              "Entrées disponibles"
+            else
+              "Analyse active · aucun résultat"
+            end,
+
+          badge_classes:
+            if exchange_output_count.positive?
+              "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+            else
+              "border-cyan-400/25 bg-cyan-400/10 text-cyan-200"
+            end,
+
+          count_classes:
+            "text-emerald-300",
+
+          description:
+            "Exchange Flow recevra uniquement les infrastructures confirmées par Heavy Exchange, pas les simples signaux exchange_like."
+        },
+
+        {
+          title:
+            "Whale Flow",
+
+          count:
+            whale_output_count,
+
+          unit:
+            "acteur(s) whale confirmé(s)",
+
+          contract:
+            "whale_like",
+
+          producer:
+            "Règles strictes ActorLabels",
+
+          state:
+            if whale_output_count.positive?
+              "Entrées disponibles"
+            else
+              "Analyse active · aucun résultat"
+            end,
+
+          badge_classes:
+            if whale_output_count.positive?
+              "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+            else
+              "border-cyan-400/25 bg-cyan-400/10 text-cyan-200"
+            end,
+
+          count_classes:
+            "text-emerald-300",
+
+          description:
+            "Whale Flow recevra les whale_like confirmés. Les whale_candidate restent des données internes tant qu’ils ne sont pas confirmés."
+        },
+
+        {
+          title:
+            "Service Flow",
+
+          count:
+            service_output_count,
+
+          unit:
+            "infrastructure(s) de service confirmée(s)",
+
+          contract:
+            "service_infrastructure",
+
+          producer:
+            "Heavy Service",
+
+          state:
+            if service_output_count.positive?
+              "Entrées disponibles"
+            else
+              "Heavy shadow · aucun résultat"
+            end,
+
+          badge_classes:
+            if service_output_count.positive?
+              "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+            else
+              "border-violet-400/25 bg-violet-400/10 text-violet-200"
+            end,
+
+          count_classes:
+            if service_output_count.positive?
+              "text-emerald-300"
+            else
+              "text-cyan-300"
+            end,
+
+          description:
+            "Le contrat d’entrée de Service Flow est déjà défini. Heavy Service analyse actuellement des candidats en shadow, mais aucun n’est encore confirmé."
+        },
+
+        {
+          title:
+            "ETF Flow",
+
+          count:
+            etf_output_count,
+
+          unit:
+            "acteur(s) ETF confirmé(s)",
+
+          contract:
+            "etf_like",
+
+          producer:
+            "ActorLabels + vérification d’identité",
+
+          state:
+            if etf_output_count.positive?
+              "Entrées disponibles"
+            elsif etf_candidate_search_active
+              "Recherche active · aucun résultat"
+            else
+              "Contrat prêt · recherche inactive"
+            end,
+
+          badge_classes:
+            if etf_output_count.positive?
+              "border-emerald-400/25 bg-emerald-400/10 text-emerald-200"
+            elsif etf_candidate_search_active
+              "border-cyan-400/25 bg-cyan-400/10 text-cyan-200"
+            else
+              "border-slate-400/20 bg-slate-400/10 text-slate-300"
+            end,
+
+          count_classes:
+            if etf_output_count.positive?
+              "text-emerald-300"
+            else
+              "text-cyan-300"
+            end,
+
+          description:
+            "ETF Flow peut être construit dès maintenant autour du contrat etf_like. Le compteur restera à zéro jusqu’à la confirmation d’une identité ETF."
+        }
+      ]
+    %>
+
+    <section class="rounded-3xl border border-emerald-400/20 bg-emerald-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 text-sm font-bold text-emerald-200">
+          3
+        </span>
+
+        <div class="max-w-4xl">
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+            Sorties ActorLabels
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Entrées contractuelles des modules aval
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Chaque carte représente une sortie stable d’ActorLabels et
+            l’entrée attendue par un autre module. Un compteur à zéro signifie
+            que le contrat existe déjà et que le module peut être construit,
+            même si aucun acteur confirmé n’est encore disponible.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 xl:grid-cols-2">
+        <% output_contracts.each do |output| %>
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex flex-col justify-between gap-3 sm:flex-row sm:items-start">
+              <div>
+                <p class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                  Module consommateur
+                </p>
+
+                <h4 class="mt-1 text-lg font-semibold text-white">
+                  <%= output[:title] %>
+                </h4>
+              </div>
+
+              <span class="w-fit rounded-full border px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wide <%= output[:badge_classes] %>">
+                <%= output[:state] %>
+              </span>
+            </div>
+
+            <div class="mt-5 flex items-end gap-3">
+              <div class="text-4xl font-semibold <%= output[:count_classes] %>">
+                <%= number_with_delimiter(
+                  output[:count],
+                  delimiter: " "
+                ) %>
+              </div>
+
+              <div class="pb-1 text-sm leading-5 text-slate-400">
+                <%= output[:unit] %>
+              </div>
+            </div>
+
+            <div class="mt-5 grid gap-3 sm:grid-cols-2">
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  Sortie ActorLabels
+                </div>
+
+                <div class="mt-1 break-all font-mono text-xs text-emerald-200">
+                  <%= output[:contract] %>
+                </div>
+              </div>
+
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  Produite par
+                </div>
+
+                <div class="mt-1 text-sm font-semibold text-white">
+                  <%= output[:producer] %>
+                </div>
+              </div>
+            </div>
+
+            <div class="mt-3 flex items-center gap-3 rounded-xl border border-pink-400/15 bg-pink-400/[0.035] p-3">
+              <div class="font-mono text-xs text-emerald-200">
+                <%= output[:contract] %>
+              </div>
+
+              <div class="text-slate-600">
+                →
+              </div>
+
+              <div class="text-sm font-semibold text-pink-200">
+                <%= output[:title] %>
+              </div>
+            </div>
+
+            <p class="mt-4 text-sm leading-6 text-slate-400">
+              <%= output[:description] %>
+            </p>
+          </article>
+        <% end %>
+      </div>
+
+      <div class="mt-5 rounded-2xl border border-cyan-400/20 bg-cyan-400/[0.04] p-4">
+        <div class="font-semibold text-cyan-200">
+          Les modules peuvent être construits avant l’arrivée des données.
+        </div>
+
+        <p class="mt-2 text-sm leading-6 text-slate-400">
+          Exchange Flow, Whale Flow, Service Flow et ETF Flow dépendent du
+          contrat de leur entrée, pas du nombre actuel de résultats. Lorsqu’un
+          compteur passe de zéro à un ou davantage, le module aval est déjà
+          prêt à consommer les nouvelles classifications.
+        </p>
+      </div>
+
+      <details class="mt-4 rounded-2xl border border-white/10 bg-black/20">
+        <summary class="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-300">
+          Voir les signaux internes et la résolution détaillée
+        </summary>
+
+        <div class="border-t border-white/10 p-4">
+          <p class="mb-4 text-sm leading-6 text-slate-400">
+            Les signaux
+            <span class="font-mono text-slate-300">exchange_like</span>,
+            <span class="font-mono text-slate-300">service_like</span>,
+            <span class="font-mono text-slate-300">whale_candidate</span>
+            et
+            <span class="font-mono text-slate-300">etf_candidate</span>
+            servent aux calculs et à la sélection des candidats. Ils ne sont
+            pas transmis comme classifications confirmées aux modules aval.
+          </p>
+
+          <% if final_resolution.present? %>
+            <%= render "questions/answers/actor_labels_final_resolution",
+              resolution: final_resolution %>
+          <% end %>
+        </div>
+      </details>
+    </section>
+
+    <!-- DÉTAILS TECHNIQUES -->
+    <details class="rounded-2xl border border-white/10 bg-black/20">
+      <summary class="cursor-pointer select-none px-5 py-4 text-sm font-semibold text-slate-300">
+        Voir les détails techniques
+      </summary>
+
+      <div class="border-t border-white/10 p-5">
+        <dl class="grid gap-3 text-sm md:grid-cols-2">
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">Source</dt>
+            <dd class="mt-1 break-all font-mono text-slate-200">
+              <%= pipeline[:source] || "—" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">Version des règles</dt>
+            <dd class="mt-1 break-all font-mono text-slate-200">
+              <%= pipeline[:rule_version] || "—" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">Curseur évalué</dt>
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= number_with_delimiter(labels[:evaluated_cursor].to_i) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">File Sidekiq</dt>
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= automation[:queue_name] || "—" %>
+              · <%= automation[:queue_size].to_i %> en attente
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">Worker</dt>
+            <dd class="mt-1 text-slate-200">
+              <%= automation[:worker_present] ? "présent" : "absent" %>
+              · <%= automation[:worker_busy] ? "occupé" : "disponible" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">Écriture automatique</dt>
+            <dd class="mt-1 text-slate-200">
+              <%= pipeline[:automatic_write_enabled] ? "activée" : "désactivée" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">Verrou de lot</dt>
+            <dd class="mt-1 text-slate-200">
+              <%= automation[:lock_present] ? "présent" : "libre" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">Cooldown</dt>
+            <dd class="mt-1 text-slate-200">
+              <% if automation[:cooldown_active] %>
+                <%= automation[:cooldown_remaining_seconds].to_i %> s restantes
+              <% else %>
+                inactif
+              <% end %>
+            </dd>
+          </div>
+        </dl>
+
+        <% if reasons.any? %>
+          <div class="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] p-4">
+            <div class="text-xs font-semibold uppercase tracking-wide text-amber-300">
+              Raisons d’attente
+            </div>
+
+            <ul class="mt-2 space-y-1 font-mono text-xs text-amber-100/70">
+              <% reasons.each do |reason| %>
+                <li>• <%= reason %></li>
+              <% end %>
+            </ul>
           </div>
         <% end %>
       </div>
-    <% else %>
-      <p class="mt-3 text-sm text-slate-500">
-        Aucun worker Actor Labels actif au moment du snapshot.
-      </p>
-    <% end %>
+    </details>
   </div>
 </section>

@@ -6,24 +6,9 @@ require "securerandom"
 module Blockchain
   module Flushers
     class SpentOutputFlusherV2
-      class RequeueFailed < StandardError
-        attr_reader :original_error, :requeue_error
-
-        def initialize(original_error:, requeue_error:)
-          @original_error = original_error
-          @requeue_error = requeue_error
-
-          super(
-            "spent output batch failed and requeue failed: " \
-            "original=#{original_error.class}: #{original_error.message}; " \
-            "requeue=#{requeue_error.class}: #{requeue_error.message}"
-          )
-        end
-      end
-
       KEY = Blockchain::Buffers::SpentOutputBuffer::KEY
       DEFAULT_BATCH_SIZE = 20_000
-      MODES = %i[recovery realtime].freeze
+      MODES = Blockchain::Flushers::SpentOutputFlusherSelector::MODES
 
       COLUMNS = %w[
         txid
@@ -50,16 +35,11 @@ module Blockchain
       def call
         started_at = monotonic_ms
         timings = {}
-        raw_payloads = []
         rows = []
         committed = false
 
-        raw_payloads = measure_stage("pop_batch", timings) { pop_batch }
-        return empty_result if raw_payloads.empty?
-
-        rows = measure_stage("parse_batch", timings) do
-          parse_payloads(raw_payloads)
-        end
+        rows = measure_stage("pop_batch", timings) { pop_batch }
+        return empty_result if rows.empty?
 
         temp_table = "tmp_layer1_spent_#{SecureRandom.hex(8)}"
 
@@ -85,7 +65,7 @@ module Blockchain
 
             cluster_result =
               measure_stage("bulk_upsert_cluster_inputs", timings) do
-                upsert_cluster_inputs_from_temp(connection, temp_table)
+                upsert_cluster_inputs_from_temp(connection, temp_table, timings)
               end
 
             utxo_deleted =
@@ -139,29 +119,11 @@ module Blockchain
           stage_timings: timings
         }
       rescue StandardError => e
-        requeued = false
-
-        if raw_payloads.any? && !committed
-          begin
-            requeue_payloads(raw_payloads)
-            requeued = true
-          rescue StandardError => requeue_error
-            @logger.error(
-              "[spent_output_flusher_v2] requeue_failed " \
-              "rows=#{raw_payloads.size} original_error=#{e.class}: #{e.message} " \
-              "requeue_error=#{requeue_error.class}: #{requeue_error.message}"
-            )
-
-            raise RequeueFailed.new(
-              original_error: e,
-              requeue_error: requeue_error
-            ), cause: e
-          end
-        end
+        requeue_rows(rows) if rows.any? && !committed
 
         @logger.error(
           "[spent_output_flusher_v2] failed rows=#{rows.size} " \
-          "requeued=#{requeued} error=#{e.class}: #{e.message}"
+          "requeued=#{rows.any? && !committed} error=#{e.class}: #{e.message}"
         )
 
         raise
@@ -215,15 +177,13 @@ module Blockchain
       end
 
       def pop_batch
-        Array(@redis.lpop(KEY, batch_size))
+        payloads = @redis.lpop(KEY, batch_size)
+        Array(payloads).map { |payload| JSON.parse(payload) }
       end
 
-      def parse_payloads(raw_payloads)
-        raw_payloads.map { |payload| JSON.parse(payload) }
-      end
-
-      def requeue_payloads(raw_payloads)
-        @redis.lpush(KEY, *raw_payloads.reverse) if raw_payloads.any?
+      def requeue_rows(rows)
+        payloads = rows.reverse.map { |row| JSON.generate(row) }
+        @redis.lpush(KEY, *payloads) if payloads.any?
       end
 
       def create_temp_table(connection, temp_table)
@@ -268,9 +228,9 @@ module Blockchain
       #
       # tx_outputs est une projection historique asynchrone et ne doit plus
       # participer au chemin de certification temps réel.
-      def upsert_cluster_inputs_from_temp(connection, temp_table)
+      def upsert_cluster_inputs_from_temp(connection, temp_table, timings = nil)
         if realtime?
-          insert_cluster_inputs_realtime(connection, temp_table)
+          insert_cluster_inputs_realtime(connection, temp_table, timings || {})
         else
           upsert_cluster_inputs_recovery(connection, temp_table)
         end
@@ -288,14 +248,7 @@ module Blockchain
               prevout_amount_btc,
               prevout_block_height
             FROM #{temp_table}
-            ORDER BY
-              txid,
-              vout,
-              spent_block_height DESC,
-              spent_txid DESC NULLS LAST,
-              prevout_block_height DESC NULLS LAST,
-              prevout_address DESC NULLS LAST,
-              prevout_amount_btc DESC NULLS LAST
+            ORDER BY txid, vout
           ), resolved AS (
             SELECT
               data.txid,
@@ -316,18 +269,48 @@ module Blockchain
         SQL
       end
 
-      def insert_cluster_inputs_realtime(connection, temp_table)
-        conflicts =
-          realtime_cluster_input_conflicts(
-            connection,
-            temp_table
-          )
+      def insert_cluster_inputs_realtime(connection, temp_table, timings)
+        insert_counts =
+          measure_stage("realtime_insert_cluster_inputs", timings) do
+            realtime_insert_cluster_inputs(connection, temp_table)
+          end
+
+        inserted = insert_counts[:inserted_count]
+        conflicts_count =
+          insert_counts[:eligible_count] - insert_counts[:inserted_count]
+        conflict_keys = insert_counts[:conflict_keys]
+
+        conflicts = {
+          conflicts: conflicts_count,
+          identical: 0,
+          divergent: 0
+        }
+
+        if conflicts_count.positive?
+          conflicts =
+            measure_stage("realtime_verify_conflicts", timings) do
+              realtime_cluster_input_conflicts(
+                connection,
+                temp_table,
+                conflict_keys
+              )
+            end
+
+          unless conflicts[:conflicts] == conflicts_count
+            raise(
+              "cluster_inputs realtime conflict count mismatch " \
+              "insert_conflicts=#{conflicts_count} " \
+              "verified_conflicts=#{conflicts[:conflicts]}"
+            )
+          end
+        end
 
         if conflicts[:divergent].positive?
           samples =
             divergent_cluster_input_samples(
               connection,
-              temp_table
+              temp_table,
+              conflict_keys
             )
 
           raise(
@@ -336,46 +319,8 @@ module Blockchain
           )
         end
 
-        result = connection.exec_query(<<~SQL.squish)
-          #{cluster_inputs_source_cte(temp_table)}
-          INSERT INTO cluster_inputs (
-            block_height,
-            txid,
-            vout,
-            address,
-            amount_btc,
-            spent,
-            spent_txid,
-            spent_block_height,
-            address_balance_btc,
-            address_received_btc,
-            address_sent_btc,
-            created_at,
-            updated_at
-          )
-          SELECT
-            eligible.block_height,
-            eligible.txid,
-            eligible.vout,
-            eligible.address,
-            eligible.amount_btc,
-            TRUE,
-            eligible.spent_txid,
-            eligible.spent_block_height,
-            stats.net_btc,
-            stats.received_btc,
-            stats.sent_btc,
-            NOW(),
-            NOW()
-          FROM eligible
-          LEFT JOIN address_flow_stats AS stats
-            ON stats.address = eligible.address
-          ON CONFLICT (txid, vout) DO NOTHING
-          RETURNING id
-        SQL
-
         {
-          inserted: result.rows.size,
+          inserted: inserted,
           conflicts: conflicts[:conflicts],
           identical: conflicts[:identical],
           divergent: conflicts[:divergent],
@@ -383,9 +328,74 @@ module Blockchain
         }
       end
 
-      def realtime_cluster_input_conflicts(connection, temp_table)
+      def realtime_insert_cluster_inputs(connection, temp_table)
         result = connection.exec_query(<<~SQL.squish)
           #{cluster_inputs_source_cte(temp_table)}
+          , inserted AS (
+            INSERT INTO cluster_inputs (
+              block_height,
+              txid,
+              vout,
+              address,
+              amount_btc,
+              spent,
+              spent_txid,
+              spent_block_height,
+              created_at,
+              updated_at
+            )
+            SELECT
+              eligible.block_height,
+              eligible.txid,
+              eligible.vout,
+              eligible.address,
+              eligible.amount_btc,
+              TRUE,
+              eligible.spent_txid,
+              eligible.spent_block_height,
+              NOW(),
+              NOW()
+            FROM eligible
+            ON CONFLICT (txid, vout) DO NOTHING
+            RETURNING txid, vout
+          )
+          SELECT
+            (SELECT COUNT(*) FROM eligible)::integer AS eligible_count,
+            (SELECT COUNT(*) FROM inserted)::integer AS inserted_count,
+            COALESCE(
+              (
+                SELECT jsonb_agg(
+                  jsonb_build_object(
+                    'txid',
+                    eligible.txid,
+                    'vout',
+                    eligible.vout
+                  )
+                  ORDER BY eligible.txid, eligible.vout
+                )
+                FROM eligible
+                LEFT JOIN inserted
+                  ON inserted.txid = eligible.txid
+                 AND inserted.vout = eligible.vout
+                WHERE inserted.txid IS NULL
+              ),
+              '[]'::jsonb
+            ) AS conflict_keys
+        SQL
+
+        row = result.first || {}
+
+        {
+          eligible_count: row["eligible_count"].to_i,
+          inserted_count: row["inserted_count"].to_i,
+          conflict_keys: normalize_conflict_keys(row["conflict_keys"])
+        }
+      end
+
+      def realtime_cluster_input_conflicts(connection, temp_table, conflict_keys)
+        result = connection.exec_query(<<~SQL.squish)
+          #{cluster_inputs_source_cte(temp_table)}
+          , #{conflict_keys_cte(connection, conflict_keys)}
           SELECT
             COUNT(*)::integer AS conflicts,
             COUNT(*) FILTER (
@@ -423,6 +433,9 @@ module Blockchain
               )
             )::integer AS divergent
           FROM eligible
+          INNER JOIN conflict_keys
+            ON conflict_keys.txid = eligible.txid
+           AND conflict_keys.vout = eligible.vout
           INNER JOIN cluster_inputs
             ON cluster_inputs.txid = eligible.txid
            AND cluster_inputs.vout = eligible.vout
@@ -437,9 +450,10 @@ module Blockchain
         }
       end
 
-      def divergent_cluster_input_samples(connection, temp_table)
+      def divergent_cluster_input_samples(connection, temp_table, conflict_keys)
         connection.exec_query(<<~SQL.squish).to_a
           #{cluster_inputs_source_cte(temp_table)}
+          , #{conflict_keys_cte(connection, conflict_keys)}
           SELECT
             eligible.txid,
             eligible.vout,
@@ -456,6 +470,9 @@ module Blockchain
             cluster_inputs.spent_block_height AS existing_spent_block_height,
             eligible.spent_block_height AS incoming_spent_block_height
           FROM eligible
+          INNER JOIN conflict_keys
+            ON conflict_keys.txid = eligible.txid
+           AND conflict_keys.vout = eligible.vout
           INNER JOIN cluster_inputs
             ON cluster_inputs.txid = eligible.txid
            AND cluster_inputs.vout = eligible.vout
@@ -477,6 +494,46 @@ module Blockchain
           ORDER BY eligible.txid, eligible.vout
           LIMIT 5
         SQL
+      end
+
+      def normalize_conflict_keys(value)
+        keys =
+          case value
+          when String
+            JSON.parse(value)
+          when Array
+            value
+          when nil
+            []
+          else
+            value.to_a
+          end
+
+        keys.map do |key|
+          {
+            "txid" => key.fetch("txid"),
+            "vout" => key.fetch("vout").to_i
+          }
+        end
+      end
+
+      def conflict_keys_cte(connection, conflict_keys)
+        if conflict_keys.empty?
+          return(
+            "conflict_keys(txid, vout) AS " \
+            "(SELECT NULL::text, NULL::integer WHERE FALSE)"
+          )
+        end
+
+        values =
+          conflict_keys.map do |key|
+            txid = connection.quote(key.fetch("txid"))
+            vout = Integer(key.fetch("vout"))
+
+            "(#{txid}, #{vout})"
+          end
+
+        "conflict_keys(txid, vout) AS (VALUES #{values.join(', ')})"
       end
 
       def upsert_cluster_inputs_recovery(connection, temp_table)

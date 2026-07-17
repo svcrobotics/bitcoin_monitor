@@ -229,6 +229,9 @@ class BitcoinRpc
   def getblockcount       = rpc_call_chain("getblockcount")
   def get_block_count     = getblockcount
   def getblockhash(h)     = rpc_call_chain("getblockhash", [h.to_i])
+  def getblockheader(hash, verbose = true)
+    rpc_call_chain("getblockheader", [hash.to_s, !!verbose])
+  end
 
   # ✅ getblock peut être lourd => timeout dédié
   def getblock(hash, v = 1)

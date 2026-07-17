@@ -9,7 +9,26 @@ module Layer1
     LOCK_KEY = "layer1:strict_tip_syncer:lock"
 
     def self.call(**options)
-      new(**options).call
+      logger = options[:logger] || Rails.logger
+
+      StrictPipeline::PostgresWriteBarrier.with_lock(
+        owner: "layer1",
+        logger: logger
+      ) do
+        new(**options).call
+      end
+    rescue StrictPipeline::PostgresWriteBarrier::LockUnavailable => error
+      logger.info(
+        "[layer1_strict_tip_syncer] " \
+        "skipped reason=postgres_write_barrier_locked " \
+        "message=#{error.message}"
+      )
+
+      {
+        ok: false,
+        status: "locked",
+        message: error.message
+      }
     end
 
     def initialize(
@@ -18,7 +37,8 @@ module Layer1
       logger: Rails.logger,
       max_blocks: ENV.fetch("LAYER1_STRICT_TIP_SYNC_MAX_BLOCKS", "3").to_i,
       lock_ttl: 30.minutes.to_i,
-      reorg_check_depth: ENV.fetch("LAYER1_STRICT_REORG_CHECK_DEPTH", "6").to_i
+      reorg_check_depth: ENV.fetch("LAYER1_STRICT_REORG_CHECK_DEPTH", "6").to_i,
+      strict_io_token: nil
     )
       @rpc = rpc
       @redis = redis
@@ -26,6 +46,7 @@ module Layer1
       @max_blocks = [max_blocks.to_i, 1].max
       @lock_ttl = lock_ttl.to_i
       @reorg_check_depth = [reorg_check_depth.to_i, 1].max
+      @strict_io_token = strict_io_token
       @lock_token = SecureRandom.hex(16)
     end
 
@@ -101,7 +122,8 @@ module Layer1
 
         result = Layer1::StrictWindowRebuilder.call(
           from_height: from_height,
-          to_height: to_height
+          to_height: to_height,
+          strict_io_token: @strict_io_token
         )
 
         after_tip = continuous_processed_tip

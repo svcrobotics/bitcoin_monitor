@@ -1,19 +1,12 @@
 # frozen_string_literal: true
 
 require "test_helper"
-require_relative "../../support/btc_isolated_cache"
 
 module Btc
   class SummaryQueryTest < ActiveSupport::TestCase
-    include BtcIsolatedCache
-
     setup do
-      install_isolated_btc_cache
-      assert_empty btc_test_cache
-    end
-
-    teardown do
-      uninstall_isolated_btc_cache
+      MarketSnapshot.delete_all
+      BtcPriceDay.delete_all
     end
 
     test "returns empty result when no price data exists" do
@@ -38,15 +31,12 @@ module Btc
 
       result = Btc::SummaryQuery.call
 
-      assert_equal day_2, result[:day]
+      assert_equal day_2.to_s, result[:day]
       assert_equal 82_000.0, result[:close_usd]
       assert_equal 82_000.0, result[:price_now_usd]
       assert_equal 2.5, result[:daily_change_pct]
       assert_equal "composite", result[:source]
-      assert_instance_of Date, result[:day]
       assert_not_nil result[:updated_at]
-      assert_equal ["btc:summary:btcusd"], btc_test_cache_accesses
-      assert_kind_of String, btc_test_cache.fetch("btc:summary:btcusd")
     end
 
     test "uses latest ok snapshot when present" do

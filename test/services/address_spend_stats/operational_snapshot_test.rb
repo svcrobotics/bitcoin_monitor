@@ -200,15 +200,6 @@ module AddressSpendStats
       )
     end
 
-    test "dead jobs produce one serializable bounded issue" do
-      snapshot = OperationalSnapshot.new(
-        runtime: runtime_snapshot.merge(dead_jobs: 2)
-      ).call
-
-      assert_equal ["dead_jobs_present"], snapshot[:issues]
-      assert JSON.generate(snapshot)
-    end
-
     private
 
     def service

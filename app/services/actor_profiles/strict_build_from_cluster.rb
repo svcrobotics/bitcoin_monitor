@@ -3,8 +3,41 @@
 module ActorProfiles
 class StrictBuildFromCluster
 SOURCE = "actor_profiles_strict_build_from_cluster"
-PROFILE_VERSION = "strict_v3_core"
-UNSPECIFIED_VERSION = Object.new.freeze
+PROFILE_VERSION = "strict_v5_address_spend_projection"
+NEXT_PROFILE_VERSION =
+  "strict_v6_cluster_transaction_projection"
+
+NEXT_PROFILE_PROVENANCE = %w[
+  addresses
+  address_spend_stats
+  cluster_transaction_projection
+  utxo_outputs
+].freeze
+
+PROFILE_STATEMENT_TIMEOUT_SECONDS =
+  [
+    Integer(
+      ENV.fetch(
+        "ACTOR_PROFILE_STRICT_PROFILE_TIMEOUT_SECONDS",
+        "120"
+      )
+    ),
+    1
+  ].max
+
+TRANSACTION_COUNTS_TIMEOUT_SECONDS =
+  [
+    [
+      Integer(
+        ENV.fetch(
+          "ACTOR_PROFILE_STRICT_TRANSACTION_COUNTS_TIMEOUT_SECONDS",
+          "10"
+        )
+      ),
+      1
+    ].max,
+    PROFILE_STATEMENT_TIMEOUT_SECONDS
+  ].min
 
 SATOSHI = BigDecimal("100000000")
 
@@ -30,41 +63,16 @@ SAT_COLUMNS =
     satoshis
   ].freeze
 
-def self.call(cluster_id:, composition_version: UNSPECIFIED_VERSION,
-  source_height: nil, source_hash: nil)
-  new(
-    cluster_id: cluster_id,
-    composition_version: composition_version,
-    source_height: source_height,
-    source_hash: source_hash
-  ).call
+def self.call(cluster_id:)
+  new(cluster_id: cluster_id).call
 end
 
-def initialize(cluster_id:, composition_version: UNSPECIFIED_VERSION,
-  source_height: nil, source_hash: nil)
-  @cluster_id = normalize_positive_integer(cluster_id, :cluster_id)
-  @legacy = composition_version.equal?(UNSPECIFIED_VERSION)
-  @composition_version =
-    normalize_positive_integer(composition_version, :composition_version) unless @legacy
-  if @legacy
-    raise ArgumentError, "legacy build does not accept source provenance" if
-      source_height.present? || source_hash.present?
-  else
-    @source_height = normalize_nonnegative_integer(source_height, :source_height)
-    @source_hash = source_hash.to_s
-    raise ArgumentError, "source_hash must be present" if @source_hash.empty?
-  end
+def initialize(cluster_id:)
+  @cluster_id = cluster_id.to_i
+  @stage_timings = {}
 end
 
 def call
-  return build_profile if @legacy
-
-  with_versioned_session_lock { build_profile }
-end
-
-private
-
-def build_profile
   started_at =
     Process.clock_gettime(
       Process::CLOCK_MONOTONIC
@@ -73,7 +81,11 @@ def build_profile
   ActiveRecord::Base.transaction(
     isolation: :repeatable_read
   ) do
-    if @legacy && !acquire_cluster_build_lock
+    ActiveRecord::Base.connection.execute(
+      "SET LOCAL statement_timeout = #{PROFILE_STATEMENT_TIMEOUT_SECONDS * 1000}"
+    )
+
+    unless acquire_cluster_build_lock
       raise ActorProfiles::DeferredSnapshotError.new(
         "ActorProfile build already running " \
         "cluster_id=#{@cluster_id}",
@@ -91,11 +103,8 @@ def build_profile
       .lock
       .find(@cluster_id)
 
-    cluster_composition_version =
+      cluster_composition_version =
       cluster.composition_version.to_i
-
-    requested_version = @legacy ? cluster_composition_version : @composition_version
-    profile = ActorProfile.lock.find_by(cluster_id: cluster.id)
 
     cluster_tip = current_cluster_tip
     layer1_tip = current_layer1_tip
@@ -103,57 +112,51 @@ def build_profile
     raise "Cluster strict tip missing" if cluster_tip.zero?
     raise "Layer1 processed tip missing" if layer1_tip.zero?
 
-    unless cluster_tip == layer1_tip
+    epoch =
+      ActorProfiles::
+        CertificationEpoch::
+        current
+
+    unless epoch
       raise ActorProfiles::DeferredSnapshotError.new(
-        "Layer1 and Cluster strict tips are not aligned " \
-        "cluster_tip=#{cluster_tip} " \
-        "layer1_tip=#{layer1_tip}",
+        "ActorProfile certification epoch is inactive",
         cluster_id: cluster.id,
-        cluster_composition_version: cluster_composition_version,
-        reason: "strict_tips_not_aligned",
+        reason: "certification_epoch_inactive",
         details: {
-          cluster_tip: cluster_tip,
-          layer1_tip: layer1_tip
+          cluster_tip: cluster_tip
         }
       )
     end
 
-    requested_height = @legacy ? cluster_tip : @source_height
-    requested_hash = @legacy ? current_cluster_hash(cluster_tip) : @source_hash
-
-    version_result = version_result_for(
-      cluster: cluster, profile: profile, requested_version: requested_version,
-      cluster_composition_version: cluster_composition_version,
-      requested_height: requested_height, requested_hash: requested_hash,
-      current_height: cluster_tip
-    )
-    if version_result
-      if version_result[:status] == "already_current"
-        handoff = register_actor_behavior_handoff!(
-          profile: profile,
-          requested_version: requested_version,
-          requested_height: requested_height,
-          requested_hash: requested_hash
-        )
-        version_result = version_result.merge(
-          actor_behavior_handoff_id: handoff.fetch(:handoff_id)
-        )
-      end
-      return version_result
-    end
-
-    unless requested_height == cluster_tip && requested_hash == current_cluster_hash(cluster_tip)
-      return terminal_version_result(
-        status: "refused", reason: "source_version_not_current", cluster: cluster,
-        profile: profile, requested_version: requested_version,
-        cluster_composition_version: cluster_composition_version,
-        requested_height: requested_height, requested_hash: requested_hash
+    if cluster_tip > layer1_tip
+      raise ActorProfiles::DeferredSnapshotError.new(
+        "Cluster strict tip is ahead of Layer1 " \
+        "cluster_tip=#{cluster_tip} " \
+        "layer1_tip=#{layer1_tip}",
+        cluster_id: cluster.id,
+        reason: "cluster_tip_ahead_of_layer1",
+        details: {
+          cluster_tip: cluster_tip,
+          layer1_tip: layer1_tip,
+          cluster_composition_version: cluster_composition_version
+        }
       )
     end
 
-    address_spend_checkpoint = certified_address_spend_checkpoint!(
-      requested_height, requested_hash
-    )
+    if cluster.last_seen_height.to_i <
+       epoch.start_height.to_i
+      raise ActorProfiles::DeferredSnapshotError.new(
+        "Cluster predates ActorProfile certification epoch "         "cluster_id=#{cluster.id} "         "cluster_last_seen_height=#{cluster.last_seen_height} "         "epoch_start_height=#{epoch.start_height}",
+        cluster_id: cluster.id,
+        reason: "cluster_before_certification_epoch",
+        details: {
+          cluster_last_seen_height:
+            cluster.last_seen_height.to_i,
+          certification_epoch_height:
+            epoch.start_height.to_i
+        }
+      )
+    end
 
     if cluster.last_seen_height.to_i > cluster_tip
       raise ActorProfiles::DeferredSnapshotError.new(
@@ -171,7 +174,12 @@ def build_profile
       )
     end
 
-    stats = compute_source_stats(cluster)
+    stats =
+      compute_source_stats(
+        cluster,
+        required_height:
+          cluster_tip
+      )
 
     profile_source_height =
       stats[:last_seen_height].to_i
@@ -195,14 +203,20 @@ def build_profile
 
     scores = compute_scores(stats)
 
-    profile ||= ActorProfile.new(cluster_id: cluster.id)
+    certified_at =
+      Time.current
+
+    profile =
+      ActorProfile.find_or_initialize_by(
+        cluster_id: cluster.id
+      )
 
     profile.assign_attributes(
       balance_btc:
         stats[:balance_btc],
 
       total_received_btc:
-        nil,
+        stats[:total_received_btc],
 
       total_sent_btc:
         stats[:total_sent_btc],
@@ -214,7 +228,7 @@ def build_profile
         stats[:tx_count],
 
       inflow_count:
-        nil,
+        stats[:inflow_count],
 
       outflow_count:
         stats[:outflow_count],
@@ -227,20 +241,23 @@ def build_profile
 
       # Hauteur du snapshot strict utilisé
       # pour toutes les métriques.
-      last_computed_height: requested_height,
+      last_computed_height:
+        cluster_tip,
       cluster_composition_version:
         cluster_composition_version,
 
       dirty:
         false,
 
-      certified_at:
-        Time.current,
-
-      certification_epoch_height: requested_height,
+      certification_epoch_height:
+        epoch.start_height,
 
       certification_scope:
-        "strict",
+        ActorProfile::
+          CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH,
+
+      certified_at:
+        certified_at,
 
       priority:
         scores[:priority],
@@ -298,7 +315,25 @@ def build_profile
           stats[:balance_btc].to_s("F"),
 
         total_sent_btc:
-          stats[:total_sent_btc].to_s("F")
+          stats[:total_sent_btc].to_s("F"),
+
+        gross_received_btc:
+          stats[:gross_received_btc].to_s("F"),
+
+        gross_spent_input_btc:
+          stats[:gross_spent_input_btc].to_s("F"),
+
+        received_outputs_count:
+          stats[:received_outputs_count],
+
+        received_tx_count:
+          stats[:received_tx_count],
+
+        spending_tx_count:
+          stats[:spending_tx_count],
+
+        activity_tx_count:
+          stats[:activity_tx_count]
       },
 
       metadata: {
@@ -311,6 +346,16 @@ def build_profile
         strict:
           true,
 
+        certification_epoch_height:
+          epoch.start_height,
+
+        certification_scope:
+          ActorProfile::
+            CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH,
+
+        certified_at:
+          certified_at,
+
         computed_at:
           Time.current,
 
@@ -318,22 +363,22 @@ def build_profile
           elapsed_ms(started_at),
 
         stats_source:
-          "addresses_cluster_inputs_utxo_outputs",
+          "addresses_address_spend_stats_" \
+          "cluster_inputs_utxo_outputs",
+
+        address_spend_projection_version:
+          AddressSpendStats::
+            ProjectBlock::
+            PROJECTION_VERSION,
+
+        address_spend_projection_height:
+          cluster_tip,
 
         historical_enrichment_status:
           "missing",
 
         historical_enrichment_source:
           "layer1_tx_output_projection_blocks_projected_future",
-
-        address_spend_projection_height:
-          address_spend_checkpoint.height,
-
-        address_spend_projection_hash:
-          address_spend_checkpoint.block_hash,
-
-        address_spend_projection_version:
-          AddressSpendStat::PROJECTION_VERSION,
 
         snapshot_isolation:
           "repeatable_read",
@@ -363,23 +408,17 @@ def build_profile
           "cluster_last_seen_height_and_composition_version",
 
         advisory_lock_namespace:
-          ADVISORY_LOCK_NAMESPACE
+          ADVISORY_LOCK_NAMESPACE,
+
+        stage_timings_ms:
+          @stage_timings
       }
     )
 
     profile.save!
 
-    handoff = register_actor_behavior_handoff!(
-      profile: profile,
-      requested_version: requested_version,
-      requested_height: requested_height,
-      requested_hash: requested_hash
-    )
-
     {
       ok: true,
-      status: "built",
-      legacy: @legacy,
 
       profile_id:
         profile.id,
@@ -397,7 +436,7 @@ def build_profile
         stats[:balance_btc],
 
       total_received_btc:
-        nil,
+        stats[:total_received_btc],
 
       total_sent_btc:
         stats[:total_sent_btc],
@@ -426,154 +465,16 @@ def build_profile
       last_computed_height:
         profile.last_computed_height,
 
-      actor_behavior_handoff_id:
-        handoff.fetch(:handoff_id),
-
       runtime_ms:
-        elapsed_ms(started_at)
+        elapsed_ms(started_at),
+
+      stage_timings_ms:
+        @stage_timings
     }
   end
 end
 
-def register_actor_behavior_handoff!(profile:, requested_version:, requested_height:,
-  requested_hash:)
-  ActorBehaviors::HandoffRegistration.call(
-    actor_profile: profile,
-    composition_version: requested_version,
-    profile_version: PROFILE_VERSION,
-    source_height: requested_height,
-    source_hash: requested_hash
-  )
-end
-
-def version_result_for(cluster:, profile:, requested_version:, cluster_composition_version:,
-  requested_height:, requested_hash:, current_height:)
-  if requested_version > cluster_composition_version
-    return terminal_version_result(
-      status: "refused",
-      reason: "future_composition_version",
-      cluster: cluster,
-      profile: profile,
-      requested_version: requested_version,
-      cluster_composition_version: cluster_composition_version,
-      requested_height: requested_height, requested_hash: requested_hash
-    )
-  end
-
-  if requested_version < cluster_composition_version
-    newer_handoff = ActorProfileBuildAdmission.where(cluster_id: cluster.id)
-      .where("cluster_composition_version > ? OR source_height > ?",
-        requested_version, requested_height)
-      .exists?
-    return terminal_version_result(
-      status: newer_handoff ? "superseded" : "refused",
-      reason: newer_handoff ? "newer_durable_admission" : "newer_admission_missing",
-      cluster: cluster,
-      profile: profile,
-      requested_version: requested_version,
-      cluster_composition_version: cluster_composition_version,
-      requested_height: requested_height, requested_hash: requested_hash
-    )
-  end
-
-  if requested_height < current_height
-    newer_admission = ActorProfileBuildAdmission.where(cluster_id: cluster.id)
-      .where("source_height > ?", requested_height).exists?
-    return terminal_version_result(
-      status: newer_admission ? "superseded" : "refused",
-      reason: newer_admission ? "newer_durable_admission" : "newer_admission_missing",
-      cluster: cluster, profile: profile, requested_version: requested_version,
-      cluster_composition_version: cluster_composition_version,
-      requested_height: requested_height, requested_hash: requested_hash
-    )
-  end
-
-  return unless profile_complete_for?(profile, requested_version, requested_height, requested_hash)
-
-  terminal_version_result(
-    status: "already_current",
-    reason: "composition_already_materialized",
-    cluster: cluster,
-    profile: profile,
-    requested_version: requested_version,
-    cluster_composition_version: cluster_composition_version,
-    requested_height: requested_height, requested_hash: requested_hash
-  )
-end
-
-def profile_complete_for?(profile, requested_version, requested_height, requested_hash)
-  profile&.persisted? &&
-    profile.cluster_composition_version.to_i == requested_version &&
-    profile.last_computed_height.to_i == requested_height &&
-    profile.metadata.to_h["address_spend_projection_hash"] == requested_hash &&
-    profile.traits.to_h["profile_version"] == PROFILE_VERSION &&
-    profile.metadata.to_h["strict"] == true &&
-    profile.last_computed_height.present? &&
-    profile.certification_epoch_height.to_i == profile.last_computed_height.to_i &&
-    profile.certification_scope == "strict" &&
-    profile.certified_at.present? &&
-    !profile.dirty?
-end
-
-def terminal_version_result(status:, reason:, cluster:, profile:, requested_version:,
-  cluster_composition_version:, requested_height:, requested_hash:)
-  {
-    ok: status != "refused",
-    status: status,
-    reason: reason,
-    legacy: @legacy,
-    cluster_id: cluster.id,
-    requested_composition_version: requested_version,
-    cluster_composition_version: cluster_composition_version,
-    requested_source_height: requested_height,
-    requested_source_hash: requested_hash,
-    actor_profile_composition_version: profile&.cluster_composition_version,
-    profile_id: profile&.id
-  }
-end
-
-def current_cluster_hash(height)
-  ClusterProcessedBlock.where(height: height, status: "processed").pick(:block_hash).to_s
-end
-
-def with_versioned_session_lock
-  connection = ActiveRecord::Base.connection
-  connection.select_value(
-    "SELECT pg_advisory_lock(#{ADVISORY_LOCK_NAMESPACE}, #{@cluster_id})"
-  )
-  yield
-ensure
-  connection&.select_value(
-    "SELECT pg_advisory_unlock(#{ADVISORY_LOCK_NAMESPACE}, #{@cluster_id})"
-  )
-end
-
-def normalize_positive_integer(value, name)
-  integer =
-    case value
-    when Integer
-      value
-    when String
-      raise ArgumentError unless value.match?(/\A[+-]?\d+\z/)
-
-      Integer(value, 10)
-    else
-      raise ArgumentError
-    end
-  raise ArgumentError, "#{name} must be positive" unless integer.positive?
-
-  integer
-rescue ArgumentError, TypeError
-  raise ArgumentError, "#{name} must be a positive integer"
-end
-
-def normalize_nonnegative_integer(value, name)
-  integer = value.is_a?(String) ? Integer(value, 10) : Integer(value)
-  raise ArgumentError if integer.negative?
-  integer
-rescue ArgumentError, TypeError
-  raise ArgumentError, "#{name} must be a nonnegative integer"
-end
+private
 
 def acquire_cluster_build_lock
   value =
@@ -588,55 +489,29 @@ def acquire_cluster_build_lock
   value == true || value.to_s == "t"
 end
 
-def certified_address_spend_checkpoint!(required_height, required_hash)
-  cluster_hash = ClusterProcessedBlock
-    .where(height: required_height, status: "processed")
-    .pick(:block_hash)
-  checkpoint = AddressSpendProjectionBlock.find_by(
-    height: required_height,
-    status: "completed"
-  )
-  projection_tip = AddressSpendProjectionBlock
-    .where(status: "completed")
-    .maximum(:height)
-    .to_i
-  next_height = AddressSpendStats::NextRecord.call&.height&.to_i
-
-  valid = checkpoint && cluster_hash.present? &&
-    checkpoint.block_hash == cluster_hash && checkpoint.block_hash == required_hash &&
-    projection_tip == required_height &&
-    (next_height.nil? || next_height > required_height)
-  return checkpoint if valid
-
-  raise ActorProfiles::DeferredSnapshotError.new(
-    "AddressSpend projection is not certified at the ActorProfile checkpoint",
-    cluster_id: @cluster_id,
-    reason: "address_spend_projection_not_ready",
-    details: {
-      required_height: required_height,
-      projection_tip: projection_tip,
-      next_record_height: next_height,
-      checkpoint_hash_matches: checkpoint&.block_hash == cluster_hash
-    }
-  )
-end
-
-def compute_source_stats(cluster)
+def compute_source_stats(
+  cluster,
+  required_height:
+)
   address_scope =
     Address.where(
       cluster_id: cluster.id
     )
 
   address_row =
-    address_scope
-      .select(
-        "COUNT(*) AS address_count",
-        "MIN(first_seen_height) AS first_seen_height",
-        "MAX(last_seen_height) AS last_seen_height",
-        "MIN(created_at) AS first_seen_at",
-        "MAX(updated_at) AS last_seen_at"
-      )
-      .take
+    with_profile_stage(
+      "addresses_aggregate"
+    ) do
+      address_scope
+        .select(
+          "COUNT(*) AS address_count",
+          "MIN(first_seen_height) AS first_seen_height",
+          "MAX(last_seen_height) AS last_seen_height",
+          "MIN(created_at) AS first_seen_at",
+          "MAX(updated_at) AS last_seen_at"
+        )
+        .take
+    end
 
   address_count =
     address_row.address_count.to_i
@@ -648,13 +523,58 @@ def compute_source_stats(cluster)
     )
   end
 
+  spend_aggregate =
+    begin
+      with_profile_stage(
+        "address_spend_cluster_aggregate"
+      ) do
+        AddressSpendStats::
+          ClusterAggregate.call(
+            cluster_id:
+              cluster.id,
+
+            required_height:
+              required_height
+          )
+      end
+    rescue AddressSpendStats::
+             ClusterAggregate::
+             ProjectionNotReady => error
+      raise(
+        ActorProfiles::
+          DeferredSnapshotError.new(
+            "ActorProfile waits for " \
+            "AddressSpend projection " \
+            "cluster_id=#{cluster.id} " \
+            "required_height=" \
+            "#{error.required_height} " \
+            "projection_tip=" \
+            "#{error.projection_tip} " \
+            "next_record_height=" \
+            "#{error.next_record_height}",
+
+            cluster_id:
+              cluster.id,
+
+            reason:
+              "address_spend_projection_not_ready",
+
+            details: {
+              required_height:
+                error.required_height,
+
+              projection_tip:
+                error.projection_tip,
+
+              next_record_height:
+                error.next_record_height
+            }
+          )
+      )
+    end
+
   address_subquery =
     address_scope.select(:address)
-
-  cluster_inputs =
-    ClusterInput.where(
-      address: address_subquery
-    )
 
   utxos =
     UtxoOutput.where(
@@ -662,15 +582,47 @@ def compute_source_stats(cluster)
     )
 
   total_sent_btc =
-    sum_btc(cluster_inputs)
+    spend_aggregate[
+      :total_sent_btc
+    ]
 
   balance_btc =
-    sum_btc(utxos)
+    with_profile_stage(
+      "utxo_outputs_sum"
+    ) do
+      sum_utxo_btc_for_cluster(
+        cluster.id
+      )
+    end
+
+  cluster_inputs_min_height =
+    spend_aggregate[
+      :first_spent_height
+    ]
+
+  utxo_outputs_min_height =
+    with_profile_stage(
+      "utxo_outputs_min_height"
+    ) do
+      min_height(utxos)
+    end
+
+  cluster_inputs_max_height =
+    spend_aggregate[
+      :last_spent_height
+    ]
+
+  utxo_outputs_max_height =
+    with_profile_stage(
+      "utxo_outputs_max_height"
+    ) do
+      max_height(utxos)
+    end
 
   first_seen_height = [
     cluster.first_seen_height,
-    min_height(cluster_inputs),
-    min_height(utxos)
+    cluster_inputs_min_height,
+    utxo_outputs_min_height
   ]
     .compact
     .map(&:to_i)
@@ -679,8 +631,8 @@ def compute_source_stats(cluster)
 
   last_seen_height = [
     cluster.last_seen_height,
-    max_height(cluster_inputs),
-    max_height(utxos)
+    cluster_inputs_max_height,
+    utxo_outputs_max_height
   ]
     .compact
     .map(&:to_i)
@@ -695,8 +647,27 @@ def compute_source_stats(cluster)
     0
   ].max
 
+  transaction_counts =
+    with_profile_stage(
+      "transaction_counts",
+      statement_timeout_seconds:
+        TRANSACTION_COUNTS_TIMEOUT_SECONDS
+    ) do
+      compute_transaction_counts(
+        cluster.id,
+        checkpoint_height:
+          current_cluster_tip
+      )
+    end
+
+  received_tx_count =
+    transaction_counts[:received_tx_count]
+
+  spending_tx_count =
+    transaction_counts[:spending_tx_count]
+
   tx_count =
-    distinct_tx_count(cluster.id)
+    transaction_counts[:activity_tx_count]
 
   tx_density =
     if activity_span_blocks.positive?
@@ -708,21 +679,30 @@ def compute_source_stats(cluster)
       BigDecimal("0")
     end
 
-  received_outputs_count =
-    nil
-
   spent_inputs_count =
-    cluster_inputs.count
+    spend_aggregate[
+      :spent_inputs_count
+    ]
 
   live_utxo_count =
-    utxos.count
+    with_profile_stage(
+      "utxo_outputs_count"
+    ) do
+      utxos.count
+    end
+
+  received_outputs_count =
+    spent_inputs_count + live_utxo_count
+
+  gross_received_btc =
+    balance_btc + total_sent_btc
 
   {
     address_count:
       address_count,
 
     total_received_btc:
-      nil,
+      gross_received_btc,
 
     total_sent_btc:
       total_sent_btc,
@@ -737,16 +717,31 @@ def compute_source_stats(cluster)
       tx_count,
 
     spent_tx_count:
-      tx_count,
+      spending_tx_count,
 
     inflow_count:
-      nil,
+      received_tx_count,
 
     outflow_count:
-      spent_inputs_count,
+      spending_tx_count,
 
     received_outputs_count:
       received_outputs_count,
+
+    received_tx_count:
+      received_tx_count,
+
+    spending_tx_count:
+      spending_tx_count,
+
+    activity_tx_count:
+      tx_count,
+
+    gross_received_btc:
+      gross_received_btc,
+
+    gross_spent_input_btc:
+      total_sent_btc,
 
     spent_inputs_count:
       spent_inputs_count,
@@ -774,6 +769,194 @@ def compute_source_stats(cluster)
   }
 end
 
+def with_profile_stage(
+  stage,
+  statement_timeout_seconds:
+    PROFILE_STATEMENT_TIMEOUT_SECONDS
+)
+  started_at =
+    Process.clock_gettime(
+      Process::CLOCK_MONOTONIC
+    )
+
+  apply_stage_statement_timeout(
+    statement_timeout_seconds
+  )
+
+  yield.tap do
+    @stage_timings[stage] =
+      elapsed_ms(started_at)
+  end
+rescue ActiveRecord::QueryCanceled => error
+  runtime_ms =
+    elapsed_ms(started_at)
+
+  @stage_timings[stage] =
+    runtime_ms
+
+  raise ActorProfiles::DeferredSnapshotError.new(
+    "ActorProfile stage timed out " \
+    "cluster_id=#{@cluster_id} " \
+    "stage=#{stage} " \
+    "runtime_ms=#{runtime_ms}",
+    cluster_id: @cluster_id,
+    reason: "profile_timeout",
+    details: {
+      stage:
+        stage,
+
+      timeout_seconds:
+        statement_timeout_seconds.to_i,
+
+      runtime_ms:
+        runtime_ms,
+
+      error_class:
+        error.class.name,
+
+      message:
+        error.message,
+
+      stage_timings_ms:
+        @stage_timings
+    }
+  )
+ensure
+  restore_profile_statement_timeout
+end
+
+def apply_stage_statement_timeout(seconds)
+  timeout_seconds =
+    [
+      seconds.to_i,
+      1
+    ].max
+
+  ActiveRecord::Base
+    .connection
+    .execute(
+      "SET LOCAL statement_timeout = " \
+      "#{timeout_seconds * 1000}"
+    )
+end
+
+def restore_profile_statement_timeout
+  ActiveRecord::Base
+    .connection
+    .execute(
+      "SET LOCAL statement_timeout = " \
+      "#{PROFILE_STATEMENT_TIMEOUT_SECONDS * 1000}"
+    )
+rescue ActiveRecord::StatementInvalid,
+       ActiveRecord::QueryCanceled
+  nil
+end
+
+def sum_utxo_btc_for_cluster(cluster_id)
+  klass =
+    UtxoOutput
+
+  connection =
+    ActiveRecord::Base.connection
+
+  amount_column =
+    amount_btc_column(klass)
+
+  divisor =
+    BigDecimal("1")
+
+  unless amount_column
+    amount_column =
+      amount_sat_column(klass)
+
+    divisor =
+      SATOSHI
+  end
+
+  unless amount_column
+    raise(
+      "No amount column found for " \
+      "#{klass.table_name}"
+    )
+  end
+
+  addresses_table =
+    connection.quote_table_name(
+      Address.table_name
+    )
+
+  utxo_outputs_table =
+    connection.quote_table_name(
+      klass.table_name
+    )
+
+  quoted_amount_column =
+    connection.quote_column_name(
+      amount_column
+    )
+
+  quoted_cluster_id =
+    connection.quote(
+      cluster_id.to_i
+    )
+
+  sql = <<~SQL
+    SELECT
+      COALESCE(
+        SUM(
+          per_address.amount_total
+        ),
+        0
+      )
+
+    FROM #{addresses_table} addresses
+
+    CROSS JOIN LATERAL (
+      SELECT
+        COALESCE(
+          SUM(
+            utxo_outputs.#{quoted_amount_column}
+          ),
+          0
+        ) AS amount_total
+
+      FROM #{utxo_outputs_table}
+        utxo_outputs
+
+      WHERE utxo_outputs.address =
+            addresses.address
+    ) per_address
+
+    WHERE addresses.cluster_id =
+          #{quoted_cluster_id}
+  SQL
+
+  BigDecimal(
+    connection
+      .select_value(sql)
+      .to_s
+  ) / divisor
+rescue ActiveRecord::QueryCanceled
+  raise
+rescue StandardError => error
+  raise ActorProfiles::DeferredSnapshotError.new(
+    "ActorProfile UTXO calculation failed " \
+    "cluster_id=#{cluster_id}",
+    cluster_id: cluster_id,
+    reason: "utxo_calculation_failed",
+    details: {
+      table:
+        klass.table_name,
+
+      error_class:
+        error.class.name,
+
+      message:
+        error.message
+    }
+  )
+end
+
 def sum_btc(relation)
   klass = relation.klass
 
@@ -791,8 +974,26 @@ def sum_btc(relation)
       "#{klass.table_name}"
     )
   end
-rescue StandardError
-  BigDecimal("0")
+rescue ActiveRecord::QueryCanceled
+  raise
+rescue StandardError => error
+  raise ActorProfiles::DeferredSnapshotError.new(
+    "ActorProfile amount calculation failed " \
+    "cluster_id=#{@cluster_id} " \
+    "table=#{klass.table_name}",
+    cluster_id: @cluster_id,
+    reason: "amount_calculation_failed",
+    details: {
+      table:
+        klass.table_name,
+
+      error_class:
+        error.class.name,
+
+      message:
+        error.message
+    }
+  )
 end
 
 def amount_btc_column(klass)
@@ -835,66 +1036,121 @@ def height_column(klass)
   end
 end
 
-def distinct_tx_count(cluster_id)
+def compute_transaction_counts(
+  cluster_id,
+  checkpoint_height:
+)
   connection =
     ActiveRecord::Base.connection
 
-  parts = []
+  addresses_table =
+    connection.quote_table_name(
+      Address.table_name
+    )
 
-  cluster_input_txid_column =
-    if ClusterInput
-         .column_names
-         .include?("spent_txid")
-      "spent_txid"
-    elsif ClusterInput
-            .column_names
-            .include?("txid")
-      "txid"
-    end
+  cluster_inputs_table =
+    connection.quote_table_name(
+      ClusterInput.table_name
+    )
 
-  if cluster_input_txid_column
-    parts << <<~SQL.squish
-      SELECT #{
-        cluster_input_txid_column
-      } AS txid
-
-      FROM #{
-        connection.quote_table_name(
-          ClusterInput.table_name
-        )
-      }
-
-      WHERE address IN (
-        SELECT address
-
-        FROM #{
-          connection.quote_table_name(
-            Address.table_name
-          )
-        }
-
-        WHERE cluster_id = #{cluster_id.to_i}
-      )
-
-      AND #{
-        cluster_input_txid_column
-      } IS NOT NULL
-    SQL
-  end
-
-  return 0 if parts.empty?
+  utxo_outputs_table =
+    connection.quote_table_name(
+      UtxoOutput.table_name
+    )
 
   sql = <<~SQL
-    SELECT COUNT(DISTINCT txid) AS count
+    WITH cluster_addresses AS (
+      SELECT DISTINCT address
 
-    FROM (
-      #{parts.join("\nUNION\n")}
-    ) txids
+      FROM #{addresses_table}
+
+      WHERE cluster_id = #{cluster_id.to_i}
+        AND address IS NOT NULL
+    ),
+
+    received_txids AS (
+      SELECT cluster_inputs.txid AS txid
+
+      FROM #{cluster_inputs_table} cluster_inputs
+
+      INNER JOIN cluster_addresses
+        ON cluster_addresses.address =
+           cluster_inputs.address
+
+      WHERE cluster_inputs.txid IS NOT NULL
+        AND cluster_inputs.block_height <=
+            #{checkpoint_height.to_i}
+
+      UNION
+
+      SELECT utxo_outputs.txid AS txid
+
+      FROM #{utxo_outputs_table} utxo_outputs
+
+      INNER JOIN cluster_addresses
+        ON cluster_addresses.address =
+           utxo_outputs.address
+
+      WHERE utxo_outputs.txid IS NOT NULL
+        AND utxo_outputs.block_height <=
+            #{checkpoint_height.to_i}
+    ),
+
+    spending_txids AS (
+      SELECT DISTINCT
+        cluster_inputs.spent_txid AS txid
+
+      FROM #{cluster_inputs_table} cluster_inputs
+
+      INNER JOIN cluster_addresses
+        ON cluster_addresses.address =
+           cluster_inputs.address
+
+      WHERE cluster_inputs.spent_txid IS NOT NULL
+        AND cluster_inputs.spent_block_height <=
+            #{checkpoint_height.to_i}
+    ),
+
+    activity_txids AS (
+      SELECT txid
+      FROM received_txids
+
+      UNION
+
+      SELECT txid
+      FROM spending_txids
+    )
+
+    SELECT
+      (
+        SELECT COUNT(*)
+        FROM received_txids
+      ) AS received_tx_count,
+
+      (
+        SELECT COUNT(*)
+        FROM spending_txids
+      ) AS spending_tx_count,
+
+      (
+        SELECT COUNT(*)
+        FROM activity_txids
+      ) AS activity_tx_count
   SQL
 
-  connection
-    .select_value(sql)
-    .to_i
+  row =
+    connection.select_one(sql) || {}
+
+  {
+    received_tx_count:
+      row["received_tx_count"].to_i,
+
+    spending_tx_count:
+      row["spending_tx_count"].to_i,
+
+    activity_tx_count:
+      row["activity_tx_count"].to_i
+  }
 end
 
 def compute_scores(stats)

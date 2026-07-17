@@ -44,7 +44,6 @@ module ClusterTransactionProjection
       result =
         ApplyBlock.call(
           cluster_id: @cluster.id,
-          expected_composition_version: 1,
           block_height: @block_height,
           block_hash: @block_hash,
           received_txids: [
@@ -83,7 +82,6 @@ module ClusterTransactionProjection
     test "is idempotent for an already projected block" do
       ApplyBlock.call(
         cluster_id: @cluster.id,
-        expected_composition_version: 1,
         block_height: @block_height,
         block_hash: @block_hash,
         received_txids: [
@@ -103,7 +101,6 @@ module ClusterTransactionProjection
       result =
         ApplyBlock.call(
           cluster_id: @cluster.id,
-          expected_composition_version: 1,
           block_height: @block_height,
           block_hash: @block_hash,
           received_txids: [
@@ -129,7 +126,6 @@ module ClusterTransactionProjection
       result =
         ApplyBlock.call(
           cluster_id: @cluster.id,
-          expected_composition_version: 1,
           block_height: @block_height + 1,
           block_hash: unique_hash("gap"),
           received_txids: [
@@ -142,23 +138,12 @@ module ClusterTransactionProjection
       assert_equal @base_height, @generation.reload.checkpoint_height
     end
 
-    test "requires an explicit expected composition version" do
-      assert_raises(ArgumentError) do
-        ApplyBlock.call(
-          cluster_id: @cluster.id,
-          block_height: @block_height,
-          block_hash: @block_hash
-        )
-      end
-    end
-
     test "refuses concurrent composition change" do
       @cluster.update!(composition_version: 2)
 
       result =
         ApplyBlock.call(
           cluster_id: @cluster.id,
-          expected_composition_version: 1,
           block_height: @block_height,
           block_hash: @block_hash,
           received_txids: [
@@ -167,86 +152,14 @@ module ClusterTransactionProjection
         )
 
       assert_equal false, result.ok
-      assert_equal :expected_composition_mismatch, result.reason
+      assert_equal :composition_mismatch, result.reason
       assert_equal @base_height, @generation.reload.checkpoint_height
-    end
-
-    test "refuses a stale expected composition without partial writes" do
-      generation_before = @generation.attributes
-      facts_before = ClusterTransactionFact.where(
-        projection_generation_id: @generation.id
-      ).order(:txid).pluck(:txid, :received_height, :spent_height)
-      blocks_before = ClusterTransactionProjectionBlock.order(:block_height).pluck(
-        :block_height, :block_hash, :status, :completed_at
-      )
-      checkpoint_before = ClusterProcessedBlock.find_by!(height: @block_height).attributes
-
-      result = ApplyBlock.call(
-        cluster_id: @cluster.id,
-        expected_composition_version: 2,
-        block_height: @block_height,
-        block_hash: @block_hash,
-        received_txids: [txid("stale-payload")]
-      )
-
-      assert_equal false, result.ok
-      assert_equal :expected_composition_mismatch, result.reason
-      assert_equal generation_before, @generation.reload.attributes
-      assert_equal facts_before, ClusterTransactionFact.where(
-        projection_generation_id: @generation.id
-      ).order(:txid).pluck(:txid, :received_height, :spent_height)
-      assert_equal blocks_before, ClusterTransactionProjectionBlock.order(:block_height).pluck(
-        :block_height, :block_hash, :status, :completed_at
-      )
-      assert_equal checkpoint_before,
-        ClusterProcessedBlock.find_by!(height: @block_height).attributes
-    end
-
-    test "checks the expected composition inside the transaction after row locks" do
-      events = []
-      generation_lock = ClusterTransactionProjectionGeneration.method(:lock)
-      cluster_lock = Cluster.method(:lock)
-      service = ApplyBlock.new(
-        cluster_id: @cluster.id,
-        expected_composition_version: 2,
-        block_height: @block_height,
-        block_hash: @block_hash
-      )
-      refused = service.method(:refused)
-
-      ClusterTransactionProjectionGeneration.define_singleton_method(:lock) do |*args, **kwargs|
-        events << :generation_lock
-        generation_lock.call(*args, **kwargs)
-      end
-      Cluster.define_singleton_method(:lock) do |*args, **kwargs|
-        events << :cluster_lock
-        cluster_lock.call(*args, **kwargs)
-      end
-      service.define_singleton_method(:refused) do |reason, **kwargs|
-        if reason == :expected_composition_mismatch
-          events << :version_refused
-          events << :transaction_open if ApplicationRecord.connection.transaction_open?
-        end
-        refused.call(reason, **kwargs)
-      end
-
-      result = service.call
-
-      assert_equal false, result.ok
-      assert_equal :expected_composition_mismatch, result.reason
-      assert_operator events.index(:generation_lock), :<, events.index(:version_refused)
-      assert_operator events.index(:cluster_lock), :<, events.index(:version_refused)
-      assert_includes events, :transaction_open
-    ensure
-      ClusterTransactionProjectionGeneration.define_singleton_method(:lock, generation_lock) if generation_lock
-      Cluster.define_singleton_method(:lock, cluster_lock) if cluster_lock
     end
 
     test "rolls back facts, counters and block state on failure" do
       service =
         ApplyBlock.new(
           cluster_id: @cluster.id,
-          expected_composition_version: 1,
           block_height: @block_height,
           block_hash: @block_hash,
           received_txids: [

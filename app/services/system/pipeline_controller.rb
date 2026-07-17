@@ -5,11 +5,13 @@ module System
     LAYER1_STRICT_QUEUE = "layer1_strict"
     CLUSTER_STRICT_QUEUE = "cluster_strict"
     ADDRESS_SPEND_PROJECTION_QUEUE =
-      "actor_profile_strict"
+      "address_spend_projection"
     ACTOR_PROFILE_STRICT_QUEUE = "actor_profile_strict"
     ACTOR_BEHAVIOR_STRICT_QUEUE = "actor_behavior_strict"
     ACTOR_BEHAVIOR_HEAVY_QUEUE = "actor_behavior_heavy"
     ACTOR_LABELS_STRICT_QUEUE = "actor_labels_strict"
+    CLUSTER_TRANSACTION_PROJECTION_QUEUE =
+      "cluster_transaction_projection"
 
     PIPELINE_MODE_ENV = "TANSA_PIPELINE_MODE"
     DEVELOPMENT_BACKFILL_MODE = "development_backfill"
@@ -21,6 +23,7 @@ module System
       actor_behavior
       actor_behavior_heavy
       actor_labels
+      cluster_transaction_projection_backfill
       layer1_audit
       tx_outputs_async
       tx_output_projection
@@ -102,7 +105,6 @@ module System
       :layer1_checkpoint_available,
       :actor_profile_layer1_lag_within_budget,
       :cluster_checkpoint_available,
-      :actor_profile_cluster_global_lag_within_budget,
       :address_spend_projection_ready
     ].freeze
 
@@ -118,10 +120,10 @@ module System
       :strict_io_not_layer1
     ].freeze
 
-    # ActorProfile travaille depuis le dernier checkpoint Cluster
-    # certifié. En mode development_backfill, un retard relatif maximal
-    # de trois blocs entre Cluster et Layer1 est accepté afin que les
-    # étapes aval puissent continuer leur rattrapage.
+    # AddressSpendProjection rattrape le dernier checkpoint Cluster
+    # certifié avec une marge stricte. ActorProfile consomme ensuite
+    # cette projection certifiée au checkpoint Cluster, sans exiger que
+    # Cluster soit déjà aligné sur le tip Layer1.
     DEVELOPMENT_BACKFILL_ADDRESS_SPEND_CONSTRAINTS = [
       :layer1_checkpoint_available,
       :cluster_checkpoint_available,
@@ -133,7 +135,6 @@ module System
     DEVELOPMENT_BACKFILL_ACTOR_PROFILE_CONSTRAINTS = [
       :layer1_checkpoint_available,
       :cluster_checkpoint_available,
-      :actor_profile_cluster_lag_within_budget,
       :development_backfill_upstream_within_guardrails,
       :address_spend_projection_ready
     ].freeze
@@ -168,6 +169,23 @@ module System
       *CLUSTER_STABLE_CONSTRAINTS,
       *ACTOR_PROFILE_STABLE_CONSTRAINTS,
       *ACTOR_LABELS_STABLE_CONSTRAINTS
+    ].freeze
+
+    CLUSTER_TRANSACTION_PROJECTION_BACKFILL_CONSTRAINTS = [
+      :cluster_transaction_projection_backfill_enabled,
+      :development_backfill_mode,
+      :development_backfill_downstream_catchup,
+      :cluster_checkpoint_available,
+      :cluster_transaction_projection_target_checkpoint_valid,
+      :cluster_transaction_projection_layer1_not_prioritized,
+      :cluster_transaction_projection_cluster_not_prioritized,
+      :cluster_transaction_projection_address_spend_not_prioritized,
+      :cluster_transaction_projection_actor_profile_not_prioritized,
+      :strict_io_idle,
+      :cluster_transaction_projection_no_running_run,
+      :cluster_transaction_projection_no_lease,
+      :cluster_transaction_projection_work_available,
+      :cluster_transaction_projection_disk_guard
     ].freeze
 
     PIPELINE_REGISTRY = {
@@ -209,6 +227,19 @@ module System
         constraints: ACTOR_PROFILE_UPSTREAM_CONSTRAINTS,
         realtime: false,
         role: :profile_builder
+      },
+
+      cluster_transaction_projection_backfill: {
+        priority: 5,
+        depends_on: [
+          :cluster,
+          :address_spend_projection,
+          :actor_profile
+        ],
+        constraints:
+          CLUSTER_TRANSACTION_PROJECTION_BACKFILL_CONSTRAINTS,
+        realtime: false,
+        role: :background_projection_backfill
       },
 
       actor_labels: {
@@ -403,6 +434,16 @@ module System
       actor_labels =
         actor_labels_snapshot
 
+      cluster_transaction_projection_backfill =
+        ClusterTransactionProjection::
+          OperationalSnapshot.call(
+            current_snapshot: {
+              strict_io: {
+                owner: strict_io_owner&.owner
+              }
+            }
+          )
+
       {
         development_backfill:
           development_backfill,
@@ -484,16 +525,10 @@ module System
 
         actor_profile: actor_profile,
         actor_labels: actor_labels,
+        cluster_transaction_projection_backfill:
+          cluster_transaction_projection_backfill,
 
         strict_io: {
-          available:
-            strict_io_owner&.available? == true,
-          status:
-            strict_io_owner&.status ||
-              "unavailable",
-          reason:
-            strict_io_owner&.reason ||
-              "strict_io_lease_unavailable",
           owner: strict_io_owner&.owner,
           acquired_at: strict_io_owner&.acquired_at&.iso8601(6),
           expires_at: strict_io_owner&.expires_at&.iso8601(6)
@@ -532,6 +567,12 @@ module System
 
       current_snapshot ||=
         snapshot
+
+      if name == :cluster_transaction_projection_backfill
+        return cluster_transaction_projection_backfill_decision(
+          current_snapshot: current_snapshot
+        )
+      end
 
       phase_decision =
         development_backfill_phase_decision(
@@ -643,6 +684,11 @@ module System
       when :actor_profile
         actor_profile_work_available?(snapshot)
 
+      when :cluster_transaction_projection_backfill
+        cluster_transaction_projection_backfill_work_available?(
+          snapshot
+        )
+
       when :actor_labels
         actor_labels_work_available?(decision)
 
@@ -736,6 +782,16 @@ module System
         snapshot.dig(:actor_profile, :processing) == true
     end
 
+    def self.cluster_transaction_projection_backfill_work_available?(
+      snapshot
+    )
+      snapshot
+        .dig(
+          :cluster_transaction_projection_backfill,
+          :work_available
+        ) == true
+    end
+
     def self.actor_labels_work_available?(decision)
       decision.dig(:actor_labels, :work_available) == true &&
         decision[:state] == :run
@@ -762,20 +818,209 @@ module System
       current_snapshot ||=
         snapshot
 
-      unavailable = {
-        available: false,
-        work_available: false,
-        reason:
-          :actor_behavior_heavy_unavailable,
-        blockers: [
-          :actor_behavior_heavy_unavailable
-        ]
-      }
+      control =
+        ActorBehaviors::Heavy::
+          ControlSnapshot.call(
+            current_snapshot:
+              current_snapshot
+          )
+
+      strict_behavior =
+        actor_behavior_decision(
+          current_snapshot:
+            current_snapshot
+        )
+
+      strict_behavior_control =
+        strict_behavior[
+          :actor_behavior
+        ] || {}
+
+      actor_labels =
+        current_snapshot[
+          :actor_labels
+        ] || {}
+
+      failed = []
+
+      unless current_snapshot.dig(
+        :bitcoin_core,
+        :available
+      ) == true
+        failed <<
+          :bitcoin_core_available
+      end
+
+      if current_snapshot.dig(
+        :strict_io,
+        :owner
+      ).present?
+        failed <<
+          :strict_io_idle
+      end
+
+      unless current_snapshot.dig(
+        :layer1,
+        :checkpoint_available
+      ) == true
+        failed <<
+          :layer1_checkpoint_available
+      end
+
+      unless current_snapshot.dig(
+        :layer1,
+        :idle
+      ) == true
+        failed <<
+          :layer1_stable
+      end
+
+      if current_snapshot.dig(
+        :layer1,
+        :catching_up
+      ) == true
+        failed <<
+          :layer1_not_catching_up
+      end
+
+      unless current_snapshot.dig(
+        :cluster,
+        :checkpoint_available
+      ) == true
+        failed <<
+          :cluster_checkpoint_available
+      end
+
+      unless current_snapshot.dig(
+        :cluster,
+        :idle
+      ) == true &&
+             current_snapshot.dig(
+               :cluster,
+               :caught_up_to_layer1
+             ) == true
+        failed <<
+          :cluster_stable
+      end
+
+      actor_profile =
+        current_snapshot[
+          :actor_profile
+        ] || {}
+
+      unless
+        actor_profile[
+          :checkpoint_available
+        ] == true &&
+        actor_profile[
+          :processing
+        ] != true &&
+        actor_profile[
+          :strict_queue_size
+        ].to_i.zero? &&
+        actor_profile[
+          :strict_worker_busy
+        ] != true &&
+        actor_profile[
+          :pending_work
+        ].to_i.zero? &&
+        actor_profile[
+          :caught_up_to_cluster
+        ] == true
+        failed <<
+          :actor_profile_stable
+      end
+
+      if
+        strict_behavior_control[
+          :work_available
+        ] == true ||
+        strict_behavior_control[
+          :batch_running
+        ] == true ||
+        strict_behavior_control[
+          :stale_running_run
+        ] == true
+        failed <<
+          :actor_behavior_strict_priority
+      end
+
+      if
+        actor_labels[
+          :processing
+        ] == true ||
+        actor_labels[
+          :strict_queue_size
+        ].to_i.positive? ||
+        actor_labels[
+          :strict_worker_busy
+        ] == true ||
+        actor_labels[
+          :lock_present
+        ] == true
+        failed <<
+          :actor_labels_strict_active
+      end
+
+      failed.uniq!
+
+      state,
+        reason =
+          if control[
+               :auto_enabled
+             ] != true
+            [
+              :disabled,
+              :actor_behavior_heavy_auto_disabled
+            ]
+          elsif control[
+                  :labels_enabled
+                ] != true
+            [
+              :blocked,
+              :actor_behavior_heavy_labels_disabled
+            ]
+          elsif failed.any?
+            [
+              :blocked,
+              failed.first
+            ]
+          elsif control[
+                  :cooldown_active
+                ] == true
+            [
+              :idle,
+              :actor_behavior_heavy_cooldown
+            ]
+          elsif control[
+                  :work_available
+                ] != true
+            [
+              :idle,
+              :no_actor_behavior_heavy_work
+            ]
+          else
+            [
+              :run,
+              :actor_behavior_heavy_work_available
+            ]
+          end
+
+      allowed =
+        %i[
+          idle
+          run
+        ].include?(
+          state
+        )
 
       resolved_snapshot =
         current_snapshot.merge(
+          actor_behavior:
+            strict_behavior_control,
+
           actor_behavior_heavy:
-            unavailable
+            control
         )
 
       {
@@ -783,16 +1028,24 @@ module System
           :actor_behavior_heavy,
 
         allowed:
-          false,
+          allowed,
 
         state:
-          :unavailable,
+          state,
 
         reason:
-          :actor_behavior_heavy_unavailable,
+          reason,
 
         retry_in:
-          nil,
+          if state == :blocked
+            60.seconds
+          elsif control[
+                  :cooldown_active
+                ] == true
+            control[
+              :cooldown_remaining_seconds
+            ].to_i.seconds
+          end,
 
         priority:
           priority(
@@ -808,9 +1061,8 @@ module System
         constraints:
           [],
 
-        failed_constraints: [
-          :actor_behavior_heavy_unavailable
-        ],
+        failed_constraints:
+          failed,
 
         realtime:
           false,
@@ -827,11 +1079,128 @@ module System
           ),
 
         actor_behavior_heavy:
-          unavailable,
+          control.merge(
+            blockers:
+              failed
+          ),
 
         snapshot:
           resolved_snapshot
       }
+    end
+
+    def self.cluster_transaction_projection_backfill_decision(
+      current_snapshot:
+    )
+      backfill =
+        current_snapshot[
+          :cluster_transaction_projection_backfill
+        ] ||
+        ClusterTransactionProjection::
+          OperationalSnapshot.call(
+            current_snapshot: current_snapshot
+          )
+
+      snapshot =
+        current_snapshot.merge(
+          cluster_transaction_projection_backfill:
+            backfill
+        )
+
+      failed =
+        failed_constraints(
+          CLUSTER_TRANSACTION_PROJECTION_BACKFILL_CONSTRAINTS,
+          snapshot
+        )
+
+      state =
+        cluster_transaction_projection_backfill_state(
+          failed: failed,
+          backfill: backfill
+        )
+
+      {
+        module: :cluster_transaction_projection_backfill,
+        allowed:
+          failed.empty? &&
+            backfill[:work_available] == true,
+        state: state,
+        reason:
+          cluster_transaction_projection_backfill_reason(
+            state: state,
+            failed: failed,
+            backfill: backfill
+          ),
+        retry_in: failed.empty? ? nil : 30.seconds,
+        priority: priority(:cluster_transaction_projection_backfill),
+        depends_on:
+          PIPELINE_REGISTRY.dig(
+            :cluster_transaction_projection_backfill,
+            :depends_on
+          ),
+        constraints:
+          CLUSTER_TRANSACTION_PROJECTION_BACKFILL_CONSTRAINTS,
+        failed_constraints: failed,
+        realtime: false,
+        role: :background_projection_backfill,
+        architecture_role: :background_projection_backfill,
+        resources:
+          resources(:cluster_transaction_projection_backfill),
+        cluster_transaction_projection_backfill:
+          backfill,
+        snapshot: snapshot
+      }
+    end
+
+    def self.cluster_transaction_projection_backfill_preemption_reason(
+      current_snapshot: nil
+    )
+      current_snapshot ||=
+        snapshot
+
+      backfill =
+        current_snapshot[
+          :cluster_transaction_projection_backfill
+        ] ||
+        ClusterTransactionProjection::
+          OperationalSnapshot.call(
+            current_snapshot: current_snapshot
+          )
+
+      return :feature_disabled unless
+        backfill[:enabled] == true
+
+      return :phase_changed unless
+        development_backfill_downstream_catchup?(
+          current_snapshot
+        )
+
+      return :disk_guard unless
+        cluster_transaction_projection_disk_ok?(
+          backfill
+        )
+
+      return :layer1_priority if
+        cluster_transaction_projection_layer1_prioritized?(
+          current_snapshot
+        )
+
+      return :cluster_priority if
+        cluster_transaction_projection_cluster_prioritized?(
+          current_snapshot
+        )
+
+      return :address_spend_priority if
+        cluster_transaction_projection_address_spend_prioritized?(
+          current_snapshot
+        )
+
+      return :actor_profile_v5_priority if
+        cluster_transaction_projection_actor_profile_prioritized?(
+          current_snapshot
+        )
+
+      nil
     end
 
     def self.scheduler_only_work_available?(_role)
@@ -944,6 +1313,46 @@ module System
       )
         :address_spend_projection_priority
 
+      elsif failed_constraints.include?(
+        :cluster_transaction_projection_backfill_enabled
+      )
+        :feature_disabled
+
+      elsif failed_constraints.include?(
+        :development_backfill_downstream_catchup
+      )
+        :phase_changed
+
+      elsif failed_constraints.include?(
+        :cluster_transaction_projection_work_available
+      )
+        :idle_no_run
+
+      elsif failed_constraints.include?(
+        :cluster_transaction_projection_disk_guard
+      )
+        :disk_guard
+
+      elsif failed_constraints.include?(
+        :cluster_transaction_projection_layer1_not_prioritized
+      )
+        :layer1_priority
+
+      elsif failed_constraints.include?(
+        :cluster_transaction_projection_cluster_not_prioritized
+      )
+        :cluster_priority
+
+      elsif failed_constraints.include?(
+        :cluster_transaction_projection_address_spend_not_prioritized
+      )
+        :address_spend_priority
+
+      elsif failed_constraints.include?(
+        :cluster_transaction_projection_actor_profile_not_prioritized
+      )
+        :actor_profile_v5_priority
+
       elsif (
         failed_constraints &
           [
@@ -989,6 +1398,23 @@ module System
     end
 
     def self.resources(module_name)
+      if canonical_module_name(module_name) ==
+         :cluster_transaction_projection_backfill
+        return {
+          batch_size: :slice,
+          concurrency: 1,
+          budget_seconds:
+            ClusterTransactionProjection::
+              OperationalSnapshot
+              .scheduler_budget_seconds,
+          queue:
+            CLUSTER_TRANSACTION_PROJECTION_QUEUE,
+          lease:
+            ClusterTransactionProjection::
+              BackfillRunner::OWNER
+        }
+      end
+
       case priority(module_name)
       when 1
         {
@@ -1026,6 +1452,8 @@ module System
       allow?(:address_spend_projection)
 
     def self.allow_actor_profile? = allow?(:actor_profile)
+    def self.allow_cluster_transaction_projection_backfill? =
+      allow?(:cluster_transaction_projection_backfill)
     def self.allow_actor_behavior? = allow?(:actor_behavior)
     def self.allow_actor_labels? = allow?(:actor_labels)
 
@@ -1142,12 +1570,76 @@ module System
         ) == true
 
       when :strict_io_idle
-        current_snapshot.dig(:strict_io, :available) == true &&
-          current_snapshot.dig(:strict_io, :owner).blank?
+        current_snapshot.dig(:strict_io, :owner).blank?
 
       when :strict_io_not_layer1
-        current_snapshot.dig(:strict_io, :available) == true &&
-          current_snapshot.dig(:strict_io, :owner).to_s != "layer1"
+        current_snapshot.dig(:strict_io, :owner).to_s != "layer1"
+
+      when :cluster_transaction_projection_backfill_enabled
+        ClusterTransactionProjection::OperationalSnapshot.enabled? &&
+          current_snapshot
+            .dig(
+              :cluster_transaction_projection_backfill,
+              :enabled
+            ) == true
+
+      when :development_backfill_mode
+        development_backfill_mode?
+
+      when :development_backfill_downstream_catchup
+        development_backfill_downstream_catchup?(
+          current_snapshot
+        )
+
+      when :cluster_transaction_projection_target_checkpoint_valid
+        cluster_transaction_projection_target_checkpoint_valid?(
+          current_snapshot
+        )
+
+      when :cluster_transaction_projection_layer1_not_prioritized
+        !cluster_transaction_projection_layer1_prioritized?(
+          current_snapshot
+        )
+
+      when :cluster_transaction_projection_cluster_not_prioritized
+        !cluster_transaction_projection_cluster_prioritized?(
+          current_snapshot
+        )
+
+      when :cluster_transaction_projection_address_spend_not_prioritized
+        !cluster_transaction_projection_address_spend_prioritized?(
+          current_snapshot
+        )
+
+      when :cluster_transaction_projection_actor_profile_not_prioritized
+        !cluster_transaction_projection_actor_profile_prioritized?(
+          current_snapshot
+        )
+
+      when :cluster_transaction_projection_no_running_run
+        current_snapshot
+          .dig(
+            :cluster_transaction_projection_backfill,
+            :active_run_status
+          ).to_s != "running"
+
+      when :cluster_transaction_projection_no_lease
+        current_snapshot.dig(:strict_io, :owner).to_s !=
+          ClusterTransactionProjection::BackfillRunner::OWNER
+
+      when :cluster_transaction_projection_work_available
+        current_snapshot
+          .dig(
+            :cluster_transaction_projection_backfill,
+            :work_available
+          ) == true
+
+      when :cluster_transaction_projection_disk_guard
+        cluster_transaction_projection_disk_ok?(
+          current_snapshot[
+            :cluster_transaction_projection_backfill
+          ] || {}
+        )
 
       when :layer1_checkpoint_available
         current_snapshot.dig(:layer1, :checkpoint_available) == true
@@ -1292,6 +1784,140 @@ module System
         ].include?(
           control[:phase].to_s
         )
+    end
+
+    def self.development_backfill_downstream_catchup?(
+      current_snapshot
+    )
+      development_backfill_alternating_enabled?(
+        current_snapshot
+      ) &&
+        current_snapshot
+          .dig(
+            :development_backfill,
+            :phase
+          ).to_s == "downstream_catchup"
+    end
+
+    def self.cluster_transaction_projection_target_checkpoint_valid?(
+      current_snapshot
+    )
+      cluster_height =
+        current_snapshot.dig(
+          :cluster,
+          :processed_height
+        ).to_i
+
+      return false unless cluster_height.positive?
+
+      backfill =
+        current_snapshot[
+          :cluster_transaction_projection_backfill
+        ] || {}
+
+      run_id =
+        backfill[:active_run_id]
+
+      return true if run_id.blank?
+
+      run =
+        ClusterTransactionProjectionBackfillRun.find_by(
+          id: run_id
+        )
+
+      return false unless run
+
+      run.target_checkpoint_height.to_i <= cluster_height
+    rescue StandardError
+      false
+    end
+
+    def self.cluster_transaction_projection_layer1_prioritized?(
+      current_snapshot
+    )
+      return true unless development_backfill_upstream_within_guardrails?(
+        current_snapshot
+      )
+
+      current_snapshot.dig(:layer1, :processing) == true ||
+        current_snapshot.dig(:layer1, :strict_queue_size).to_i.positive? ||
+        current_snapshot.dig(:layer1, :strict_worker_busy) == true
+    end
+
+    def self.cluster_transaction_projection_cluster_prioritized?(
+      current_snapshot
+    )
+      cluster_work_available?(
+        current_snapshot
+      )
+    end
+
+    def self.cluster_transaction_projection_address_spend_prioritized?(
+      current_snapshot
+    )
+      address_spend_projection_work_available?(
+        current_snapshot
+      )
+    end
+
+    def self.cluster_transaction_projection_actor_profile_prioritized?(
+      current_snapshot
+    )
+      actor_profile_decision =
+        decision(
+          :actor_profile,
+          current_snapshot: current_snapshot
+        )
+
+      actor_profile_decision[:allowed] == true &&
+        actor_profile_work_available?(
+          current_snapshot
+        )
+    end
+
+    def self.cluster_transaction_projection_disk_ok?(backfill)
+      free =
+        backfill[:free_disk_bytes].to_i
+
+      projected =
+        backfill[:projected_free_disk_bytes].presence || free
+
+      free >= backfill[:min_free_disk_bytes].to_i &&
+        projected.to_i >= backfill[:min_free_disk_bytes].to_i
+    end
+
+    def self.cluster_transaction_projection_backfill_state(
+      failed:,
+      backfill:
+    )
+      return :disabled if failed.include?(
+        :cluster_transaction_projection_backfill_enabled
+      )
+
+      return :idle_no_run if backfill[:active_run_id].blank?
+
+      return :running if backfill[:active_run_status] == "running"
+      return :paused if backfill[:active_run_status] == "paused"
+
+      return :runnable if failed.empty? &&
+        backfill[:work_available] == true
+
+      :waiting
+    end
+
+    def self.cluster_transaction_projection_backfill_reason(
+      state:,
+      failed:,
+      backfill:
+    )
+      return :backfill_work_available if state == :runnable
+      return (backfill[:wait_reason]&.to_sym || :no_incomplete_run) if
+        state == :idle_no_run
+      return :backfill_running if state == :running
+      return :feature_disabled if state == :disabled
+
+      backfill[:wait_reason]&.to_sym ||
+        reason_for(failed)
     end
 
     def self.development_backfill_phase_decision(
@@ -2101,27 +2727,83 @@ module System
       source =
         ActorProfiles::OperationalSnapshot.read
 
-      profiles = source[:profiles] || {}
-      handoffs = source[:handoffs] || {}
+      progress =
+        source[:progress] || {}
+
+      certification =
+        source[:certification] || {}
+
       automation =
         source[:automation] || {}
-      pending = handoffs[:admissible].to_i
-      queue_size = automation[:queue_size].to_i
-      worker_busy = automation[:busy_workers].to_i.positive?
-      processing = worker_busy || handoffs[:processing].to_i.positive?
-      checkpoint_height = profiles[:latest_height].to_i
-      caught_up = pending.zero? && !processing && handoffs[:failed].to_i.zero?
+
+      epoch_active =
+        certification[:epoch_active] == true
+
+      epoch_height =
+        certification[
+          :certification_epoch_height
+        ].to_i
+
+      pending =
+        if progress.key?(
+          :pending_profiles_since_epoch
+        )
+          progress[
+            :pending_profiles_since_epoch
+          ].to_i
+        else
+          progress[
+            :pending_profiles
+          ].to_i
+        end
+
+      queue_size =
+        automation[:queue_size].to_i
+
+      worker_busy =
+        automation[
+          :busy_workers
+        ].to_i.positive?
+
+      lock_present =
+        automation[
+          :lock_ttl
+        ].to_i.positive?
+
+      processing =
+        worker_busy ||
+        lock_present
+
+      caught_up =
+        epoch_active &&
+        pending.zero? &&
+        !processing
 
       {
-        epoch_active: source[:available] == true,
-        certification_epoch_height: checkpoint_height.positive? ? checkpoint_height : nil,
-        checkpoint_height: checkpoint_height,
-        checkpoint_available: source[:available] == true,
+        epoch_active:
+          epoch_active,
+
+        certification_epoch_height:
+          epoch_active ?
+            epoch_height :
+            nil,
+
+        checkpoint_height:
+          epoch_active ?
+            epoch_height :
+            0,
+
+        checkpoint_available:
+          epoch_active &&
+          epoch_height.positive?,
 
         caught_up_to_cluster:
           caught_up,
 
-        pending_work: pending,
+        pending_work:
+          epoch_active ?
+            pending :
+            0,
 
         processing:
           processing,
@@ -2132,7 +2814,9 @@ module System
         strict_worker_busy:
           worker_busy,
 
-        strict_active: queue_size.positive? || processing
+        strict_active:
+          queue_size.positive? ||
+          processing
       }
     rescue StandardError
       {

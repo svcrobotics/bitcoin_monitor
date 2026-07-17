@@ -2,7 +2,7 @@
 
 module AddressSpendStats
   class ProjectionJob < ApplicationJob
-    queue_as :actor_profile_strict
+    queue_as :address_spend_projection
 
     DEFAULT_LIMIT = 2
     MAX_LIMIT = 20
@@ -15,12 +15,6 @@ module AddressSpendStats
       limit: nil,
       max_runtime_seconds: nil
     )
-      decision = System::PipelineController.decision(:address_spend_projection)
-      unless decision.is_a?(Hash) && [true, false].include?(decision[:allowed])
-        raise "AddressSpend PipelineController returned an invalid decision"
-      end
-      return { ok: true, status: "skipped", reason: "pipeline_controller_refused" } unless decision[:allowed]
-
       normalized =
         normalize_options(options)
 

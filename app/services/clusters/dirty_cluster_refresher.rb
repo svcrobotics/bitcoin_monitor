@@ -26,9 +26,7 @@ module Clusters
 
         cluster.recalculate_stats!
 
-        ActorProfiles::Admission.register_latest(
-          cluster_ids: [cluster.id], reason: "recovery"
-        )
+        ActorProfiles::DirtyMarker.mark(cluster.id)
 
         refreshed += 1
 

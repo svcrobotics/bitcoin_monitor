@@ -48,7 +48,8 @@ module Clusters
             empty_ensure_result
           else
             Clusters::EnsureAddressClusters.call(
-              addresses: valid_addresses
+              addresses: valid_addresses,
+              mark_dirty: false
             )
           end
 
@@ -98,8 +99,7 @@ module Clusters
         {
           ok: true,
           updated: 0,
-          clusters: 0,
-          marked: 0
+          clusters: 0
         }
       end
 

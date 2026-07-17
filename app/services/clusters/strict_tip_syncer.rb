@@ -1,179 +1,275 @@
 # frozen_string_literal: true
 
+require "securerandom"
+require "set"
+
 module Clusters
   class StrictTipSyncer
-    DEFAULT_LIMIT = 2
-    MAX_LIMIT = 100
-    CONTINUITY_DEPTH = 32
+    LOCK_KEY = "clusters:strict_tip_syncer:lock"
+    LOCK_TTL =
+      Integer(
+      ENV.fetch(
+      "CLUSTER_STRICT_SYNCER_LOCK_TTL_SECONDS",
+      "3600"
+      )
+      )
 
-    class Error < StandardError; end
-    class InvalidStartHeight < Error; end
-    class ContinuityError < Error; end
-    class Layer1Unavailable < Error; end
-    class HashMismatch < Error; end
-    class GuardDenied < Error; end
+    DEFAULT_LIMIT = Integer(ENV.fetch("CLUSTER_STRICT_SYNC_LIMIT", "2"))
 
-    def self.call(limit: DEFAULT_LIMIT, start_height: nil)
-      new(limit: limit, start_height: start_height).call
+    def self.call(
+      limit: nil,
+      start_height: nil,
+      yield_guard: nil,
+      max_runtime_seconds: nil,
+      logger: Rails.logger
+    )
+      StrictPipeline::PostgresWriteBarrier.with_lock(
+        owner: "cluster",
+        logger: logger
+      ) do
+        new(
+          limit: limit,
+          start_height: start_height,
+          yield_guard: yield_guard,
+          max_runtime_seconds: max_runtime_seconds,
+          logger: logger
+        ).call
+      end
+    rescue StrictPipeline::PostgresWriteBarrier::LockUnavailable => error
+      logger.info(
+        "[cluster_strict_tip_syncer] " \
+        "skipped reason=postgres_write_barrier_locked " \
+        "message=#{error.message}"
+      )
+
+      {
+        ok: true,
+        status: "skipped",
+        reason: "postgres_write_barrier_locked",
+        message: error.message
+      }
     end
 
-    def self.work_available?
-      layer1_tip = BlockBufferModel.where(status: "processed").maximum(:height)
-      return false unless layer1_tip
-
-      cluster_tip = ClusterProcessedBlock.where(status: "processed").maximum(:height)
-      cluster_tip.nil? || cluster_tip < layer1_tip
-    end
-
-    def initialize(limit:, start_height:, logger: Rails.logger)
-      @limit = [[Integer(limit), 1].max, MAX_LIMIT].min
-      @start_height = start_height.nil? ? nil : Integer(start_height)
+    def initialize(limit: nil, start_height: nil, yield_guard: nil, max_runtime_seconds: nil, logger: Rails.logger)
+      @limit = (limit || DEFAULT_LIMIT).to_i
+      @start_height = start_height&.to_i
+      @yield_guard = yield_guard
+      @max_runtime_seconds = max_runtime_seconds&.to_i
       @logger = logger
+      @redis = Redis.new(url: ENV.fetch("REDIS_URL", "redis://127.0.0.1:6379/0"))
+      @lock_token = SecureRandom.uuid
+      @lock_acquired = false
     end
 
     def call
-      cluster_tip = cluster_tip()
-      layer1_tip = layer1_tip()
-      raise Layer1Unavailable, "Layer1 processed checkpoint is unavailable" unless layer1_tip
+      return skipped("lock already present") unless acquire_lock!
 
-      verify_bounded_continuity!(cluster_tip)
-      next_height = next_height(cluster_tip)
-      return idle_result(cluster_tip, layer1_tip) if next_height > layer1_tip
+      started_at = monotonic_ms
 
-      results = []
-      while results.size < @limit && next_height <= layer1_tip
-        decision = guard_decision!
-        unless decision[:allowed]
-          return result_payload(
-            status: "preempted",
-            before_tip: cluster_tip,
-            layer1_tip: layer1_tip,
-            results: results,
-            next_height: next_height,
-            decision: decision
-          )
+      cluster_tip = cluster_processed_tip
+      layer1_tip = layer1_processed_tip
+
+      return failure("no Layer1 processed block found") unless layer1_tip
+
+      continuity_error = cluster_continuity_error
+      return continuity_error if continuity_error
+
+      reorg_error = detect_reorg(cluster_tip)
+      return reorg_error if reorg_error
+
+      next_height =
+        if cluster_tip
+          cluster_tip + 1
+        else
+          @start_height || Integer(ENV.fetch("CLUSTER_STRICT_START_HEIGHT"))
         end
 
-        validate_layer1_height!(next_height)
-        rebuild = Clusters::StrictWindowRebuilder.call(
-          from_height: next_height,
-          to_height: next_height
+      return idle(cluster_tip, layer1_tip) if next_height > layer1_tip
+
+      to_height = [next_height + @limit - 1, layer1_tip].min
+
+      missing_layer1 = missing_layer1_processed_heights(next_height, to_height)
+
+      if missing_layer1.any?
+        return failure(
+          "Layer1 processed gap",
+          extra: {
+            from_height: next_height,
+            to_height: to_height,
+            missing_layer1_processed_heights: missing_layer1.first(20)
+          }
         )
-        unless rebuild[:ok] && rebuild[:status] == "processed"
-          raise Error, "Cluster certification did not complete at height #{next_height}"
-        end
-
-        results << rebuild
-        next_height += 1
       end
 
-      result_payload(
-        status: "synced",
-        before_tip: cluster_tip,
+      rebuild =
+        Clusters::StrictWindowRebuilder.call(
+          from_height: next_height,
+          to_height: to_height,
+          yield_guard: @yield_guard,
+          max_runtime_seconds: @max_runtime_seconds,
+          slice_started_at_ms: started_at
+        )
+
+      {
+        ok: rebuild[:ok],
+        status:
+          if rebuild[:status].to_s == "yielded_to_layer1"
+            "yielded_to_layer1"
+          elsif rebuild[:ok]
+            "synced"
+          else
+            "failed"
+          end,
+        cluster_tip_before: cluster_tip,
+        cluster_tip_after: cluster_processed_tip,
         layer1_tip: layer1_tip,
-        results: results,
-        next_height: next_height <= layer1_tip ? next_height : nil
-      )
+        from_height: next_height,
+        to_height: to_height,
+        limit: @limit,
+        rebuild: rebuild
+      }
+    ensure
+      release_lock! if @lock_acquired
     end
 
     private
 
-    def cluster_tip
+    def monotonic_ms
+      (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000).to_i
+    end
+
+    def cluster_processed_tip
       ClusterProcessedBlock.where(status: "processed").maximum(:height)
     end
 
-    def layer1_tip
+    def layer1_processed_tip
       BlockBufferModel.where(status: "processed").maximum(:height)
     end
 
-    def next_height(cluster_tip)
-      return cluster_tip + 1 if cluster_tip
+    def cluster_continuity_error
+      min_height = ClusterProcessedBlock.where(status: "processed").minimum(:height)
+      max_height = ClusterProcessedBlock.where(status: "processed").maximum(:height)
 
-      value = @start_height || ENV["CLUSTER_STRICT_START_HEIGHT"]
-      raise InvalidStartHeight, "CLUSTER_STRICT_START_HEIGHT is required" if value.nil?
+      return nil unless min_height && max_height
 
-      height = Integer(value)
-      raise InvalidStartHeight, "Cluster start height must be nonnegative" if height.negative?
+      expected_count = max_height - min_height + 1
 
-      height
-    rescue ArgumentError, TypeError
-      raise InvalidStartHeight, "Cluster start height must be an integer"
+      actual_count =
+        ClusterProcessedBlock
+          .where(status: "processed", height: min_height..max_height)
+          .distinct
+          .count(:height)
+
+      return nil if expected_count == actual_count
+
+      existing =
+        ClusterProcessedBlock
+          .where(status: "processed", height: min_height..max_height)
+          .pluck(:height)
+          .to_set
+
+      missing =
+        (min_height..max_height).reject { |height| existing.include?(height) }
+
+      failure(
+        "Cluster processed blocks are not continuous",
+        extra: {
+          min_height: min_height,
+          max_height: max_height,
+          expected_count: expected_count,
+          actual_count: actual_count,
+          missing_heights: missing.first(20)
+        }
+      )
     end
 
-    def verify_bounded_continuity!(tip)
-      return unless tip
+    def detect_reorg(cluster_tip)
+      return nil unless cluster_tip
 
-      minimum = ClusterProcessedBlock.where(status: "processed").minimum(:height)
-      from_height = [tip - CONTINUITY_DEPTH + 1, minimum].max
-      rows = ClusterProcessedBlock
-        .where(status: "processed", height: from_height..tip)
-        .order(:height)
-        .pluck(:height, :block_hash)
-      expected = (from_height..tip).to_a
-      unless rows.map(&:first) == expected
-        raise ContinuityError, "Cluster checkpoint continuity is broken in the bounded window"
+      depth = Integer(ENV.fetch("CLUSTER_STRICT_REORG_CHECK_DEPTH", "6"))
+      from_height = [cluster_tip - depth + 1, 0].max
+
+      rows =
+        ClusterProcessedBlock
+          .where(status: "processed", height: from_height..cluster_tip)
+          .order(:height)
+          .pluck(:height, :block_hash)
+
+      rows.each do |height, cluster_hash|
+        layer1_block = BlockBufferModel.find_by(height: height, status: "processed")
+
+        unless layer1_block
+          return failure(
+            "Layer1 block missing during reorg check",
+            extra: { height: height }
+          )
+        end
+
+        next if layer1_block.block_hash == cluster_hash
+
+        return failure(
+          "reorg_detected",
+          extra: {
+            height: height,
+            cluster_hash: cluster_hash,
+            layer1_hash: layer1_block.block_hash
+          }
+        )
       end
 
-      layer1_hashes = BlockBufferModel
-        .where(status: "processed", height: from_height..tip)
-        .pluck(:height, :block_hash)
-        .to_h
-      rows.each do |height, block_hash|
-        raise HashMismatch, "Cluster checkpoint hash differs from Layer1 at height #{height}" unless
-          layer1_hashes[height] == block_hash
-      end
+      nil
     end
 
-    def validate_layer1_height!(height)
-      block_hash, status = BlockBufferModel.where(height: height).pick(:block_hash, :status)
-      unless status == "processed" && block_hash.present?
-        raise Layer1Unavailable, "Layer1 height #{height} is not processed"
-      end
+    def missing_layer1_processed_heights(from_height, to_height)
+      existing =
+        BlockBufferModel
+          .where(status: "processed", height: from_height..to_height)
+          .pluck(:height)
+          .to_set
 
-      checkpoint = ClusterProcessedBlock.find_by(height: height)
-      if checkpoint&.status == "processed" && checkpoint.block_hash != block_hash
-        raise HashMismatch, "Cluster checkpoint hash differs at height #{height}"
-      end
+      (from_height..to_height).reject { |height| existing.include?(height) }
     end
 
-    def guard_decision!
-      decision = System::PipelineController.decision(:cluster)
-      unless decision.is_a?(Hash) && [true, false].include?(decision[:allowed])
-        raise GuardDenied, "Cluster PipelineController returned an invalid decision"
-      end
-      decision
-    rescue GuardDenied
-      raise
-    rescue StandardError => error
-      raise GuardDenied, "Cluster PipelineController failed with #{error.class.name}"
+    def acquire_lock!
+      result = @redis.set(LOCK_KEY, @lock_token, nx: true, ex: LOCK_TTL)
+      @lock_acquired = result == true || result == "OK"
     end
 
-    def idle_result(cluster_tip, layer1_tip)
+    def release_lock!
+      return unless @redis.get(LOCK_KEY) == @lock_token
+
+      @redis.del(LOCK_KEY)
+    end
+
+    def skipped(reason)
+      {
+        ok: true,
+        status: "skipped",
+        reason: reason
+      }
+    end
+
+    def idle(cluster_tip, layer1_tip)
       {
         ok: true,
         status: "idle",
-        cluster_tip_before: cluster_tip,
-        cluster_tip_after: cluster_tip,
+        reason: "cluster already caught up with Layer1",
+        cluster_tip: cluster_tip,
         layer1_tip: layer1_tip,
-        processed: 0,
-        next_height: nil,
-        results: []
+        lag: layer1_tip.to_i - cluster_tip.to_i
       }
     end
 
-    def result_payload(status:, before_tip:, layer1_tip:, results:, next_height:, decision: nil)
-      {
-        ok: true,
-        status: status,
-        cluster_tip_before: before_tip,
-        cluster_tip_after: results.last&.dig(:height) || before_tip,
-        layer1_tip: layer1_tip,
-        processed: results.size,
-        limit: @limit,
-        next_height: next_height,
-        decision: decision,
-        results: results
-      }
+    def failure(message, extra: {})
+      result = {
+        ok: false,
+        status: "failed",
+        message: message
+      }.merge(extra)
+
+      @logger.error("[cluster_strict_tip_syncer] #{result.inspect}")
+
+      result
     end
   end
 end

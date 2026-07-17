@@ -31,7 +31,8 @@ module Layer1
 
           assert_equal "failed", snapshot[:status]
           assert snapshot[:enabled]
-          assert_equal 2, snapshot[:pending_count]
+          assert_equal 1, snapshot[:pending_count]
+          assert_equal 0, snapshot[:processing_count]
           assert_equal 1, snapshot[:failed_count]
           assert_equal 956_249, snapshot[:oldest_pending_height]
           assert_equal 956_248, snapshot[:last_synced_height]

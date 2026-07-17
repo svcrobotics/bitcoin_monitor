@@ -24,7 +24,34 @@ module Layer1
       def processing_stale_after_seconds
         [
           ENV.fetch(
-            "TX_OUTPUT_PROJECTION_PROCESSING_STALE_AFTER_SECONDS",
+            "TX_OUTPUT_PROJECTION_STALE_AFTER_SECONDS",
+            ENV.fetch(
+              "TX_OUTPUT_PROJECTION_PROCESSING_STALE_AFTER_SECONDS",
+              "900"
+            )
+          ).to_i,
+          60
+        ].max
+      end
+
+      def recovery_stale_after_seconds
+        processing_stale_after_seconds
+      end
+
+      def recovery_batch_size
+        [
+          ENV.fetch(
+            "TX_OUTPUT_PROJECTION_RECOVERY_BATCH_SIZE",
+            "10"
+          ).to_i,
+          1
+        ].max
+      end
+
+      def recovery_status_ttl_seconds
+        [
+          ENV.fetch(
+            "TX_OUTPUT_PROJECTION_RECOVERY_STATUS_TTL_SECONDS",
             "900"
           ).to_i,
           60

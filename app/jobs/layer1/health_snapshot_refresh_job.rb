@@ -7,7 +7,7 @@ module Layer1
     sidekiq_options queue: :low, retry: false
 
     def perform
-      Layer1::CachedHealthSnapshot.refresh!
+      Layer1::Realtime::CachedHealthSnapshot.refresh!
     end
   end
 end

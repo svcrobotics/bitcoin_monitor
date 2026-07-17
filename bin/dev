@@ -1,8 +1,22 @@
 #!/usr/bin/env sh
 
-if ! gem list foreman -i --silent; then
-  echo "Installing foreman..."
-  gem install foreman
+set -eu
+
+cd "$(dirname "$0")/.."
+
+STATE_DIR="${XDG_STATE_HOME:-$HOME/.local/state}/tansa"
+LOCK_FILE="$STATE_DIR/tansa-dev.lock"
+
+if [ "${TANSA_DEV_LOCK_HELD:-}" != "1" ]; then
+  if ! command -v flock >/dev/null 2>&1; then
+    echo "flock is required to prevent concurrent Tansa generations" >&2
+    exit 1
+  fi
+
+  mkdir -p "$STATE_DIR"
+
+  exec flock --no-fork --exclusive "$LOCK_FILE" \
+    env TANSA_DEV_LOCK_HELD=1 "$0" "$@"
 fi
 
 # Default to port 3000 if not specified
@@ -13,4 +27,8 @@ export PORT="${PORT:-3000}"
 export RUBY_DEBUG_OPEN="true"
 export RUBY_DEBUG_LAZY="true"
 
-exec foreman start -f Procfile.dev "$@"
+if command -v rbenv >/dev/null 2>&1; then
+  exec rbenv exec bundle exec foreman start -f Procfile.dev "$@"
+fi
+
+exec bundle exec foreman start -f Procfile.dev "$@"

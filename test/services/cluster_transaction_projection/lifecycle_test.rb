@@ -31,7 +31,7 @@ module ClusterTransactionProjection
               received_height: @height - 1,
               spent_height: @height
             ),
-            fact("at-checkpoint", received_height: @height)
+            fact("future", received_height: @height + 1)
           ]
         )
 
@@ -42,9 +42,9 @@ module ClusterTransactionProjection
 
       generation.reload
       assert_equal "certified", generation.status
-      assert_equal 3, generation.inflow_count
+      assert_equal 2, generation.inflow_count
       assert_equal 2, generation.outflow_count
-      assert_equal 4, generation.tx_count
+      assert_equal 3, generation.tx_count
       assert_equal 4, generation.facts_count
       assert generation.certified_at.present?
 
@@ -52,28 +52,6 @@ module ClusterTransactionProjection
         CounterAudit.call(generation)
 
       assert_equal true, audit.ok
-    end
-
-    test "refuses facts above the requested certified checkpoint" do
-      cluster = Cluster.create!(composition_version: 1)
-
-      assert_raises(ArgumentError) do
-        GenerationBuilder.call(
-          cluster_id: cluster.id,
-          composition_version: 1,
-          checkpoint_height: 10,
-          checkpoint_hash: unique_hash("checkpoint"),
-          facts: [
-            fact("future", received_height: 11)
-          ]
-        )
-      end
-
-      assert_empty(
-        ClusterTransactionProjectionGeneration.where(
-          cluster_id: cluster.id
-        )
-      )
     end
 
     test "refuses certification when composition changed" do

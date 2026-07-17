@@ -139,7 +139,7 @@ module AddressSpendStats
           &.to_i
 
       ready =
-        projection_tip ==
+        projection_tip >=
           required_height &&
         (
           next_height.nil? ||

@@ -1,52 +1,98 @@
-# app/services/intelligence/system_assistant.rb
 # frozen_string_literal: true
 
 module Intelligence
   class SystemAssistant
     def self.call(question:, context:)
-      fallback_answer(context)
+      new(
+        question: question,
+        context: context
+      ).call
     end
 
-    def self.fallback_answer(context)
-      summary = context[:summary] || {}
-      layer1 = context[:layer1] || {}
-      queues = Array(context[:queues])
+    def initialize(question:, context:)
+      @question = question.to_s
+      @context = context || {}
+    end
 
-      critical_queues = queues.select { |q| q[:size].to_i > 1000 }
-      warning_queues = queues.select { |q| q[:size].to_i > 100 && q[:size].to_i <= 1000 }
-      latency_queues = queues.select { |q| q[:latency].to_f > 300 }
+    def call
+      summary = @context[:summary] || {}
+      layer1 = @context[:layer1] || {}
+      queues = Array(@context[:queues])
 
       status =
-        if critical_queues.any?
-          "CRITICAL"
-        elsif warning_queues.any? || latency_queues.any? || layer1[:lag].to_i.positive?
-          "WARNING"
-        else
-          summary[:status].to_s.upcase.presence || "OK"
-        end
+        summary[:status].presence ||
+        "indisponible"
 
-      answer = +"État général : le système est en #{status}."
+      lag =
+        layer1[:lag].to_i
 
-      if layer1[:lag].to_i.positive?
-        answer << "\n\nLayer 1 : retard de #{layer1[:lag].to_i} bloc(s)."
+      spent_lag =
+        layer1[:spent_lag].to_i
+
+      flow_lag =
+        layer1[:flow_lag].to_i
+
+      outputs_buffer =
+        layer1.dig(
+          :redis_buffers,
+          :outputs
+        ).to_i
+
+      spent_buffer =
+        layer1.dig(
+          :redis_buffers,
+          :spent
+        ).to_i
+
+      busy_queues =
+        queues
+          .select do |queue|
+            queue[:size].to_i.positive? ||
+              queue[:latency].to_f > 30
+          end
+          .sort_by do |queue|
+            -queue[:size].to_i
+          end
+          .first(3)
+
+      answer =
+        +"État général de Tansa : statut #{status.upcase}. "
+
+      answer <<
+        "Layer1 présente un retard de #{lag} bloc(s). "
+
+      answer <<
+        "Le traitement asynchrone spent présente un retard de " \
+        "#{spent_lag} bloc(s) et Exchange Flow un retard de " \
+        "#{flow_lag} bloc(s). "
+
+      answer <<
+        "Les buffers Redis contiennent " \
+        "#{outputs_buffer} output(s) et " \
+        "#{spent_buffer} spent output(s)."
+
+      if busy_queues.any?
+        queue_text =
+          busy_queues.map do |queue|
+            "#{queue[:name]} " \
+            "(#{queue[:size].to_i} job(s))"
+          end.join(", ")
+
+        answer <<
+          " Queues actives : #{queue_text}."
       else
-        answer << "\n\nLayer 1 : aucun retard détecté."
-      end
-
-      if critical_queues.any?
-        list = critical_queues.first(3).map { |q| "#{q[:name]} (#{q[:size].to_i} jobs)" }.join(", ")
-        answer << "\n\nBacklog critique : #{list}."
-      elsif warning_queues.any?
-        list = warning_queues.first(3).map { |q| "#{q[:name]} (#{q[:size].to_i} jobs)" }.join(", ")
-        answer << "\n\nBacklog à surveiller : #{list}."
-      elsif latency_queues.any?
-        list = latency_queues.first(3).map { |q| "#{q[:name]} (#{q[:latency].to_f.round(1)}s)" }.join(", ")
-        answer << "\n\nLatence élevée : #{list}."
-      else
-        answer << "\n\nQueues : aucun backlog critique détecté."
+        answer <<
+          " Aucune queue Sidekiq importante n'est en attente."
       end
 
       answer
+    rescue StandardError => error
+      Rails.logger.error(
+        "[system_assistant] " \
+        "#{error.class.name}: #{error.message}"
+      )
+
+      "L’état système est temporairement indisponible."
     end
   end
 end
