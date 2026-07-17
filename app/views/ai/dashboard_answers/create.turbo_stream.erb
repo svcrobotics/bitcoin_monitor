@@ -1,0 +1,11 @@
+<%= turbo_stream.append "terminal_stream" do %>
+  <%= render(
+        "ai/terminal_entry",
+        question: @question,
+        answer: @answer,
+        context: @context,
+        intent: @intent,
+        source: @source,
+        sources: @sources
+      ) %>
+<% end %>

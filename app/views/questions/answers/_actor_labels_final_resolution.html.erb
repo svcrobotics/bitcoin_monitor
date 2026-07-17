@@ -1,0 +1,186 @@
+<%
+  resolution ||= {}
+
+  preliminary =
+    resolution[:preliminary] ||
+    resolution["preliminary"] ||
+    {}
+
+  final =
+    resolution[:final] ||
+    resolution["final"] ||
+    {}
+
+  contracts =
+    resolution[:contracts] ||
+    resolution["contracts"] ||
+    {}
+
+  exchange_clusters =
+    Array(
+      resolution[:exchange_clusters] ||
+      resolution["exchange_clusters"]
+    )
+
+  service_clusters =
+    Array(
+      resolution[:service_clusters] ||
+      resolution["service_clusters"]
+    )
+
+  unresolved_clusters =
+    Array(
+      resolution[:unresolved_clusters] ||
+      resolution["unresolved_clusters"]
+    )
+
+  service_heavy_available =
+    contracts[:service_heavy_available] == true ||
+    contracts["service_heavy_available"] == true
+%>
+
+<section class="mt-5 rounded-2xl border border-white/10 bg-black/20 p-5">
+  <div>
+    <p class="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+      Résolution comportementale
+    </p>
+
+    <h4 class="mt-1 text-lg font-semibold text-white">
+      Des signaux préliminaires aux décisions Heavy
+    </h4>
+  </div>
+
+  <div class="mt-5 grid items-stretch gap-3 lg:grid-cols-[1fr_auto_1fr_auto_1fr]">
+    <div class="rounded-2xl border border-white/10 bg-white/[0.025] p-4">
+      <div class="text-xs uppercase tracking-wide text-slate-500">
+        1 · Signaux stricts
+      </div>
+
+      <div class="mt-2 text-2xl font-semibold text-white">
+        <%= preliminary[:actors].to_i %>
+      </div>
+
+      <div class="mt-2 text-xs leading-5 text-slate-500">
+        <%= preliminary[:exchange_signals].to_i %> exchange ·
+        <%= preliminary[:service_signals].to_i %> service ·
+        <%= preliminary[:dual_signals].to_i %> doubles
+      </div>
+    </div>
+
+    <div class="hidden items-center justify-center text-2xl text-slate-600 lg:flex">
+      →
+    </div>
+
+    <div class="rounded-2xl border border-violet-400/20 bg-violet-400/[0.04] p-4">
+      <div class="text-xs uppercase tracking-wide text-violet-300/70">
+        2 · Résolution Heavy
+      </div>
+
+      <div class="mt-2 text-sm font-semibold text-white">
+        Analyse comportementale approfondie
+      </div>
+
+      <div class="mt-2 text-xs leading-5 text-slate-500">
+        Heavy Exchange raccordé ·
+        Heavy Service <%= service_heavy_available ? "raccordé" : "encore en shadow" %>
+      </div>
+    </div>
+
+    <div class="hidden items-center justify-center text-2xl text-slate-600 lg:flex">
+      →
+    </div>
+
+    <div class="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.04] p-4">
+      <div class="text-xs uppercase tracking-wide text-emerald-300/70">
+        3 · Décisions disponibles
+      </div>
+
+      <div class="mt-2 text-sm leading-6 text-slate-300">
+        <span class="font-semibold text-emerald-300">
+          <%= final[:exchange_infrastructure].to_i %>
+        </span>
+        exchange ·
+
+        <span class="font-semibold text-cyan-300">
+          <%= final[:service_infrastructure].to_i %>
+        </span>
+        service ·
+
+        <span class="font-semibold text-amber-300">
+          <%= final[:unresolved].to_i %>
+        </span>
+        non résolus
+      </div>
+    </div>
+  </div>
+
+  <% unless service_heavy_available %>
+    <div class="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-4 text-sm leading-6 text-slate-400">
+      <span class="font-semibold text-amber-200">
+        Heavy Service n’est pas encore une sortie finale.
+      </span>
+      Ses huit snapshots sont disponibles en shadow, mais la résolution finale
+      ActorLabels ne les consomme pas encore.
+    </div>
+  <% end %>
+
+  <details class="mt-4 rounded-xl border border-white/10">
+    <summary class="cursor-pointer select-none px-4 py-3 text-sm font-semibold text-slate-300">
+      Voir les clusters résolus et non résolus
+    </summary>
+
+    <div class="grid gap-4 border-t border-white/10 p-4 lg:grid-cols-3">
+      <div>
+        <div class="text-xs font-semibold uppercase tracking-wide text-emerald-300">
+          Exchange confirmés
+        </div>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <% exchange_clusters.each do |cluster_id| %>
+            <span class="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 font-mono text-xs text-emerald-200">
+              <%= cluster_id %>
+            </span>
+          <% end %>
+
+          <% if exchange_clusters.empty? %>
+            <span class="text-xs text-slate-500">Aucun</span>
+          <% end %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs font-semibold uppercase tracking-wide text-cyan-300">
+          Service confirmés
+        </div>
+
+        <div class="mt-3 flex flex-wrap gap-2">
+          <% service_clusters.each do |cluster_id| %>
+            <span class="rounded-full border border-cyan-300/20 bg-cyan-300/10 px-3 py-1 font-mono text-xs text-cyan-200">
+              <%= cluster_id %>
+            </span>
+          <% end %>
+
+          <% if service_clusters.empty? %>
+            <span class="text-xs text-slate-500">
+              Aucun résultat final
+            </span>
+          <% end %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs font-semibold uppercase tracking-wide text-amber-300">
+          Non résolus
+        </div>
+
+        <div class="mt-3 flex max-h-28 flex-wrap gap-2 overflow-y-auto">
+          <% unresolved_clusters.each do |cluster_id| %>
+            <span class="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 font-mono text-xs text-amber-200">
+              <%= cluster_id %>
+            </span>
+          <% end %>
+        </div>
+      </div>
+    </div>
+  </details>
+</section>

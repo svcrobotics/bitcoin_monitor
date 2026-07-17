@@ -1,0 +1,1509 @@
+<%
+  dashboard ||= {}
+
+  read_value = lambda do |hash, key|
+    next nil unless hash.respond_to?(:[])
+
+    hash[key] || hash[key.to_s]
+  end
+
+  format_number = lambda do |value|
+    if value.nil?
+      "—"
+    else
+      number_with_delimiter(
+        value.to_i,
+        delimiter: " "
+      )
+    end
+  end
+
+  format_decimal = lambda do |value, precision = 2|
+    if value.nil?
+      "—"
+    else
+      number_with_precision(
+        value.to_f,
+        precision: precision,
+        strip_insignificant_zeros: true
+      )
+    end
+  end
+
+  format_duration = lambda do |duration_ms|
+    duration_ms =
+      duration_ms.to_f
+
+    if duration_ms <= 0
+      "—"
+    elsif duration_ms < 1_000
+      "#{duration_ms.round} ms"
+    elsif duration_ms < 60_000
+      "#{number_with_precision(
+           duration_ms / 1_000,
+           precision: 1,
+           strip_insignificant_zeros: true
+         )} s"
+    else
+      "#{number_with_precision(
+           duration_ms / 60_000,
+           precision: 1,
+           strip_insignificant_zeros: true
+         )} min"
+    end
+  end
+
+  status =
+    read_value.call(
+      dashboard,
+      :display_status
+    ).to_s.presence ||
+    read_value.call(
+      dashboard,
+      :status
+    ).to_s.presence ||
+    "unknown"
+
+  status_label =
+    read_value.call(
+      dashboard,
+      :status_label
+    ).presence ||
+    "État Cluster inconnu"
+
+  status_summary =
+    read_value.call(
+      dashboard,
+      :status_summary
+    ).presence ||
+    "Le snapshot Cluster n’est pas disponible."
+
+  sync =
+    read_value.call(
+      dashboard,
+      :sync
+    ) || {}
+
+  pipeline =
+    read_value.call(
+      dashboard,
+      :pipeline
+    ) || {}
+
+  automation =
+    read_value.call(
+      dashboard,
+      :automation
+    ) || {}
+
+  performance =
+    read_value.call(
+      dashboard,
+      :performance
+    ) || {}
+
+  proof =
+    read_value.call(
+      dashboard,
+      :proof
+    ) || {}
+
+  coverage =
+    read_value.call(
+      dashboard,
+      :coverage
+    ) || {}
+
+  certification_history =
+    read_value.call(
+      dashboard,
+      :certification_history
+    ) || {}
+
+  actor_profile =
+    read_value.call(
+      dashboard,
+      :actor_profile
+    ) || {}
+
+  counts =
+    read_value.call(
+      dashboard,
+      :counts
+    ) || {}
+
+  current_block =
+    read_value.call(
+      dashboard,
+      :current_block
+    )
+
+  issues =
+    Array(
+      read_value.call(
+        dashboard,
+        :issues
+      )
+    )
+
+  recent_blocks =
+    Array(
+      read_value.call(
+        performance,
+        :recent_blocks
+      )
+    ).first(5)
+
+  last_block =
+    read_value.call(
+      performance,
+      :last_block
+    ) ||
+    recent_blocks.first ||
+    {}
+
+  stage_timings =
+    read_value.call(
+      last_block,
+      :stage_timings
+    ) || {}
+
+  scan_result =
+    read_value.call(
+      last_block,
+      :scan_result
+    ) || {}
+
+  cleanup_result =
+    read_value.call(
+      last_block,
+      :cleanup_result
+    ) || {}
+
+  audit_result =
+    read_value.call(
+      last_block,
+      :audit_result
+    ) || {}
+
+  bitcoin_core_height =
+    read_value.call(
+      sync,
+      :bitcoin_core_height
+    ).to_i
+
+  layer1_tip =
+    read_value.call(
+      sync,
+      :layer1_tip
+    ).to_i
+
+  layer1_lag =
+    read_value.call(
+      sync,
+      :layer1_lag
+    ).to_i
+
+  cluster_tip =
+    read_value.call(
+      sync,
+      :cluster_tip
+    ).to_i
+
+  cluster_lag =
+    read_value.call(
+      sync,
+      :cluster_lag
+    ).to_i
+
+  cluster_inputs_count =
+    read_value.call(
+      counts,
+      :cluster_inputs
+    )
+
+  clusters_count =
+    read_value.call(
+      counts,
+      :clusters
+    )
+
+  addresses_count =
+    read_value.call(
+      counts,
+      :addresses
+    )
+
+  actor_profiles_count =
+    read_value.call(
+      counts,
+      :actor_profiles
+    )
+
+  proof_applicable =
+    read_value.call(
+      proof,
+      :applicable
+    ) == true
+
+  proof_pending =
+    read_value.call(
+      proof,
+      :pending
+    ) == true
+
+  proof_conformant =
+    read_value.call(
+      proof,
+      :conformant
+    ) == true
+
+  candidate_transactions =
+    read_value.call(
+      proof,
+      :candidate_transactions
+    )
+
+  processed_candidate_transactions =
+    read_value.call(
+      proof,
+      :processed_candidate_transactions
+    )
+
+  audit_anomalies =
+    read_value.call(
+      proof,
+      :anomalies
+    )
+
+  audit_checks =
+    read_value.call(
+      proof,
+      :checks
+    ) || {}
+
+  coverage_applicable =
+    read_value.call(
+      coverage,
+      :applicable
+    ) == true
+
+  btc_coverage_pct =
+    read_value.call(
+      coverage,
+      :btc_coverage_pct
+    ).to_f
+
+  addresses_nil_cluster =
+    read_value.call(
+      coverage,
+      :addresses_nil_cluster
+    )
+
+  outside_strict_inputs =
+    read_value.call(
+      coverage,
+      :outside_strict_inputs
+    )
+
+  worker_active =
+    read_value.call(
+      automation,
+      :active
+    ) == true
+
+  worker_present =
+    read_value.call(
+      automation,
+      :process_present
+    ) == true
+
+  automation_ok =
+    read_value.call(
+      automation,
+      :automation_ok
+    ) == true
+
+  queue_size =
+    read_value.call(
+      automation,
+      :queue_size
+    ).to_i
+
+  scheduled_jobs =
+    read_value.call(
+      automation,
+      :scheduled_jobs
+    ).to_i
+
+  retry_jobs =
+    read_value.call(
+      automation,
+      :retry_jobs
+    ).to_i
+
+  dead_jobs =
+    read_value.call(
+      automation,
+      :dead_jobs
+    ).to_i
+
+  last_height =
+    read_value.call(
+      last_block,
+      :height
+    )
+
+  last_duration_ms =
+    read_value.call(
+      last_block,
+      :duration_ms
+    )
+
+  average_duration_ms =
+    read_value.call(
+      performance,
+      :average_duration_ms
+    )
+
+  throughput_per_hour =
+    read_value.call(
+      performance,
+      :throughput_per_hour
+    )
+
+  eta_seconds =
+    read_value.call(
+      performance,
+      :eta_seconds
+    )
+
+  scan_duration =
+    read_value.call(
+      stage_timings,
+      :cluster_scan
+    )
+
+  cleanup_duration =
+    read_value.call(
+      stage_timings,
+      :cleanup_empty_clusters
+    )
+
+  audit_duration =
+    read_value.call(
+      stage_timings,
+      :audit_block
+    )
+
+  status_classes =
+    case status
+    when "healthy"
+      "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+    when "syncing"
+      "border-cyan-400/30 bg-cyan-400/10 text-cyan-200"
+    when "warning"
+      "border-amber-400/30 bg-amber-400/10 text-amber-200"
+    when "critical"
+      "border-red-400/30 bg-red-400/10 text-red-200"
+    else
+      "border-slate-600/40 bg-slate-800/60 text-slate-300"
+    end
+
+  audit_label =
+    if proof_conformant
+      "CONFORME"
+    elsif proof_pending
+      "EN ATTENTE"
+    else
+      "À VÉRIFIER"
+    end
+
+  audit_classes =
+    if proof_conformant
+      "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+    elsif proof_pending
+      "border-amber-400/30 bg-amber-400/10 text-amber-200"
+    else
+      "border-red-400/30 bg-red-400/10 text-red-200"
+    end
+
+  scan_metrics = [
+    [
+      "Blocs parcourus",
+      read_value.call(
+        scan_result,
+        :scanned_blocks
+      )
+    ],
+    [
+      "Transactions parcourues",
+      read_value.call(
+        scan_result,
+        :scanned_txs
+      )
+    ],
+    [
+      "Transactions multi-input",
+      read_value.call(
+        scan_result,
+        :multi_input_txs
+      )
+    ],
+    [
+      "Candidats multi-adresses",
+      read_value.call(
+        scan_result,
+        :multi_address_candidates
+      )
+    ],
+    [
+      "Adresses touchées",
+      read_value.call(
+        scan_result,
+        :addresses_touched
+      )
+    ],
+    [
+      "Liens créés",
+      read_value.call(
+        scan_result,
+        :links_created
+      )
+    ],
+    [
+      "Clusters créés",
+      read_value.call(
+        scan_result,
+        :clusters_created
+      )
+    ],
+    [
+      "Clusters fusionnés",
+      read_value.call(
+        scan_result,
+        :clusters_merged
+      )
+    ]
+  ]
+
+  consumers = [
+    {
+      title: "ActorProfile",
+      state:
+        read_value.call(
+          actor_profile,
+          :ready
+        ) == true ?
+          "SOURCE DISPONIBLE" :
+          "EN ATTENTE",
+
+      data:
+        "clusters · addresses.cluster_id · composition_version",
+
+      description:
+        "Construit les faits économiques certifiés lorsque Cluster a rejoint le checkpoint Layer1."
+    },
+    {
+      title: "Couverture Cluster",
+      state:
+        "PIPELINE COMPLÉMENTAIRE",
+
+      data:
+        "adresses seules · singletons · sorties projetées",
+
+      description:
+        "Complète la couverture des adresses sans modifier la preuve stricte multi-input."
+    },
+    {
+      title: "ActorBehavior et ActorLabels",
+      state:
+        "SOURCE INDIRECTE",
+
+      data:
+        "Cluster → ActorProfile → ActorBehavior → ActorLabels",
+
+      description:
+        "Consomment l’identité économique du cluster après les certifications intermédiaires."
+    },
+    {
+      title: "Moteur de réponses Tansa",
+      state:
+        "DONNÉE CERTIFIÉE",
+
+      data:
+        "groupes d’adresses · provenance · checkpoint",
+
+      description:
+        "Peut expliquer les regroupements observables sans présenter une heuristique comme une identité certaine."
+    }
+  ]
+%>
+
+<section
+  data-module-pipeline="cluster"
+  class="overflow-hidden rounded-3xl border border-cyan-400/20 bg-[#080b13] text-slate-100 shadow-2xl shadow-black/30"
+>
+  <header class="border-b border-white/10 bg-gradient-to-r from-cyan-500/10 via-violet-500/5 to-transparent p-6">
+    <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+      <div class="max-w-3xl">
+        <p class="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
+          Cluster
+        </p>
+
+        <h2 class="mt-2 text-2xl font-semibold text-white">
+          Regroupement d’adresses certifié
+        </h2>
+
+        <p class="mt-3 text-sm leading-6 text-slate-400">
+          <%= status_summary %>
+        </p>
+      </div>
+
+      <span class="inline-flex w-fit rounded-full border px-3 py-1.5 text-xs font-semibold tracking-wide <%= status_classes %>">
+        <%= status_label.upcase %>
+      </span>
+    </div>
+
+    <div class="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Retard Cluster
+        </div>
+
+        <div class="mt-2 text-2xl font-semibold <%= cluster_lag.zero? ? "text-emerald-300" : "text-cyan-300" %>">
+          <%= format_number.call(cluster_lag) %>
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          blocs derrière Layer1
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Dernier bloc
+        </div>
+
+        <div class="mt-2 text-xl font-semibold text-violet-300">
+          <%= format_number.call(last_height) %>
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          <%= format_duration.call(last_duration_ms) %>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Preuve multi-input
+        </div>
+
+        <div class="mt-2 text-lg font-semibold text-emerald-300">
+          <% if proof_applicable %>
+            <%= format_number.call(
+                  processed_candidate_transactions
+                ) %>
+            /
+            <%= format_number.call(
+                  candidate_transactions
+                ) %>
+          <% else %>
+            en attente
+          <% end %>
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          transactions candidates traitées
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Clusters enregistrés
+        </div>
+
+        <div class="mt-2 text-2xl font-semibold text-pink-300">
+          <%= format_number.call(clusters_count) %>
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          <%= format_number.call(addresses_count) %>
+          adresses matérialisées
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="space-y-5 p-6">
+    <!-- 1. ENTRÉES -->
+    <section class="rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-400/10 text-sm font-bold text-cyan-200">
+          1
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+            Entrées
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Faits reçus depuis Layer1
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Cluster ne relit pas directement Bitcoin Core. Il travaille
+            sur les entrées dépensées déjà enregistrées et certifiées par
+            Layer1.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-3">
+        <article class="rounded-2xl border border-cyan-400/20 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-cyan-300">
+            Source directe
+          </p>
+
+          <h4 class="mt-1 font-mono font-semibold text-white">
+            cluster_inputs
+          </h4>
+
+          <p class="mt-3 text-sm leading-6 text-slate-400">
+            Chaque ligne décrit une sortie dépensée, son adresse,
+            sa transaction de dépense et sa hauteur.
+          </p>
+
+          <div class="mt-4 rounded-xl bg-white/[0.035] p-3">
+            <div class="text-xs text-slate-500">
+              Lignes enregistrées
+            </div>
+
+            <div class="mt-1 text-xl font-semibold text-cyan-300">
+              <%= format_number.call(
+                    cluster_inputs_count
+                  ) %>
+            </div>
+          </div>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            Checkpoint Layer1
+          </p>
+
+          <div class="mt-2 font-mono text-2xl font-semibold text-white">
+            <%= format_number.call(layer1_tip) %>
+          </div>
+
+          <div class="mt-2 text-xs text-slate-500">
+            Bitcoin Core :
+            <%= format_number.call(
+                  bitcoin_core_height
+                ) %>
+            · retard Layer1 :
+            <%= format_number.call(
+                  layer1_lag
+                ) %>
+          </div>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            Périmètre strict récent
+          </p>
+
+          <div class="mt-2 text-xl font-semibold text-white">
+            <%= format_number.call(
+                  candidate_transactions
+                ) %>
+            transactions candidates
+          </div>
+
+          <p class="mt-2 text-xs leading-5 text-slate-500">
+            Une transaction devient candidate lorsqu’elle dépense
+            plusieurs adresses distinctes.
+          </p>
+        </article>
+      </div>
+
+      <div class="mt-4 rounded-2xl border border-white/10 bg-black/20 p-4 text-sm leading-6 text-slate-400">
+        La règle multi-input constitue une
+        <span class="font-semibold text-white">preuve de regroupement heuristique</span>,
+        pas une preuve juridique ou nominative de propriété.
+      </div>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600" aria-hidden="true">
+      ↓
+    </div>
+
+    <!-- 2. CALCULS -->
+    <section class="rounded-3xl border border-violet-400/20 bg-violet-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-400/30 bg-violet-400/10 text-sm font-bold text-violet-200">
+          2
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
+            Calculs
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Traitement strict d’un bloc
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Chaque bloc passe successivement par le scan, le nettoyage,
+            l’audit puis l’écriture du checkpoint certifié.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 xl:grid-cols-2">
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-wide text-violet-300">
+                Étape 1
+              </p>
+
+              <h4 class="mt-1 font-semibold text-white">
+                Scan multi-input
+              </h4>
+            </div>
+
+            <span class="font-mono text-sm text-violet-200">
+              <%= format_duration.call(
+                    scan_duration
+                  ) %>
+            </span>
+          </div>
+
+          <p class="mt-3 text-sm leading-6 text-slate-400">
+            Regroupe les entrées par transaction de dépense, matérialise
+            les adresses, crée les liens et fusionne les clusters
+            concernés.
+          </p>
+
+          <dl class="mt-4 grid grid-cols-2 gap-3">
+            <% scan_metrics.each do |label, value| %>
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <dt class="text-xs text-slate-500">
+                  <%= label %>
+                </dt>
+
+                <dd class="mt-1 font-semibold text-white">
+                  <%= format_number.call(value) %>
+                </dd>
+              </div>
+            <% end %>
+          </dl>
+        </article>
+
+        <div class="space-y-4">
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wide text-violet-300">
+                  Étape 2
+                </p>
+
+                <h4 class="mt-1 font-semibold text-white">
+                  Nettoyage des clusters vides
+                </h4>
+              </div>
+
+              <span class="font-mono text-sm text-violet-200">
+                <%= format_duration.call(
+                      cleanup_duration
+                    ) %>
+              </span>
+            </div>
+
+            <div class="mt-4 grid grid-cols-2 gap-3">
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  Supprimés
+                </div>
+
+                <div class="mt-1 font-semibold text-white">
+                  <%= format_number.call(
+                        read_value.call(
+                          cleanup_result,
+                          :deleted_empty_clusters
+                        )
+                      ) %>
+                </div>
+              </div>
+
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  Restants
+                </div>
+
+                <div class="mt-1 font-semibold text-white">
+                  <%= format_number.call(
+                        read_value.call(
+                          cleanup_result,
+                          :empty_clusters_count
+                        )
+                      ) %>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wide text-violet-300">
+                  Étape 3
+                </p>
+
+                <h4 class="mt-1 font-semibold text-white">
+                  Audit du bloc
+                </h4>
+              </div>
+
+              <span class="font-mono text-sm text-violet-200">
+                <%= format_duration.call(
+                      audit_duration
+                    ) %>
+              </span>
+            </div>
+
+            <div class="mt-4 grid grid-cols-2 gap-3">
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  Transactions traitées
+                </div>
+
+                <div class="mt-1 font-semibold text-white">
+                  <%= format_number.call(
+                        read_value.call(
+                          audit_result,
+                          :processed_txs
+                        )
+                      ) %>
+                </div>
+              </div>
+
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  Entrées traitées
+                </div>
+
+                <div class="mt-1 font-semibold text-white">
+                  <%= format_number.call(
+                        read_value.call(
+                          audit_result,
+                          :processed_inputs
+                        )
+                      ) %>
+                </div>
+              </div>
+            </div>
+          </article>
+
+          <article class="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.035] p-5">
+            <p class="text-xs uppercase tracking-wide text-emerald-300">
+              Étape 4
+            </p>
+
+            <h4 class="mt-1 font-semibold text-white">
+              Checkpoint certifié
+            </h4>
+
+            <p class="mt-2 text-sm leading-6 text-slate-400">
+              Le bloc est enregistré dans
+              <span class="font-mono text-slate-300">
+                cluster_processed_blocks
+              </span>
+              uniquement après la réussite de l’audit.
+            </p>
+          </article>
+        </div>
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-4">
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Durée du dernier bloc
+          </div>
+
+          <div class="mt-1 font-semibold text-violet-200">
+            <%= format_duration.call(
+                  last_duration_ms
+                ) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Moyenne récente
+          </div>
+
+          <div class="mt-1 font-semibold text-white">
+            <%= format_duration.call(
+                  average_duration_ms
+                ) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Débit estimé
+          </div>
+
+          <div class="mt-1 font-semibold text-white">
+            <%= throughput_per_hour.present? ?
+                  "#{format_decimal.call(throughput_per_hour, 1)} blocs/h" :
+                  "—" %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-3">
+          <div class="text-xs text-slate-500">
+            Temps de traitement estimé
+          </div>
+
+          <div class="mt-1 font-semibold text-white">
+            <%= eta_seconds.present? ?
+                  format_duration.call(
+                    eta_seconds.to_f *
+                    1_000
+                  ) :
+                  "—" %>
+          </div>
+
+          <% if read_value.call(
+                  pipeline,
+                  :state
+                ).to_s == "waiting_for_layer1" %>
+            <div class="mt-1 text-[11px] text-amber-300/70">
+              hors temps d’attente de Layer1
+            </div>
+          <% end %>
+        </div>
+      </div>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600" aria-hidden="true">
+      ↓
+    </div>
+
+    <!-- 3. SORTIES -->
+    <section class="rounded-3xl border border-emerald-400/20 bg-emerald-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 text-sm font-bold text-emerald-200">
+          3
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+            Sorties
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Graphe Cluster certifié
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Les sorties décrivent les liens observables entre adresses
+            ainsi que la version exacte de la composition utilisée par
+            les modules aval.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-emerald-400/20 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-emerald-300">
+            État matérialisé
+          </p>
+
+          <dl class="mt-4 space-y-3 text-sm">
+            <div class="flex justify-between gap-4">
+              <dt class="font-mono text-slate-500">
+                clusters
+              </dt>
+
+              <dd class="font-semibold text-white">
+                <%= format_number.call(
+                      clusters_count
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="font-mono text-slate-500">
+                addresses
+              </dt>
+
+              <dd class="font-semibold text-white">
+                <%= format_number.call(
+                      addresses_count
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="font-mono text-slate-500">
+                address_links
+              </dt>
+
+              <dd class="font-semibold text-white">
+                <%= format_number.call(
+                      read_value.call(
+                        audit_result,
+                        :address_links_total
+                      )
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="font-mono text-slate-500">
+                composition_version
+              </dt>
+
+              <dd class="text-emerald-300">
+                versionnée à chaque modification
+              </dd>
+            </div>
+          </dl>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            Certification continue
+          </p>
+
+          <div class="mt-3 text-xl font-semibold text-white">
+            <% if read_value.call(
+                    certification_history,
+                    :available
+                  ) == true %>
+              <%= format_number.call(
+                    read_value.call(
+                      certification_history,
+                      :first_height
+                    )
+                  ) %>
+              →
+              <%= format_number.call(
+                    read_value.call(
+                      certification_history,
+                      :last_height
+                    )
+                  ) %>
+            <% else %>
+              non disponible
+            <% end %>
+          </div>
+
+          <div class="mt-2 text-sm text-slate-400">
+            <% if read_value.call(
+                    certification_history,
+                    :continuous
+                  ) == true %>
+              historique continu
+            <% else %>
+              <%= format_number.call(
+                    read_value.call(
+                      certification_history,
+                      :missing_blocks
+                    )
+                  ) %>
+              bloc(s) manquant(s)
+            <% end %>
+          </div>
+
+          <div class="mt-4 rounded-xl bg-white/[0.035] p-3">
+            <div class="text-xs text-slate-500">
+              Checkpoint courant
+            </div>
+
+            <div class="mt-1 font-mono text-xl font-semibold text-emerald-300">
+              <%= format_number.call(
+                    cluster_tip
+                  ) %>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div class="mt-4 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <div class="flex items-start justify-between gap-4">
+            <div>
+              <p class="text-xs uppercase tracking-wide text-slate-500">
+                Preuve stricte multi-input
+              </p>
+
+              <h4 class="mt-1 font-semibold text-white">
+                Audit des derniers blocs certifiés
+              </h4>
+            </div>
+
+            <span class="rounded-full border px-2.5 py-1 text-[10px] font-semibold <%= audit_classes %>">
+              <%= audit_label %>
+            </span>
+          </div>
+
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <div class="text-xs text-slate-500">
+                Contrôles conformes
+              </div>
+
+              <div class="mt-1 font-semibold text-emerald-300">
+                <%
+                  total_checks =
+                    read_value.call(
+                      proof,
+                      :total_checks
+                    ).to_i
+                %>
+
+                <% if total_checks.positive? %>
+                  <%= format_number.call(
+                        read_value.call(
+                          proof,
+                          :passed_checks
+                        )
+                      ) %>
+                  /
+                  <%= format_number.call(
+                        total_checks
+                      ) %>
+                <% else %>
+                  —
+                <% end %>
+              </div>
+            </div>
+
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <div class="text-xs text-slate-500">
+                Anomalies
+              </div>
+
+              <div class="mt-1 font-semibold <%= audit_anomalies.to_i.zero? ? "text-emerald-300" : "text-red-300" %>">
+                <%= format_number.call(
+                      audit_anomalies
+                    ) %>
+              </div>
+            </div>
+          </div>
+        </article>
+
+        <article class="rounded-2xl border border-amber-400/20 bg-amber-400/[0.035] p-5">
+          <p class="text-xs uppercase tracking-wide text-amber-300">
+            Couverture complémentaire
+          </p>
+
+          <h4 class="mt-1 font-semibold text-white">
+            Mesure distincte de la preuve stricte
+          </h4>
+
+          <p class="mt-2 text-sm leading-6 text-slate-400">
+            Cette mesure inclut aussi les entrées hors transactions
+            multi-adresses. Elle ne doit pas être confondue avec la
+            certification de l’heuristique multi-input.
+          </p>
+
+          <div class="mt-4 grid grid-cols-3 gap-3">
+            <div class="rounded-xl bg-black/20 p-3">
+              <div class="text-xs text-slate-500">
+                Couverture BTC
+              </div>
+
+              <div class="mt-1 font-semibold text-amber-200">
+                <%= coverage_applicable ?
+                      "#{format_decimal.call(btc_coverage_pct)} %" :
+                      "en attente" %>
+              </div>
+            </div>
+
+            <div class="rounded-xl bg-black/20 p-3">
+              <div class="text-xs text-slate-500">
+                Adresses sans cluster
+              </div>
+
+              <div class="mt-1 font-semibold text-white">
+                <%= format_number.call(
+                      addresses_nil_cluster
+                    ) %>
+              </div>
+            </div>
+
+            <div class="rounded-xl bg-black/20 p-3">
+              <div class="text-xs text-slate-500">
+                Entrées hors strict
+              </div>
+
+              <div class="mt-1 font-semibold text-white">
+                <%= format_number.call(
+                      outside_strict_inputs
+                    ) %>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600" aria-hidden="true">
+      ↓
+    </div>
+
+    <!-- 4. UTILISÉ PAR -->
+    <section class="rounded-3xl border border-pink-400/20 bg-pink-400/[0.03] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-pink-400/30 bg-pink-400/10 text-sm font-bold text-pink-200">
+          4
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-pink-300">
+            Utilisé par
+          </p>
+
+          <h3 class="mt-1 text-lg font-semibold text-white">
+            Modules alimentés par Cluster
+          </h3>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Cluster constitue la couche d’identité observable entre les
+            faits transactionnels Layer1 et les analyses économiques.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <% consumers.each do |consumer| %>
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start justify-between gap-3">
+              <h4 class="font-semibold text-white">
+                <%= consumer[:title] %>
+              </h4>
+
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-slate-400">
+                <%= consumer[:state] %>
+              </span>
+            </div>
+
+            <div class="mt-2 font-mono text-xs text-pink-300">
+              <%= consumer[:data] %>
+            </div>
+
+            <p class="mt-3 text-sm leading-6 text-slate-400">
+              <%= consumer[:description] %>
+            </p>
+          </article>
+        <% end %>
+      </div>
+    </section>
+
+    <!-- DÉTAILS TECHNIQUES -->
+    <details class="rounded-2xl border border-white/10 bg-black/20">
+      <summary class="cursor-pointer select-none px-5 py-4 text-sm font-semibold text-slate-300">
+        Voir les détails techniques
+      </summary>
+
+      <div class="border-t border-white/10 p-5">
+        <dl class="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              État pipeline
+            </dt>
+
+            <dd class="mt-1 text-slate-200">
+              <%= read_value.call(
+                    pipeline,
+                    :label
+                  ).presence || "inconnu" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Worker
+            </dt>
+
+            <dd class="mt-1 text-slate-200">
+              <% if worker_active %>
+                actif
+              <% elsif worker_present %>
+                disponible
+              <% else %>
+                absent
+              <% end %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Automatisation
+            </dt>
+
+            <dd class="mt-1 <%= automation_ok ? "text-emerald-300" : "text-amber-300" %>">
+              <%= automation_ok ?
+                    "opérationnelle" :
+                    "à vérifier" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Queue / planifiés
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= queue_size %> /
+              <%= scheduled_jobs %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Retry / dead
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= retry_jobs %> /
+              <span class="<%= dead_jobs.zero? ? "text-emerald-300" : "text-red-300" %>">
+                <%= dead_jobs %>
+              </span>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              ActorProfile
+            </dt>
+
+            <dd class="mt-1 text-slate-200">
+              <%= read_value.call(
+                    actor_profile,
+                    :ready
+                  ) == true ?
+                    "source disponible" :
+                    "attend l’alignement Cluster" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Profils ActorProfile
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= format_number.call(
+                    actor_profiles_count
+                  ) %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Bloc en cours
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= current_block.present? ?
+                    format_number.call(
+                      read_value.call(
+                        current_block,
+                        :height
+                      )
+                    ) :
+                    "aucun" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Progression bloc courant
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <% progress =
+                   read_value.call(
+                     current_block || {},
+                     :progress
+                   ) %>
+
+              <%= progress.present? ?
+                    "#{format_decimal.call(progress, 1)} %" :
+                    "—" %>
+            </dd>
+          </div>
+
+          <% audit_checks.each do |name, value| %>
+            <div class="rounded-xl bg-white/[0.025] p-3">
+              <dt class="font-mono text-xs text-slate-500">
+                <%= name %>
+              </dt>
+
+              <dd class="mt-1 font-mono <%= value.to_i.zero? ? "text-emerald-300" : "text-red-300" %>">
+                <%= format_number.call(value) %>
+              </dd>
+            </div>
+          <% end %>
+        </dl>
+
+        <% if recent_blocks.any? %>
+          <div class="mt-4 rounded-xl border border-white/10 bg-white/[0.02] p-4">
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-400">
+              Blocs récents
+            </div>
+
+            <div class="mt-3 space-y-2">
+              <% recent_blocks.each do |block| %>
+                <div class="flex justify-between gap-4 rounded-lg bg-black/20 px-3 py-2 font-mono text-xs">
+                  <span class="text-slate-300">
+                    <%= format_number.call(
+                          read_value.call(
+                            block,
+                            :height
+                          )
+                        ) %>
+                  </span>
+
+                  <span class="text-slate-500">
+                    <%= format_duration.call(
+                          read_value.call(
+                            block,
+                            :duration_ms
+                          )
+                        ) %>
+                  </span>
+                </div>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+
+        <% if issues.any? %>
+          <div class="mt-4 rounded-xl border border-amber-400/20 bg-amber-400/[0.05] p-4">
+            <div class="text-xs font-semibold uppercase tracking-wide text-amber-300">
+              État strict
+            </div>
+
+            <div class="mt-3 flex flex-wrap gap-2">
+              <% issues.each do |issue| %>
+                <span class="rounded-full border border-amber-400/20 bg-black/20 px-3 py-1 font-mono text-xs text-amber-100/70">
+                  <%= issue %>
+                </span>
+              <% end %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+    </details>
+  </div>
+</section>

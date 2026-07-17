@@ -1,0 +1,9 @@
+<%= turbo_frame_tag "actor_labels_live",
+  data: {
+    controller: "auto-refresh",
+    auto_refresh_interval_value: 10_000
+  } do %>
+
+  <%= render "questions/answers/actor_labels",
+    snapshot: @snapshot %>
+<% end %>

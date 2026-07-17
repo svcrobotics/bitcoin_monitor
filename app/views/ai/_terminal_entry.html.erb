@@ -1,0 +1,15 @@
+<div class="terminal-entry">
+  <div class="flex items-center gap-3 text-xl text-white">
+    <span class="text-violet-300">›</span>
+    <span><%= question %></span>
+  </div>
+
+  <div class="mt-6">
+    <%= render "ai/dashboard_answer",
+      answer: answer,
+      context: context,
+      intent: intent,
+      source: source,
+      sources: sources %>
+  </div>
+</div>

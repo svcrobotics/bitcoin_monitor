@@ -1,0 +1,94 @@
+<%
+  notification ||= nil
+
+  resolved =
+    notification.present? &&
+    notification[:transition].to_s == "resolved"
+
+  severity =
+    notification&.dig(:severity).to_s
+
+  controller_data =
+    if notification.present?
+      {
+        controller: "anomaly-notification",
+        anomaly_notification_auto_dismiss_value: resolved,
+        anomaly_notification_delay_value: 6_000
+      }
+    else
+      {}
+    end
+%>
+
+<%= tag.div(
+      id: "system_anomaly_notification",
+      class: "fixed",
+      style: "right: 1.25rem; bottom: 1.25rem; z-index: 100; width: min(28rem, calc(100vw - 2.5rem)); pointer-events: auto;",
+      aria: {
+        live: "polite",
+        atomic: "true"
+      },
+      data: controller_data
+    ) do %>
+
+  <% if notification.present? %>
+    <%
+      classes =
+        if resolved
+          "border-emerald-400/30 bg-emerald-950/90 text-emerald-100"
+        elsif severity == "critical"
+          "border-rose-400/40 bg-rose-950/95 text-rose-100"
+        else
+          "border-amber-400/35 bg-amber-950/95 text-amber-100"
+        end
+
+      title =
+        if resolved
+          "Système rétabli"
+        elsif severity == "critical"
+          "Alerte critique"
+        else
+          "Alerte"
+        end
+
+      close_label =
+        resolved ?
+          "Fermer la notification" :
+          "Fermer l’alerte"
+    %>
+
+    <div
+      class="rounded-2xl border px-4 py-3 shadow-2xl shadow-black/40 backdrop-blur-xl <%= classes %>"
+      style="pointer-events: auto;"
+      role="<%= severity == "critical" ? "alert" : "status" %>"
+    >
+      <div class="flex items-start gap-3">
+        <div class="min-w-0 flex-1">
+          <div class="text-[0.65rem] font-semibold uppercase tracking-[0.18em] opacity-80">
+            <%= title %>
+          </div>
+
+          <p class="mt-1 text-sm leading-6">
+            <%= notification[:message] %>
+          </p>
+
+          <% if resolved %>
+            <p class="mt-1 text-[0.7rem] opacity-60">
+              Cette notification disparaîtra automatiquement.
+            </p>
+          <% end %>
+        </div>
+
+        <button
+          type="button"
+          class="shrink-0 rounded-full border border-white/10 px-2 py-1 text-xs text-current/80 hover:bg-white/10 focus:outline-none focus:ring-2 focus:ring-white/40"
+          aria-label="<%= close_label %>"
+          data-action="click->anomaly-notification#dismiss"
+          style="pointer-events: auto; cursor: pointer;"
+        >
+          Fermer
+        </button>
+      </div>
+    </div>
+  <% end %>
+<% end %>

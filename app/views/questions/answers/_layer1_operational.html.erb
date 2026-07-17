@@ -1,0 +1,356 @@
+<%
+  read_value = lambda do |hash, key|
+    next nil unless hash.respond_to?(:[])
+
+    hash[key] || hash[key.to_s]
+  end
+
+  sync =
+    read_value.call(snapshot, :sync) || {}
+
+  buffers =
+    read_value.call(snapshot, :buffers) || {}
+
+  activity =
+    read_value.call(snapshot, :activity) || {}
+
+  automation =
+    read_value.call(snapshot, :automation) || {}
+
+  bitcoin_core_height =
+    read_value
+      .call(sync, :bitcoin_core_height)
+      .to_i
+
+  processed_height =
+    read_value
+      .call(sync, :processed_height)
+      .to_i
+
+  lag =
+    read_value
+      .call(sync, :lag)
+      .to_i
+
+  outputs_buffer =
+    read_value
+      .call(buffers, :outputs)
+      .to_i
+
+  spent_buffer =
+    read_value
+      .call(buffers, :spent)
+      .to_i
+
+  buffered_items =
+    outputs_buffer + spent_buffer
+
+  pipeline_state =
+    read_value
+      .call(activity, :pipeline_state)
+      .to_s
+
+  current_height =
+    read_value
+      .call(activity, :current_height)
+
+  worker_present =
+    read_value
+      .call(automation, :process_present) == true
+
+  busy_workers =
+    read_value
+      .call(automation, :busy_workers)
+      .to_i
+
+  queue_size =
+    read_value
+      .call(automation, :queue_size)
+      .to_i
+
+  recent_checkpoints =
+    Array(
+      read_value.call(
+        snapshot,
+        :recent_checkpoints
+      )
+    )
+
+  state_label =
+    case pipeline_state
+    when "active"
+      "traitement actif"
+    when "queued"
+      "travail planifié"
+    when "idle_synced"
+      "synchronisé"
+    when "worker_missing"
+      "worker absent"
+    when "waiting"
+      "déclenchement attendu"
+    else
+      "état indéterminé"
+    end
+
+  state_summary =
+    case pipeline_state
+    when "active"
+      "Layer1 traite actuellement les blocs Bitcoin disponibles."
+    when "queued"
+      "Un traitement Layer1 est en attente dans la queue."
+    when "idle_synced"
+      "Layer1 a certifié le dernier bloc disponible sur Bitcoin Core."
+    when "worker_missing"
+      "Layer1 présente du travail en attente, mais aucun worker strict n’est disponible."
+    else
+      "Layer1 présente un retard, mais aucun traitement actif n’est actuellement observé."
+    end
+
+  buffers_label =
+    if buffered_items.zero?
+      "vides"
+    else
+      "#{number_with_delimiter(buffered_items, delimiter: ' ')} en attente"
+    end
+
+  action_label =
+    case pipeline_state
+    when "active"
+      "laisser le traitement progresser"
+    when "queued"
+      "aucune intervention"
+    when "idle_synced"
+      "aucune action"
+    else
+      "vérifier l’automatisation Layer1"
+    end
+%>
+
+<div class="space-y-6">
+  <div>
+    <div class="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+      Layer1
+    </div>
+
+    <h2 class="mt-2 text-2xl font-semibold text-white">
+      État strict Bitcoin
+    </h2>
+
+    <p class="mt-2 text-sm leading-6 text-slate-300">
+      <%= state_summary %>
+    </p>
+  </div>
+
+  <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+    <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="text-xs uppercase tracking-wide text-slate-500">
+        État
+      </div>
+
+      <div class="mt-2 font-semibold text-white">
+        <%= state_label %>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="text-xs uppercase tracking-wide text-slate-500">
+        Données strictes
+      </div>
+
+      <div class="mt-2 font-semibold text-white">
+        checkpoint
+        <%= number_with_delimiter(processed_height, delimiter: " ") %>
+        certifié
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="text-xs uppercase tracking-wide text-slate-500">
+        Buffers
+      </div>
+
+      <div class="mt-2 font-semibold text-white">
+        <%= buffers_label %>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="text-xs uppercase tracking-wide text-slate-500">
+        Retard
+      </div>
+
+      <div class="mt-2 text-xl font-semibold text-white">
+        <%= number_with_delimiter(lag, delimiter: " ") %>
+        bloc<%= "s" unless lag == 1 %>
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="text-xs uppercase tracking-wide text-slate-500">
+        Audit détaillé
+      </div>
+
+      <div class="mt-2 font-semibold text-slate-300">
+        non chargé dans cette vue
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-white/10 bg-white/[0.03] p-4">
+      <div class="text-xs uppercase tracking-wide text-slate-500">
+        Action
+      </div>
+
+      <div class="mt-2 font-semibold text-white">
+        <%= action_label %>
+      </div>
+    </div>
+  </div>
+
+  <div class="rounded-2xl border border-white/10 bg-white/[0.025] p-5">
+    <p class="text-sm leading-6 text-slate-300">
+      Layer1 certifie les blocs provenant de Bitcoin Core et maintient
+      l’état strict des sorties et des dépenses. L’audit complet est
+      volontairement séparé de cette réponse opérationnelle afin de
+      conserver un affichage immédiat.
+    </p>
+  </div>
+
+  <% if recent_checkpoints.any? %>
+    <div>
+      <div class="text-sm font-semibold text-white">
+        Vitesse récente
+      </div>
+
+      <div class="mt-3 space-y-2">
+        <% recent_checkpoints.each do |checkpoint| %>
+          <%
+            height =
+              read_value
+                .call(checkpoint, :height)
+                .to_i
+
+            duration_ms =
+              read_value
+                .call(checkpoint, :duration_ms)
+                .to_i
+
+            duration_label =
+              if duration_ms <= 0
+                "durée indisponible"
+              elsif duration_ms < 60_000
+                "#{(duration_ms / 1000.0).round(1)} s"
+              else
+                "#{(duration_ms / 60_000.0).round(1)} min"
+              end
+          %>
+
+          <div class="flex items-center justify-between rounded-xl border border-white/5 px-4 py-2">
+            <span class="font-mono text-sm text-slate-300">
+              <%= number_with_delimiter(height, delimiter: " ") %>
+            </span>
+
+            <span class="text-sm text-slate-400">
+              <%= duration_label %>
+            </span>
+          </div>
+        <% end %>
+      </div>
+    </div>
+  <% end %>
+
+  <details class="rounded-2xl border border-white/10 bg-white/[0.025]">
+    <summary class="cursor-pointer px-5 py-4 text-sm font-semibold text-slate-200">
+      Voir les détails techniques
+    </summary>
+
+    <div class="grid gap-3 border-t border-white/10 px-5 py-4 sm:grid-cols-2">
+      <div>
+        <div class="text-xs text-slate-500">
+          Bitcoin Core
+        </div>
+
+        <div class="mt-1 font-mono text-slate-200">
+          <%= number_with_delimiter(bitcoin_core_height, delimiter: " ") %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs text-slate-500">
+          Dernier bloc certifié
+        </div>
+
+        <div class="mt-1 font-mono text-slate-200">
+          <%= number_with_delimiter(processed_height, delimiter: " ") %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs text-slate-500">
+          Bloc en cours
+        </div>
+
+        <div class="mt-1 font-mono text-slate-200">
+          <%= current_height ?
+                number_with_delimiter(current_height, delimiter: " ") :
+                "aucun" %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs text-slate-500">
+          Worker
+        </div>
+
+        <div class="mt-1 text-slate-200">
+          <% if worker_present && busy_workers.positive? %>
+            actif
+          <% elsif worker_present %>
+            disponible
+          <% else %>
+            absent
+          <% end %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs text-slate-500">
+          Workers occupés
+        </div>
+
+        <div class="mt-1 font-mono text-slate-200">
+          <%= busy_workers %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs text-slate-500">
+          Queue
+        </div>
+
+        <div class="mt-1 font-mono text-slate-200">
+          <%= queue_size %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs text-slate-500">
+          Buffer outputs
+        </div>
+
+        <div class="mt-1 font-mono text-slate-200">
+          <%= number_with_delimiter(outputs_buffer, delimiter: " ") %>
+        </div>
+      </div>
+
+      <div>
+        <div class="text-xs text-slate-500">
+          Buffer spent
+        </div>
+
+        <div class="mt-1 font-mono text-slate-200">
+          <%= number_with_delimiter(spent_buffer, delimiter: " ") %>
+        </div>
+      </div>
+    </div>
+  </details>
+</div>

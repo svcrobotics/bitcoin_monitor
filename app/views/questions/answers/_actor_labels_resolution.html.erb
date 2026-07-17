@@ -1,0 +1,207 @@
+<%
+  resolution ||= {}
+
+  strict =
+    resolution[
+      :strict_signals
+    ] || {}
+
+  result =
+    resolution[
+      :resolution
+    ] || {}
+
+  confirmed_clusters =
+    Array(
+      resolution[
+        :confirmed_exchange_clusters
+      ]
+    )
+
+  ambiguous_clusters =
+    Array(
+      resolution[
+        :ambiguous_clusters
+      ]
+    )
+%>
+
+<section class="rounded-3xl border border-violet-400/20 bg-violet-400/[0.04] p-5">
+  <header class="max-w-4xl">
+    <p class="text-xs font-semibold uppercase tracking-[0.2em] text-violet-300">
+      Résolution de la classification
+    </p>
+
+    <h3 class="mt-2 text-lg font-semibold text-white">
+      Exchange ou service ?
+    </h3>
+
+    <p class="mt-2 text-sm leading-6 text-slate-400">
+      Les résultats stricts
+      <span class="font-mono text-slate-200">
+        exchange_like
+      </span>
+      et
+      <span class="font-mono text-slate-200">
+        service_like
+      </span>
+      sont des signaux préliminaires. Ils sélectionnent les acteurs à
+      approfondir mais ne constituent plus, seuls, une classification
+      économique finale.
+    </p>
+  </header>
+
+  <div class="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-5">
+    <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div class="text-xs uppercase tracking-wide text-slate-500">
+        Signal exchange
+      </div>
+
+      <div class="mt-2 text-2xl font-semibold text-white">
+        <%= number_with_delimiter(
+          strict[:exchange].to_i,
+          delimiter: " "
+        ) %>
+      </div>
+
+      <div class="mt-1 text-xs text-slate-500">
+        préliminaire
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+      <div class="text-xs uppercase tracking-wide text-slate-500">
+        Signal service
+      </div>
+
+      <div class="mt-2 text-2xl font-semibold text-white">
+        <%= number_with_delimiter(
+          strict[:service].to_i,
+          delimiter: " "
+        ) %>
+      </div>
+
+      <div class="mt-1 text-xs text-slate-500">
+        préliminaire
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-amber-400/20 bg-amber-400/[0.05] p-4">
+      <div class="text-xs uppercase tracking-wide text-amber-300/70">
+        Double signal
+      </div>
+
+      <div class="mt-2 text-2xl font-semibold text-amber-300">
+        <%= number_with_delimiter(
+          strict[:dual].to_i,
+          delimiter: " "
+        ) %>
+      </div>
+
+      <div class="mt-1 text-xs text-amber-200/60">
+        exchange + service
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.05] p-4">
+      <div class="text-xs uppercase tracking-wide text-emerald-300/70">
+        Résolus par Heavy
+      </div>
+
+      <div class="mt-2 text-2xl font-semibold text-emerald-300">
+        <%= number_with_delimiter(
+          result[
+            :exchange_infrastructure_confirmed
+          ].to_i,
+          delimiter: " "
+        ) %>
+      </div>
+
+      <div class="mt-1 text-xs text-emerald-200/60">
+        comportement exchange démontré
+      </div>
+    </div>
+
+    <div class="rounded-2xl border border-orange-400/20 bg-orange-400/[0.05] p-4">
+      <div class="text-xs uppercase tracking-wide text-orange-300/70">
+        Encore ambigus
+      </div>
+
+      <div class="mt-2 text-2xl font-semibold text-orange-300">
+        <%= number_with_delimiter(
+          result[
+            :ambiguous_exchange_service
+          ].to_i,
+          delimiter: " "
+        ) %>
+      </div>
+
+      <div class="mt-1 text-xs text-orange-200/60">
+        aucune conclusion publiée
+      </div>
+    </div>
+  </div>
+
+  <div class="mt-5 grid gap-4 lg:grid-cols-2">
+    <div class="rounded-2xl border border-emerald-400/20 bg-emerald-400/[0.035] p-4">
+      <div class="font-semibold text-emerald-200">
+        Conclusion comportementale confirmée
+      </div>
+
+      <p class="mt-2 text-sm leading-6 text-slate-400">
+        Les clusters suivants disposent d’une preuve complète
+        collecte → sweep concentré → distribution large.
+      </p>
+
+      <div class="mt-3 flex flex-wrap gap-2">
+        <% confirmed_clusters.each do |cluster_id| %>
+          <span class="rounded-full border border-emerald-300/20 bg-emerald-300/10 px-3 py-1 font-mono text-xs text-emerald-200">
+            <%= cluster_id %>
+          </span>
+        <% end %>
+
+        <% if confirmed_clusters.empty? %>
+          <span class="text-sm text-slate-500">
+            Aucun cluster confirmé.
+          </span>
+        <% end %>
+      </div>
+
+      <p class="mt-3 text-xs leading-5 text-slate-500">
+        Conclusion : infrastructure compatible avec un exchange.
+        L’identité de l’opérateur reste inconnue.
+      </p>
+    </div>
+
+    <div class="rounded-2xl border border-amber-400/20 bg-amber-400/[0.035] p-4">
+      <div class="font-semibold text-amber-200">
+        Ambiguïté non résolue
+      </div>
+
+      <p class="mt-2 text-sm leading-6 text-slate-400">
+        Ces clusters présentent simultanément des caractéristiques
+        d’exchange et de service, sans preuve Heavy suffisante pour
+        trancher.
+      </p>
+
+      <div class="mt-3 flex flex-wrap gap-2">
+        <% ambiguous_clusters.each do |cluster_id| %>
+          <span class="rounded-full border border-amber-300/20 bg-amber-300/10 px-3 py-1 font-mono text-xs text-amber-200">
+            <%= cluster_id %>
+          </span>
+        <% end %>
+
+        <% if ambiguous_clusters.empty? %>
+          <span class="text-sm text-slate-500">
+            Aucun double signal non résolu.
+          </span>
+        <% end %>
+      </div>
+
+      <p class="mt-3 text-xs leading-5 text-slate-500">
+        Conclusion : classification économique non confirmée.
+        Aucun choix arbitraire entre exchange et service.
+      </p>
+    </div>
+  </div>
+</section>
