@@ -29,6 +29,13 @@ module ActorBehaviors
         .joins(:actor_profile, :cluster)
         .where(status: "certified")
         .where(behavior_version: BEHAVIOR_VERSION)
+        .where(certification_scope: "strict")
+        .where.not(source_hash: [nil, ""])
+        .where.not(certified_at: nil)
+        .where(
+          "actor_behavior_snapshots.source_hash = " \
+          "actor_behavior_snapshots.profile_fingerprint"
+        )
         .where(
           actor_profile_id:
             ActorProfiles::CertifiedScope.call.select(:id)

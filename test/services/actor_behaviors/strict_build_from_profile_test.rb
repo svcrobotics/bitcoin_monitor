@@ -28,6 +28,9 @@ module ActorBehaviors
       assert_equal profile.id, snapshot.actor_profile_id
       assert_equal "certified", snapshot.status
       assert_equal "strict_v2", snapshot.behavior_version
+      assert_equal snapshot.profile_fingerprint, snapshot.source_hash
+      assert_equal "strict", snapshot.certification_scope
+      assert snapshot.certified_at.present?
       assert_equal 85, snapshot.scores["whale_score"]
       assert_equal true, snapshot.signals["large_holder"]
       assert_equal false, snapshot.signals["very_large_holder"]
@@ -43,6 +46,9 @@ module ActorBehaviors
           actor_profile: profile
         )
 
+      first_certified_at =
+        first.fetch(:snapshot).certified_at
+
       second =
         ActorBehaviors::StrictBuildFromProfile.call(
           actor_profile: profile.reload
@@ -54,6 +60,7 @@ module ActorBehaviors
       assert_equal false, second[:created]
       assert_equal false, second[:updated]
       assert_equal true, second[:unchanged]
+      assert_equal first_certified_at, second.fetch(:snapshot).certified_at
       assert_equal 1, ActorBehaviorSnapshot.where(cluster_id: profile.cluster_id).count
       assert_equal(
         first[:source_profile_fingerprint],
@@ -335,6 +342,18 @@ module ActorBehaviors
       profile_composition_version: 1,
       cluster_composition_version: 1
     )
+      epoch =
+        ActorProfileCertificationEpoch.find_or_create_by!(
+          profile_version:
+            ActorProfiles::StrictBuildFromCluster::PROFILE_VERSION
+        ) do |record|
+          record.start_height = 90
+          record.activated_at = Time.current
+          record.source =
+            ActorProfileCertificationEpoch::SOURCE_CLUSTER_STRICT_CHECKPOINT
+          record.metadata = {}
+        end
+
       cluster =
         Cluster.create!(
           address_count: address_count,
@@ -374,6 +393,10 @@ module ActorBehaviors
         dirty: dirty,
         last_computed_height: last_computed_height,
         cluster_composition_version: profile_composition_version,
+        certification_epoch_height: epoch.start_height,
+        certification_scope:
+          ActorProfile::CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH,
+        certified_at: Time.current,
         traits: {
           "profile_version" => profile_version,
           "address_count" => address_count,

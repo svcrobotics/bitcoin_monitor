@@ -20,6 +20,9 @@ module ActorBehaviorTestHelper
     cluster_composition_version: 1,
     updated_at: Time.current
   )
+    epoch =
+      actor_behavior_certification_epoch
+
     cluster =
       Cluster.create!(
         address_count: address_count,
@@ -52,6 +55,10 @@ module ActorBehaviorTestHelper
       dirty: dirty,
       last_computed_height: last_computed_height,
       cluster_composition_version: profile_composition_version,
+      certification_epoch_height: epoch.start_height,
+      certification_scope:
+        ActorProfile::CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH,
+      certified_at: Time.current,
       traits: {
         "profile_version" => profile_version,
         "address_count" => address_count,
@@ -64,6 +71,18 @@ module ActorBehaviorTestHelper
       created_at: updated_at,
       updated_at: updated_at
     )
+  end
+
+  def actor_behavior_certification_epoch
+    ActorProfileCertificationEpoch.find_or_create_by!(
+      profile_version: ActorProfiles::StrictBuildFromCluster::PROFILE_VERSION
+    ) do |epoch|
+      epoch.start_height = 90
+      epoch.activated_at = Time.current
+      epoch.source =
+        ActorProfileCertificationEpoch::SOURCE_CLUSTER_STRICT_CHECKPOINT
+      epoch.metadata = {}
+    end
   end
 
   def create_current_behavior_snapshot(profile)

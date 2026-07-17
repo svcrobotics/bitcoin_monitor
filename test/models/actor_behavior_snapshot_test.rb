@@ -40,6 +40,29 @@ class ActorBehaviorSnapshotTest < ActiveSupport::TestCase
     assert snapshot.errors.added?(:status, :inclusion, value: "unknown")
   end
 
+  test "certified snapshot requires strict provenance" do
+    profile =
+      create_profile
+
+    snapshot =
+      ActorBehaviorSnapshot.new(
+        cluster: profile.cluster,
+        actor_profile: profile,
+        profile_version: "strict_v1",
+        profile_height: 100,
+        cluster_composition_version: 1,
+        profile_fingerprint: "abc",
+        behavior_version: "strict_v1",
+        status: "certified",
+        computed_at: Time.current
+      )
+
+    assert_not snapshot.valid?
+    assert snapshot.errors.added?(:source_hash, :blank)
+    assert snapshot.errors.added?(:certification_scope, :invalid)
+    assert snapshot.errors.added?(:certified_at, :blank)
+  end
+
   private
 
   def create_profile

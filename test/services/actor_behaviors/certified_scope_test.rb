@@ -55,11 +55,39 @@ module ActorBehaviors
       refute_includes ActorBehaviors::CertifiedScope.call, snapshot
     end
 
+    test "rejects snapshot with mismatched strict source hash" do
+      profile =
+        create_certified_profile
+
+      snapshot =
+        ActorBehaviors::StrictBuildFromProfile
+          .call(actor_profile: profile)
+          .fetch(:snapshot)
+
+      snapshot.update!(
+        source_hash: "different-profile-fingerprint"
+      )
+
+      refute_includes ActorBehaviors::CertifiedScope.call, snapshot
+    end
+
     private
 
     def create_certified_profile(
       balance_btc: "1500.0"
     )
+      epoch =
+        ActorProfileCertificationEpoch.find_or_create_by!(
+          profile_version:
+            ActorProfiles::StrictBuildFromCluster::PROFILE_VERSION
+        ) do |record|
+          record.start_height = 90
+          record.activated_at = Time.current
+          record.source =
+            ActorProfileCertificationEpoch::SOURCE_CLUSTER_STRICT_CHECKPOINT
+          record.metadata = {}
+        end
+
       cluster =
         Cluster.create!(
           address_count: 10,
@@ -90,6 +118,10 @@ module ActorBehaviors
         dirty: false,
         last_computed_height: 100,
         cluster_composition_version: 1,
+        certification_epoch_height: epoch.start_height,
+        certification_scope:
+          ActorProfile::CERTIFICATION_SCOPE_ACTIVITY_SINCE_EPOCH,
+        certified_at: Time.current,
         traits: {
           "profile_version" =>
             ActorProfiles::StrictBuildFromCluster::PROFILE_VERSION,

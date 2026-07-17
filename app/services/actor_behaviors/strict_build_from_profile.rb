@@ -278,6 +278,9 @@ module ActorBehaviors
       behavior =
         compute_behavior(profile)
 
+      certified_at =
+        Time.current
+
       {
         actor_profile_id: profile.id,
         profile_version: profile_version(profile),
@@ -287,10 +290,13 @@ module ActorBehaviors
         profile_fingerprint: fingerprint,
         behavior_version: BEHAVIOR_VERSION,
         status: "certified",
+        source_hash: fingerprint,
+        certification_scope: "strict",
+        certified_at: certified_at,
         signals: behavior.fetch(:signals),
         scores: behavior.fetch(:scores),
         evidence: behavior.fetch(:evidence),
-        computed_at: Time.current
+        computed_at: certified_at
       }
     end
 
@@ -666,6 +672,10 @@ module ActorBehaviors
         snapshot.behavior_version ==
           payload.fetch(:behavior_version) &&
         snapshot.status == payload.fetch(:status) &&
+        snapshot.source_hash == payload.fetch(:source_hash) &&
+        snapshot.certification_scope ==
+          payload.fetch(:certification_scope) &&
+        snapshot.certified_at.present? &&
         snapshot.signals.to_h == canonical_json(payload.fetch(:signals)) &&
         snapshot.scores.to_h == canonical_json(payload.fetch(:scores)) &&
         snapshot.evidence.to_h == canonical_json(payload.fetch(:evidence))

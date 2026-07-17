@@ -42,6 +42,14 @@ module ActorBehaviors
       <<~SQL.squish
         actor_behavior_snapshots.status = 'certified'
 
+        AND actor_behavior_snapshots.source_hash IS NOT NULL
+
+        AND actor_behavior_snapshots.source_hash <> ''
+
+        AND actor_behavior_snapshots.certification_scope = 'strict'
+
+        AND actor_behavior_snapshots.certified_at IS NOT NULL
+
         AND actor_behavior_snapshots.behavior_version =
             #{quoted_behavior_version}
 
