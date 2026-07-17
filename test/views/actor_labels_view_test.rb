@@ -11,49 +11,47 @@ class ActorLabelsViewTest < ActionView::TestCase
       }
     )
 
-    assert_includes rendered, "ActorLabels"
-    assert_includes rendered, "Classification économique des acteurs"
+    [
+      "ActorLabels",
+      "Classification économique des acteurs",
+      "Entrées",
+      "Backlog ActorLabels",
+      "Retard ActorBehavior",
+      "blocs derrière ActorProfile",
+      "Origine amont",
+      "Entrée directe",
+      "ActorProfile",
+      "ActorBehavior",
+      "strict_v2",
+      "Calculs",
+      "Sélection des comportements",
+      "Contrôle d’éligibilité",
+      "Application des règles",
+      "Écriture et réconciliation",
+      "Non mesurée",
+      "Sorties ActorLabels",
+      "Entrées contractuelles des modules aval",
+      "Exchange Flow",
+      "Whale Flow",
+      "Service Flow",
+      "ETF Flow",
+      "exchange_infrastructure_candidate",
+      "whale_like",
+      "service_infrastructure",
+      "etf_like",
+      "Les modules peuvent être construits avant l’arrivée des données.",
+      "Voir les signaux internes et la résolution détaillée",
+      "Voir les détails techniques",
+      "25",
+      "examinés",
+      "label",
+      "ACTIVE"
+    ].each do |label|
+      assert_includes rendered, label
+    end
 
-    assert_includes rendered, "Entrées"
-    assert_includes rendered, "Backlog ActorLabels"
-    assert_includes rendered, "Retard ActorBehavior"
-    assert_includes rendered, "blocs derrière ActorProfile"
-    assert_includes rendered, "Origine amont"
-    assert_includes rendered, "Entrée directe"
-    assert_includes rendered, "ActorProfile"
-    assert_includes rendered, "ActorBehavior"
-    assert_includes rendered, "strict_v2"
-
-    assert_includes rendered, "Calculs"
-    assert_includes rendered, "Sélection des comportements"
-    assert_includes rendered, "Contrôle d’éligibilité"
-    assert_includes rendered, "Application des règles"
-    assert_includes rendered, "Écriture et réconciliation"
-    assert_includes rendered, "Non mesurée"
-
-    assert_includes rendered, "Sorties"
-    assert_includes rendered, "exchange_like"
-    assert_includes rendered, "whale_like"
-    assert_includes rendered, "etf_candidate"
-    assert_includes rendered, "Zéro label est un résultat valide"
-
-    assert_includes rendered, "Utilisé par"
-    assert_includes rendered, "Exchange Flow"
-    assert_includes rendered, "SOURCE DISPONIBLE"
-    assert_includes rendered, "À CONSTRUIRE"
-    assert_includes rendered, "DISPONIBLE"
-    assert_includes rendered, "Whale Monitoring"
-    assert_includes rendered, "ETF Monitoring"
-    assert_includes rendered, "Moteur de réponses Tansa"
-
-    assert_includes rendered, "Voir les détails techniques"
-    assert_includes rendered, "25"
-    assert_includes rendered, "examinés"
-    assert_includes rendered, "label"
-    assert_match(/strict_v2<\/span>,/, rendered)
     refute_includes rendered, "Entrées disponibles"
     refute_includes rendered, "Retard de la source"
-    assert_includes rendered, "ACTIVE"
   end
 
   private
