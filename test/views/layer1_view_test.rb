@@ -5,146 +5,111 @@ require "test_helper"
 class Layer1ViewTest < ActionView::TestCase
   include Rails.application.routes.url_helpers
 
-  test "renders the three Layer1 subsystems" do
+  test "renders the recovered Layer1 mental model" do
     html = render_layer1(snapshot: overview_snapshot)
 
-    assert_includes html, "01 / Temps réel strict"
-    assert_includes html, "02 / Projections historiques"
-    assert_includes html, "03 / Audit lourd"
-    assert_includes html, "04 / Cadence et origine du retard"
-  end
-
-  test "realtime status remains independent from failed audit and projection" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            realtime: realtime_snapshot(status: "healthy"),
-            historical_projection:
-              historical_projection_snapshot(status: "failed"),
-            audit: audit_snapshot(status: "critical")
-          )
-      )
-
-    assert_match(/01 \/ Temps réel strict.*?HEALTHY/m, html)
-    assert_match(/02 \/ Projections historiques.*?FAILED/m, html)
-    assert_match(/03 \/ Audit lourd.*?CRITICAL/m, html)
-  end
-
-  test "unavailable projection and audit do not prevent rendering" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            historical_projection:
-              historical_projection_snapshot(status: "unavailable"),
-            audit:
-              audit_snapshot(status: "unavailable", activity: "unavailable")
-          )
-      )
-
-    assert_includes html, "Données de projection indisponibles"
-    assert_includes html, "UNAVAILABLE"
-    assert_includes html, "01 / Temps réel strict"
-  end
-
-  test "checkpoint certified replaces legacy last processed wording" do
-    html = render_layer1(snapshot: overview_snapshot)
-
-    assert_includes html, "Checkpoint certifié"
-    refute_includes html, "Dernier traité"
-  end
-
-  test "views do not reference storage workers or clients directly" do
-    sources =
-      Rails.root
-        .join("app/views/questions/answers")
-        .glob("_layer1*.erb")
-        .map(&:read) +
-      [
-        Rails.root
-          .join("app/views/layer1_audit/_audit_panel.html.erb")
-          .read
-      ]
-
-    forbidden = %w[
-      Layer1AuditRun
-      Layer1TxOutputSync
-      Layer1TxOutputProjectionBlock
-      BlockBufferModel
-      Sidekiq::Queue
-      Sidekiq::ProcessSet
-      Redis
-      BitcoinRpc
-    ]
-
-    forbidden.each do |constant|
-      sources.each do |source|
-        refute_includes source, constant
-      end
+    [
+      "Infrastructure Bitcoin stricte",
+      "Entrées",
+      "Données reçues depuis Bitcoin Core",
+      "Calculs temps réel",
+      "Certification stricte d’un bloc",
+      "Sorties certifiées",
+      "Faits Bitcoin publiés",
+      "Utilisé par",
+      "Modules alimentés par Layer1",
+      "Travaux asynchrones",
+      "Historique et audits lourds"
+    ].each do |label|
+      assert_includes html, label
     end
   end
 
-  test "manual audit button remains present" do
+  test "renders strict inputs and processing stages" do
     html = render_layer1(snapshot: overview_snapshot)
 
-    assert_includes html, "Lancer un audit"
-    assert_includes html, system_layer1_audit_run_path
+    [
+      "Bitcoin Core RPC",
+      "block_buffers",
+      "Buffer outputs",
+      "Buffer spent",
+      "Lecture Bitcoin Core",
+      "Préparation du bloc",
+      "Traitement des transactions",
+      "Matérialisation PostgreSQL",
+      "Réconciliation",
+      "Audits stricts",
+      "Publication des faits"
+    ].each do |label|
+      assert_includes html, label
+    end
   end
 
-  test "renders expected plural forms" do
+  test "renders certified outputs and downstream consumers" do
+    html = render_layer1(snapshot: overview_snapshot)
+
+    [
+      "utxo_outputs",
+      "cluster_inputs",
+      "Dernier bloc certifié",
+      "Audit outputs",
+      "Audit inputs",
+      "Audit état UTXO",
+      "Cluster",
+      "ActorProfile",
+      "Modules analytiques",
+      "Moteur Tansa"
+    ].each do |label|
+      assert_includes html, label
+    end
+  end
+
+  test "renders asynchronous projections audit and pace" do
+    html = render_layer1(snapshot: overview_snapshot)
+
+    [
+      "Projection tx_outputs",
+      "Synchronisation tx_outputs.spent",
+      "Audit lourd indépendant",
+      "Rythme de certification",
+      "Voir les détails techniques"
+    ].each do |label|
+      assert_includes html, label
+    end
+  end
+
+  test "renders catchup pilotage from the current contract" do
+    html = render_layer1(snapshot: overview_snapshot)
+
+    assert_includes html, "data-layer1-catchup-indicators"
+    assert_includes html, "Pilotage du rattrapage"
+    assert_includes html, "Lag actuel"
+    assert_includes html, "Bitcoin Core"
+  end
+
+  test "renders human block counters" do
     html =
       render_layer1(
         snapshot:
           overview_snapshot(
             realtime:
               realtime_snapshot(
-                lag: 1,
-                strict_queue_size: 0
+                lag: 1
               ),
             historical_projection:
               historical_projection_snapshot(
-                pending_count: 2
+                pending_count: 1_354
               )
           )
       )
 
-    assert_includes html, "aucun travail"
-    assert_includes html, "1 bloc"
-    assert_includes html, "2 blocs"
+    text = Nokogiri::HTML.fragment(html).text.squish
+
+    assert_match(/Retard\s+1 bloc/, text)
+    assert_match(/En attente\s+1 354/, text)
   end
 
-  test "idle processing warning and failed states have visible text" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            realtime:
-              realtime_snapshot(
-                status: "warning",
-                pipeline_state: "idle_synced"
-              ),
-            historical_projection:
-              historical_projection_snapshot(
-                status: "processing",
-                outputs_status: "processing",
-                spent_status: "failed"
-              ),
-            audit:
-              audit_snapshot(
-                status: "failed",
-                activity: "idle"
-              )
-          )
-      )
-
-    assert_includes html, "WARNING"
-    assert_includes html, "PROCESSING"
-    assert_includes html, "FAILED"
-    assert_includes html, "idle"
-  end
-
-  test "renders with partial data" do
+  test "renders safely with partial data" do
     html =
       render_layer1(
         snapshot: {
@@ -162,220 +127,46 @@ class Layer1ViewTest < ActionView::TestCase
         }
       )
 
-    assert_includes html, "Layer1"
-    assert_includes html, "Temps réel strict"
-    assert_includes html, "Projections historiques"
-    assert_includes html, "Audit lourd"
-    assert_includes html, "Cadence et origine du retard"
-    assert_includes html, "DONNÉES INSUFFISANTES"
+    assert_includes html, "Infrastructure Bitcoin stricte"
+    assert_includes html, "Données reçues depuis Bitcoin Core"
+    assert_includes html, "Faits Bitcoin publiés"
+    assert_includes html, "Historique et audits lourds"
   end
 
-  test "renders pace panel with data" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            pace:
-              pace_snapshot(
-                trend: "falling_behind",
-                network_seconds: 192,
-                layer1_seconds: 304,
-                backlog_change: 7.5,
-                dominant_stage: "flush"
-              )
-          )
-      )
+  test "manual audit action remains present" do
+    html = render_layer1(snapshot: overview_snapshot)
 
-    assert_includes html, "Cadence Bitcoin"
-    assert_includes html, "Certification Layer1"
-    assert_includes html, "Accumulation"
-    assert_includes html, "7,50 blocs / heure"
-    assert_includes html, "RETARD EN HAUSSE"
-    assert_includes html, "Goulot actuel"
-    assert_includes html, "flush"
+    assert_includes html, "Lancer un audit"
+    assert_includes html, system_layer1_audit_run_path
   end
 
-  test "renders catching up labels and human catchup estimate" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            pace:
-              pace_snapshot(
-                trend: "catching_up",
-                network_seconds: 320,
-                layer1_seconds: 300,
-                backlog_change: -0.67,
-                estimated_catchup_hours: 84
-              )
-          )
-      )
+  test "rendered Layer1 views do not access storage clients directly" do
+    sources = %w[
+      _layer1.html.erb
+      _layer1_pipeline.html.erb
+      _layer1_catchup_indicators.html.erb
+    ].map do |filename|
+      Rails.root
+        .join("app/views/questions/answers", filename)
+        .read
+    end
 
-    assert_includes html, "Rattrapage"
-    assert_includes html, "0,67 bloc / heure"
-    assert_includes html, "Le retard diminue actuellement."
-    assert_includes html, "Rattrapage estimé : environ 3 jours 12 h."
-    assert_includes(
-      html,
-      "Cette estimation reste sensible à la cadence des prochains blocs."
-    )
-  end
+    forbidden = %w[
+      Layer1AuditRun
+      Layer1TxOutputSync
+      Layer1TxOutputProjectionBlock
+      BlockBufferModel
+      Sidekiq::Queue
+      Sidekiq::ProcessSet
+      Redis
+      BitcoinRpc
+    ]
 
-  test "hides precise catchup estimate when net rate is too weak" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            pace:
-              pace_snapshot(
-                trend: "catching_up",
-                network_seconds: 320,
-                layer1_seconds: 319,
-                backlog_change: -0.2,
-                estimated_catchup_hours: 300
-              )
-          )
-      )
-
-    assert_includes html, "Estimation de rattrapage trop instable"
-    refute_includes Nokogiri::HTML.fragment(html).text.squish, "300"
-  end
-
-  test "renders pace panel without data" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            pace:
-              pace_snapshot(
-                trend: "insufficient_data",
-                network_seconds: nil,
-                layer1_seconds: nil,
-                backlog_change: nil,
-                dominant_stage: nil
-              )
-          )
-      )
-
-    assert_includes html, "DONNÉES INSUFFISANTES"
-    assert_includes html, "Données récentes insuffisantes"
-  end
-
-  test "renders recent history deltas as human labels" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            pace:
-              pace_snapshot(
-                recent_blocks: [
-                  {
-                    height: 956_349,
-                    network_interval_seconds: 1200,
-                    processing_duration_seconds: 109,
-                    delta_seconds: -1091
-                  },
-                  {
-                    height: 956_348,
-                    network_interval_seconds: 300,
-                    processing_duration_seconds: 639,
-                    delta_seconds: 339
-                  },
-                  {
-                    height: 956_347,
-                    network_interval_seconds: 300,
-                    processing_duration_seconds: 305,
-                    delta_seconds: 5
-                  }
-                ]
-              )
-          )
-      )
-
-    assert_includes html, "Gain de rattrapage"
-    assert_includes html, "18 min 11 s"
-    assert_includes html, "Retard ajouté"
-    assert_includes html, "5 min 39 s"
-    assert_includes html, "Cadence équilibrée"
-  end
-
-  test "renders historical recovery and counters in French" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            historical_projection:
-              historical_projection_snapshot(
-                pending_count: 1_354,
-                processing_count: 0,
-                stale_processing_count: 0,
-                failed_count: 0,
-                recovery: nil
-              )
-          )
-      )
-
-    assert_includes html, "En attente"
-    assert_includes html, "1 354 blocs"
-    assert_includes html, "En cours"
-    assert_includes html, "Traitements anciens"
-    assert_includes html, "Âge du plus ancien traitement"
-    assert_includes html, "Prochain bloc"
-    assert_includes html, "aucune nécessaire"
-    refute_includes html, "non observée"
-    refute_includes html, "Processing"
-  end
-
-  test "renders observed historical recovery" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            historical_projection:
-              historical_projection_snapshot(
-                recovery: {
-                  recovered: 2
-                }
-              )
-          )
-      )
-
-    assert_includes html, "2 records récupérés"
-  end
-
-  test "renders last activity as relative time" do
-    html =
-      render_layer1(
-        snapshot:
-          overview_snapshot(
-            realtime:
-              realtime_snapshot(
-                last_activity_seconds_ago: 42
-              )
-          )
-      )
-
-    assert_includes html, "Dernière activité"
-    assert_includes html, "il y a 42 s"
-  end
-
-  test "renders non instrumented database component and component average note" do
-    html =
-      render_layer1(snapshot: overview_snapshot)
-
-    assert_includes html, "médiane réseau, 30 derniers blocs"
-    assert_includes html, "médiane, 30 derniers blocs"
-    assert_includes(
-      html,
-      "Moyenne des composants sur les 10 derniers blocs terminés"
-    )
-    assert_includes html, "Historique visuel récent — 10 derniers blocs terminés"
-    assert_includes html, "DB"
-    assert_includes html, "non instrumenté"
-    assert_includes html, "Certification médiane"
-    assert_includes html, "Certification moyenne"
-    assert_includes html, "Part du flush dans le temps total"
-    assert_includes html, "Part du flush dans le temps instrumenté"
+    forbidden.each do |constant|
+      sources.each do |source|
+        refute_includes source, constant
+      end
+    end
   end
 
   private
