@@ -1,0 +1,172 @@
+
+# frozen_string_literal: true
+
+module Layer1
+  class TxOutputsSpentSyncKickJob
+    include Sidekiq::Job
+
+
+    sidekiq_options queue: :scheduler, retry: false
+
+    QUEUE_NAME = "tx_outputs_async"
+    TARGET_JOB = "Layer1::TxOutputsSpentSyncJob"
+
+    def perform
+      unless TxOutputsSpentSync::Config.enabled?
+        return log_result(
+          ok: true,
+          status: "disabled"
+        )
+      end
+
+      unless pending_syncs?
+        return log_result(
+          ok: true,
+          status: "idle"
+        )
+      end
+
+      decision =
+        System::PipelineController.layer1_heavy_decision(:tx_outputs_async)
+
+      unless decision[:allowed]
+        return log_result(
+          ok: true,
+          status: "deferred",
+          reason: "pipeline_controller_denied",
+          decision: decision
+        )
+      end
+
+      recovery =
+        TxOutputsSpentSync::Recovery.call
+
+      unless pending_syncs?
+        return log_result(
+          ok: true,
+          status: "idle",
+          recovery: recovery
+        )
+      end
+
+      state = worker_state
+
+      if state.values.any?
+        return log_result(
+          state.merge(
+            ok: true,
+            status: "already_active",
+            recovery: recovery
+          )
+        )
+      end
+
+      jid =
+        Layer1::TxOutputsSpentSyncJob
+          .perform_async
+
+      log_result(
+        ok: true,
+        status: "enqueued",
+        jid: jid,
+        recovery: recovery
+      )
+    end
+
+    private
+
+    def pending_syncs?
+      Layer1TxOutputSync
+        .where(
+          <<~SQL.squish,
+            status = :pending
+            OR (status = :failed AND attempts < :max_attempts)
+            OR (
+              status = :processing
+              AND attempts < :max_attempts
+              AND last_attempt_at < :stale_before
+            )
+          SQL
+          pending: "pending",
+          failed: "failed",
+          processing: "processing",
+          max_attempts: TxOutputsSpentSync::Config.max_attempts,
+          stale_before:
+            TxOutputsSpentSync::Config
+              .processing_stale_after_seconds
+              .seconds
+              .ago
+        )
+        .exists?
+    end
+
+    def worker_state
+      require "sidekiq/api"
+
+      {
+        queue_present: queue_present?,
+        scheduled: scheduled?,
+        active: active?,
+        lock_present: lock_present?
+      }
+    end
+
+    def queue_present?
+      Sidekiq::Queue
+        .new(QUEUE_NAME)
+        .any? do |job|
+          job_matches?(job.item)
+        end
+    end
+
+    def scheduled?
+      Sidekiq::ScheduledSet
+        .new
+        .any? do |job|
+          job_matches?(job.item)
+        end
+    end
+
+    def active?
+      Sidekiq::WorkSet
+        .new
+        .any? do |_process_id, _thread_id, work|
+          payload =
+            if work.respond_to?(:payload)
+              work.payload
+            else
+              work.to_h
+            end
+
+          job_matches?(payload)
+        end
+    end
+
+    def lock_present?
+      Sidekiq.redis do |redis|
+        redis
+          .call(
+            "EXISTS",
+            Layer1::TxOutputsSpentSyncJob::LOCK_KEY
+          )
+          .to_i
+          .positive?
+      end
+    end
+
+    def job_matches?(payload)
+      payload.to_s.include?(TARGET_JOB)
+    end
+
+    def log_result(result)
+      Rails.logger.info(
+        "[tx_outputs_spent_sync_kick_job] " \
+        "#{result.inspect}"
+      )
+
+      result
+    end
+
+
+  end
+end

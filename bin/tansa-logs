@@ -1,0 +1,7 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+LINES="${1:-200}"
+
+exec journalctl --user -u tansa-dev.service -n "$LINES" -f

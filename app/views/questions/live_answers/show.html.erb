@@ -1,0 +1,28 @@
+<%= turbo_frame_tag "live_answer_#{@module_name}" do %>
+  <% case @module_name %>
+  <% when "layer1" %>
+    <%= render "questions/answers/layer1", snapshot: Layer1::OverviewSnapshot.call %>
+
+  <% when "cluster" %>
+    <% cluster_snapshot =
+         Clusters::CachedHealthSnapshot.read %>
+
+    <%= render(
+          "questions/answers/cluster",
+          snapshot: cluster_snapshot
+        ) %>
+
+  <% when "actor_profile", "actor_profiles" %>
+    <%= render "questions/answers/actor_profiles", snapshot: ActorProfiles::OperationalSnapshot.read %>
+
+  <% when "actor_behavior", "actor_behaviors" %>
+    <% actor_behavior_context = Intelligence::ContextBuilder.actor_behaviors_health %>
+    <%= render "questions/answers/actor_behaviors",
+      snapshot: actor_behavior_context %>
+
+  <% else %>
+    <div class="rounded-3xl border border-slate-800 bg-slate-950/80 p-6 text-sm text-slate-400">
+      Module live inconnu : <%= @module_name %>
+    </div>
+  <% end %>
+<% end %>

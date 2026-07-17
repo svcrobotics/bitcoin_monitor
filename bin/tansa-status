@@ -1,0 +1,153 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+SERVICE="tansa-dev.service"
+CHECK_ONLY=0
+
+if [[ "${1:-}" == "--check-only" ]]; then
+  CHECK_ONLY=1
+fi
+
+service_active() {
+  systemctl --user is-active --quiet "$SERVICE"
+}
+
+service_cgroup() {
+  systemctl --user show "$SERVICE" -p ControlGroup --value 2>/dev/null || true
+}
+
+matching_pids() {
+  ps -ww -eo pid=,args= |
+    awk '/foreman: main|bin\/dev|sidekiq 8\.1\.0 bitcoin_monitor/ { print $1 }'
+}
+
+unsupervised_pids() {
+  local cgroup="$1"
+
+  [[ -n "$cgroup" ]] || return 0
+
+  while read -r pid; do
+    [[ -n "$pid" ]] || continue
+    [[ -r "/proc/$pid/cgroup" ]] || continue
+
+    if ! grep -Fq "$cgroup" "/proc/$pid/cgroup"; then
+      printf '%s\n' "$pid"
+    fi
+  done < <(matching_pids)
+}
+
+cgroup="$(service_cgroup)"
+duplicates=""
+
+if service_active; then
+  duplicates="$(unsupervised_pids "$cgroup" | tr '\n' ' ')"
+fi
+
+if [[ "$CHECK_ONLY" == "1" ]]; then
+  if [[ -n "$duplicates" ]]; then
+    echo "Unsupervised Tansa processes detected: $duplicates" >&2
+    exit 2
+  fi
+
+  exit 0
+fi
+
+echo "===== SYSTEMD ====="
+systemctl --user status "$SERVICE" --no-pager || true
+echo
+echo "cgroup=$cgroup"
+
+if [[ -n "$duplicates" ]]; then
+  echo "unsupervised_pids=$duplicates"
+else
+  echo "unsupervised_pids=none"
+fi
+
+echo
+echo "===== PROCESSES ====="
+ps -ww -eo pid,ppid,pgid,sid,stat,ni,%cpu,%mem,etime,args |
+  grep -E 'foreman|bin/dev|sidekiq 8\.1\.0 bitcoin_monitor' |
+  grep -v grep || true
+
+echo
+echo "===== SIDEKIQ ====="
+/home/victor/.rbenv/versions/3.2.3/bin/ruby bin/rails runner '
+require "sidekiq/api"
+require "json"
+
+counts = Hash.new(0)
+
+Sidekiq::ProcessSet.new.each do |process|
+  queues = Array(process["queues"])
+  queues.each { |queue| counts[queue] += 1 }
+
+  pp({
+    identity: process["identity"],
+    pid: process["pid"],
+    busy: process["busy"],
+    concurrency: process["concurrency"],
+    quiet: process["quiet"],
+    queues: queues
+  })
+end
+
+puts
+puts "===== QUEUE CONSUMERS ====="
+counts.sort.each do |queue, count|
+  puts "#{queue}=#{count}"
+end
+
+puts
+puts "===== ACTIVE JOBS ====="
+Sidekiq::WorkSet.new.each do |process_id, thread_id, work|
+  raw =
+    work.respond_to?(:payload) ?
+      work.payload :
+      work.instance_variable_get(:@hsh)
+
+  payload =
+    raw.is_a?(String) ? JSON.parse(raw) : raw
+
+  first_arg =
+    Array(payload["args"]).first
+
+  job =
+    if first_arg.is_a?(Hash)
+      first_arg["job_class"] ||
+        first_arg["wrapped"] ||
+        payload["class"]
+    else
+      payload["class"]
+    end
+
+  pp({
+    process: process_id,
+    thread: thread_id,
+    queue: payload["queue"],
+    job: job
+  })
+end
+
+puts
+puts "===== CHECKPOINTS ====="
+snapshot = System::PipelineController.snapshot
+pp({
+  layer1: snapshot[:layer1]&.slice(
+    :processed_height,
+    :lag,
+    :processing,
+    :strict_worker_busy,
+    :strict_queue_size
+  ),
+  cluster: snapshot[:cluster]&.slice(
+    :processed_height,
+    :lag,
+    :processing,
+    :strict_worker_busy,
+    :strict_queue_size
+  )
+})
+'

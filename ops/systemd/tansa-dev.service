@@ -1,0 +1,29 @@
+[Unit]
+Description=Tansa development application supervised by bin/dev
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/victor/bitcoin_monitor
+
+Environment=RAILS_ENV=development
+Environment=RBENV_VERSION=3.2.3
+Environment=PATH=/home/victor/.rbenv/shims:/home/victor/.rbenv/bin:/usr/local/bin:/usr/bin:/bin
+
+ExecStartPre=/usr/bin/mkdir -p %h/.local/state/tansa
+ExecStart=/usr/bin/flock --no-fork --exclusive %h/.local/state/tansa/tansa-dev.lock /bin/bash -lc 'export TANSA_DEV_LOCK_HELD=1; exec ./bin/dev'
+
+Restart=always
+RestartSec=5
+
+TimeoutStopSec=120
+KillSignal=SIGTERM
+KillMode=control-group
+SendSIGKILL=yes
+
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=default.target

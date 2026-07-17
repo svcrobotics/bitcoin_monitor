@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+cd "$(dirname "$0")/.."
+
+bin/tansa-status --check-only
+
+exec systemctl --user stop tansa-dev.service

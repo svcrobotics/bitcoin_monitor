@@ -1,0 +1,440 @@
+<%
+  realtime =
+    (snapshot || {}).with_indifferent_access
+
+  sync =
+    (realtime[:sync] || {}).with_indifferent_access
+
+  buffers =
+    (realtime[:buffers] || {}).with_indifferent_access
+
+  activity =
+    (realtime[:activity] || {}).with_indifferent_access
+
+  strict =
+    (realtime[:strict] || {}).with_indifferent_access
+
+  worker =
+    (strict[:worker] || realtime[:automation] || {})
+      .with_indifferent_access
+
+  scheduler =
+    (strict[:scheduler] || {})
+      .with_indifferent_access
+
+  scheduler_process =
+    (strict[:scheduler_process] || {})
+      .with_indifferent_access
+
+  processing =
+    (strict[:processing_block] || {})
+      .with_indifferent_access
+
+  status =
+    realtime[:status].to_s.presence || "unknown"
+
+  bitcoin_core_height =
+    realtime[:bitcoin_core_height] ||
+    realtime[:best_height] ||
+    sync[:bitcoin_core_height] ||
+    sync[:best_height]
+
+  certified_height =
+    realtime[:processed_height] ||
+    sync[:processed_height]
+
+  lag =
+    realtime[:lag]
+
+  lag =
+    sync[:lag] if lag.nil?
+
+  lag =
+    if lag.nil? &&
+       bitcoin_core_height.present? &&
+       certified_height.present?
+      [
+        bitcoin_core_height.to_i -
+          certified_height.to_i,
+        0
+      ].max
+    else
+      lag.to_i
+    end
+
+  current_height =
+    processing[:height] ||
+    activity[:current_height]
+
+  pipeline_state =
+    activity[:pipeline_state].to_s.presence ||
+    (
+      current_height.present? ?
+        "active" :
+        "unknown"
+    )
+
+  outputs_buffer =
+    buffers[:outputs].to_i
+
+  spent_buffer =
+    buffers[:spent].to_i
+
+  strict_queue_size =
+    strict[:queue_size] ||
+    realtime.dig(:queues, "layer1_strict") ||
+    realtime.dig(:queues, :layer1_strict) ||
+    worker[:queue_size] ||
+    0
+
+  worker_present =
+    if worker.key?(:present)
+      worker[:present]
+    else
+      worker[:process_present]
+    end
+
+  worker_busy =
+    worker[:busy].to_i.positive? ||
+    worker[:busy_workers].to_i.positive?
+
+  scheduler_enabled =
+    if scheduler.present?
+      scheduler[:registered] &&
+        scheduler[:enabled]
+    else
+      true
+    end
+
+  scheduler_present =
+    if scheduler_process.present?
+      scheduler_process[:present]
+    else
+      scheduler_enabled
+    end
+
+  last_activity =
+    activity[:last_activity_at] ||
+    activity[:last_processed_at] ||
+    realtime[:generated_at] ||
+    realtime[:checked_at]
+
+  last_activity_seconds_ago =
+    activity[:last_activity_seconds_ago]
+
+  heartbeat_age =
+    strict[:processing_stale_seconds] ||
+    activity[:heartbeat_age_seconds]
+
+  status_styles =
+    case status
+    when "healthy", "synced"
+      {
+        badge: "border-emerald-400/30 bg-emerald-400/10 text-emerald-200",
+        panel: "border-emerald-400/20",
+        label: status == "synced" ? "SYNCED" : "HEALTHY"
+      }
+    when "warning", "behind", "catching_up"
+      {
+        badge: "border-amber-400/30 bg-amber-400/10 text-amber-200",
+        panel: "border-amber-400/20",
+        label: status.upcase
+      }
+    when "processing", "active"
+      {
+        badge: "border-cyan-400/30 bg-cyan-400/10 text-cyan-200",
+        panel: "border-cyan-400/20",
+        label: status.upcase
+      }
+    when "critical", "failed"
+      {
+        badge: "border-rose-400/30 bg-rose-400/10 text-rose-200",
+        panel: "border-rose-400/20",
+        label: status == "critical" ? "CRITICAL" : "FAILED"
+      }
+    else
+      {
+        badge: "border-slate-700 bg-slate-900 text-slate-300",
+        panel: "border-slate-800",
+        label: status.upcase.presence || "UNKNOWN"
+      }
+    end
+
+  pipeline_copy =
+    if current_height.present?
+      [
+        "Certification en cours",
+        "Le bloc #{number_with_delimiter(current_height.to_i, delimiter: ' ')} est actuellement en cours de certification."
+      ]
+    elsif %w[idle_synced synced].include?(pipeline_state) && lag.to_i.zero?
+      [
+        "À jour",
+        "Layer1 est à jour et attend le prochain bloc Bitcoin."
+      ]
+    elsif lag.to_i.positive? || %w[active queued waiting].include?(pipeline_state)
+      [
+        "Priorité Layer1",
+        "Layer1 est prioritaire jusqu’à résorption du retard. Les étages aval restent temporairement en attente."
+      ]
+    else
+      [
+        pipeline_state.humanize,
+        "État opérationnel du pipeline temps réel strict."
+      ]
+    end
+
+  format_height = lambda do |value|
+    value.present? ? number_with_delimiter(value.to_i, delimiter: " ") : "—"
+  end
+
+  blocks_label = lambda do |count|
+    count = count.to_i
+    count == 1 ? "1 bloc" : "#{number_with_delimiter(count, delimiter: ' ')} blocs"
+  end
+
+  work_label = lambda do |count|
+    count = count.to_i
+
+    case count
+    when 0
+      "aucun travail"
+    when 1
+      "1 travail"
+    else
+      "#{number_with_delimiter(count, delimiter: ' ')} travaux"
+    end
+  end
+
+  format_seconds = lambda do |seconds|
+    if seconds.blank?
+      "—"
+    elsif seconds.to_i < 60
+      "#{seconds.to_i} s"
+    elsif seconds.to_i < 3_600
+      "#{(seconds.to_f / 60).round(1)} min"
+    else
+      "#{(seconds.to_f / 3_600).round(1)} h"
+    end
+  end
+
+  format_time = lambda do |value|
+    if value.respond_to?(:in_time_zone)
+      l(value.in_time_zone, format: :short)
+    elsif value.present?
+      value.to_s
+    else
+      "—"
+    end
+  end
+
+  relative_activity = lambda do |seconds|
+    if seconds.nil?
+      "—"
+    else
+      seconds = [seconds.to_i, 0].max
+
+      if seconds < 60
+        "il y a #{seconds} s"
+      elsif seconds < 3_600
+        minutes = (seconds / 60.0).floor
+        "il y a #{minutes} min"
+      else
+        hours = (seconds / 3_600.0).floor
+        "il y a #{hours} h"
+      end
+    end
+  end
+
+  if last_activity_seconds_ago.nil? && last_activity.respond_to?(:to_time)
+    delta =
+      Time.current.to_f - last_activity.to_time.to_f
+
+    last_activity_seconds_ago =
+      delta.negative? ? nil : delta
+  end
+%>
+
+<section class="rounded-lg border <%= status_styles[:panel] %> bg-slate-950 p-4 md:p-5">
+  <div class="flex flex-col gap-4 border-b border-slate-800 pb-4 md:flex-row md:items-start md:justify-between">
+    <div>
+      <p class="font-mono text-xs uppercase tracking-[0.18em] text-cyan-300">
+        01 / Temps réel strict
+      </p>
+
+      <h2 class="mt-2 text-lg font-semibold text-white">
+        Pipeline blockchain prioritaire
+      </h2>
+
+      <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+        Ingestion des blocs, construction des faits stricts, mise à jour des UTXO
+        et certification continue. Ce chemin reste prioritaire sur Cluster et sur toutes
+        les tâches secondaires.
+      </p>
+    </div>
+
+    <span class="inline-flex w-fit rounded-md border px-3 py-1.5 font-mono text-xs font-semibold <%= status_styles[:badge] %>">
+      <%= status_styles[:label] %>
+    </span>
+  </div>
+
+  <div class="mt-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
+    <div class="rounded-lg border border-slate-800 bg-black/25 p-3">
+      <p class="font-mono text-[11px] uppercase text-slate-500">
+        Bitcoin Core
+      </p>
+      <p class="mt-2 font-mono text-xl font-semibold text-cyan-200">
+        <%= format_height.call(bitcoin_core_height) %>
+      </p>
+    </div>
+
+    <div class="rounded-lg border border-slate-800 bg-black/25 p-3">
+      <p class="font-mono text-[11px] uppercase text-slate-500">
+        Checkpoint certifié
+      </p>
+      <p class="mt-2 font-mono text-xl font-semibold text-emerald-200">
+        <%= format_height.call(certified_height) %>
+      </p>
+    </div>
+
+    <div class="rounded-lg border border-slate-800 bg-black/25 p-3">
+      <p class="font-mono text-[11px] uppercase text-slate-500">
+        Retard
+      </p>
+      <p class="mt-2 font-mono text-xl font-semibold <%= lag.to_i.zero? ? 'text-slate-100' : 'text-amber-200' %>">
+        <%= blocks_label.call(lag) %>
+      </p>
+    </div>
+
+    <div class="rounded-lg border border-slate-800 bg-black/25 p-3">
+      <p class="font-mono text-[11px] uppercase text-slate-500">
+        Bloc actuellement traité
+      </p>
+      <p class="mt-2 font-mono text-xl font-semibold text-white">
+        <%= format_height.call(current_height) %>
+      </p>
+    </div>
+  </div>
+
+  <div class="mt-4 rounded-lg border border-slate-800 bg-slate-900/50 p-4">
+    <div class="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+      <div>
+        <p class="text-sm font-semibold text-slate-100">
+          <%= pipeline_copy.first %>
+        </p>
+        <p class="mt-1 text-sm leading-6 text-slate-400">
+          <%= pipeline_copy.last %>
+        </p>
+      </div>
+
+      <span class="w-fit rounded border border-slate-700 bg-black/20 px-2 py-1 font-mono text-[11px] uppercase text-slate-300">
+        <%= pipeline_state %>
+      </span>
+    </div>
+  </div>
+
+  <div class="mt-4 grid gap-3 md:grid-cols-3">
+    <div class="rounded-lg border border-slate-800 p-3">
+      <p class="text-xs uppercase tracking-wide text-slate-500">
+        Worker layer1_strict
+      </p>
+      <p class="mt-2 font-mono text-sm <%= worker_present ? (worker_busy ? 'text-cyan-200' : 'text-slate-300') : 'text-rose-200' %>">
+        <%= worker_present ? (worker_busy ? "actif" : "au repos") : "absent" %>
+      </p>
+    </div>
+
+    <div class="rounded-lg border border-slate-800 p-3">
+      <p class="text-xs uppercase tracking-wide text-slate-500">
+        Scheduler
+      </p>
+      <p class="mt-2 font-mono text-sm <%= scheduler_enabled && scheduler_present ? 'text-slate-300' : 'text-rose-200' %>">
+        <%= scheduler_enabled && scheduler_present ? "opérationnel" : "indisponible" %>
+      </p>
+    </div>
+
+    <div class="rounded-lg border border-slate-800 p-3">
+      <p class="text-xs uppercase tracking-wide text-slate-500">
+        Queue stricte
+      </p>
+      <p class="mt-2 font-mono text-sm <%= strict_queue_size.to_i.zero? ? 'text-slate-300' : 'text-amber-200' %>">
+        <%= work_label.call(strict_queue_size) %>
+      </p>
+    </div>
+
+    <div class="rounded-lg border border-slate-800 p-3">
+      <p class="text-xs uppercase tracking-wide text-slate-500">
+        Buffers Outputs
+      </p>
+      <p class="mt-2 font-mono text-sm <%= outputs_buffer.zero? ? 'text-slate-300' : 'text-amber-200' %>">
+        <%= number_with_delimiter(outputs_buffer, delimiter: " ") %>
+      </p>
+    </div>
+
+    <div class="rounded-lg border border-slate-800 p-3">
+      <p class="text-xs uppercase tracking-wide text-slate-500">
+        Buffers Spent
+      </p>
+      <p class="mt-2 font-mono text-sm <%= spent_buffer.zero? ? 'text-slate-300' : 'text-amber-200' %>">
+        <%= number_with_delimiter(spent_buffer, delimiter: " ") %>
+      </p>
+    </div>
+
+    <div class="rounded-lg border border-slate-800 p-3">
+      <p class="text-xs uppercase tracking-wide text-slate-500">
+        Dernière activité
+      </p>
+      <p class="mt-2 font-mono text-sm text-slate-300">
+        <%= relative_activity.call(last_activity_seconds_ago) %>
+      </p>
+    </div>
+  </div>
+
+  <details class="group mt-4 border-t border-slate-800 pt-4">
+    <summary class="flex cursor-pointer list-none items-center justify-between gap-4 rounded-md focus:outline-none focus:ring-2 focus:ring-cyan-400/50">
+      <span class="text-sm font-semibold text-slate-200">
+        Détails temps réel
+      </span>
+      <span class="font-mono text-xs text-slate-500 transition group-open:rotate-180">
+        v
+      </span>
+    </summary>
+
+    <div class="mt-4 grid gap-x-8 gap-y-2 text-sm md:grid-cols-2">
+      <p class="flex justify-between gap-4">
+        <span class="text-slate-500">Queue layer1_strict</span>
+        <strong class="font-mono text-slate-200">
+          <%= strict_queue_size.to_i %>
+        </strong>
+      </p>
+
+      <p class="flex justify-between gap-4">
+        <span class="text-slate-500">Workers</span>
+        <strong class="font-mono text-slate-200">
+          <%= worker[:process_count] || worker[:process_present] || (worker_present ? 1 : 0) %>
+        </strong>
+      </p>
+
+      <p class="flex justify-between gap-4">
+        <span class="text-slate-500">Scheduler status</span>
+        <strong class="font-mono text-slate-200">
+          <%= scheduler[:status] || (scheduler_enabled ? "enabled" : "unavailable") %>
+        </strong>
+      </p>
+
+      <p class="flex justify-between gap-4">
+        <span class="text-slate-500">Heartbeat</span>
+        <strong class="font-mono text-slate-200">
+          <%= format_seconds.call(heartbeat_age) %>
+        </strong>
+      </p>
+
+      <% Array(realtime[:issues]).each do |issue| %>
+        <p class="md:col-span-2 flex justify-between gap-4">
+          <span class="text-slate-500">Problème détecté</span>
+          <strong class="font-mono text-amber-200">
+            <%= issue %>
+          </strong>
+        </p>
+      <% end %>
+    </div>
+  </details>
+</section>

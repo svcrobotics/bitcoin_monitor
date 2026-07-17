@@ -1,0 +1,1300 @@
+# frozen_string_literal: true
+
+module System
+  class PipelineController
+    LAYER1_STRICT_QUEUE = "layer1_strict"
+    CLUSTER_STRICT_QUEUE = "cluster_strict"
+    ACTOR_PROFILE_STRICT_QUEUE = "actor_profile_strict"
+    ACTOR_BEHAVIOR_STRICT_QUEUE = "actor_behavior_strict"
+    ACTOR_LABELS_STRICT_QUEUE = "actor_labels_strict"
+
+    ACTOR_PROFILE_MAX_LAYER1_LAG = 3
+    ACTOR_PROFILE_MAX_CLUSTER_GLOBAL_LAG = 3
+
+    ROLE_ALIASES = {
+      layer1: :layer1_realtime
+    }.freeze
+
+    LAYER1_STABLE_CONSTRAINTS = [
+      :layer1_checkpoint_available,
+      :layer1_not_processing,
+      :layer1_buffers_empty,
+      :layer1_strict_queue_idle,
+      :layer1_strict_worker_idle,
+      :layer1_not_catching_up
+    ].freeze
+
+    CLUSTER_STABLE_CONSTRAINTS = [
+      :cluster_checkpoint_available,
+      :cluster_not_processing,
+      :cluster_strict_queue_idle,
+      :cluster_strict_worker_idle,
+      :cluster_caught_up_to_layer1
+    ].freeze
+
+    ACTOR_PROFILE_STABLE_CONSTRAINTS = [
+      :actor_profile_checkpoint_available,
+      :actor_profile_not_processing,
+      :actor_profile_strict_queue_idle,
+      :actor_profile_strict_worker_idle,
+      :actor_profile_no_pending_work
+    ].freeze
+
+    ACTOR_LABELS_STABLE_CONSTRAINTS = [
+      :actor_labels_strict_queue_idle,
+      :actor_labels_strict_worker_idle
+    ].freeze
+
+    STRICT_UPSTREAM_CONSTRAINTS = [
+      *LAYER1_STABLE_CONSTRAINTS,
+      *CLUSTER_STABLE_CONSTRAINTS
+    ].freeze
+
+    ACTOR_PROFILE_UPSTREAM_CONSTRAINTS = [
+      :bitcoin_core_available,
+      :layer1_checkpoint_available,
+      :actor_profile_layer1_lag_within_budget,
+      :cluster_checkpoint_available,
+      :actor_profile_cluster_global_lag_within_budget
+    ].freeze
+
+    LAYER1_HEAVY_CONSTRAINTS = [
+      *LAYER1_STABLE_CONSTRAINTS,
+      *CLUSTER_STABLE_CONSTRAINTS,
+      *ACTOR_PROFILE_STABLE_CONSTRAINTS,
+      *ACTOR_LABELS_STABLE_CONSTRAINTS
+    ].freeze
+
+    # La projection historique doit céder devant le temps réel,
+    # mais ne doit pas attendre que tous les backlogs applicatifs
+    # ActorProfile / ActorBehavior / ActorLabels soient terminés.
+    #
+    # Un retard faible de Bitcoin Core est normal. Le travail
+    # historique peut donc avancer dans les fenêtres où Layer1 et
+    # Cluster ne traitent pas activement un bloc.
+    HISTORICAL_PROJECTION_CONSTRAINTS = [
+      :layer1_checkpoint_available,
+      :layer1_not_processing,
+      :layer1_buffers_empty,
+      :layer1_strict_queue_idle,
+      :layer1_strict_worker_idle,
+      :layer1_not_catching_up,
+      :historical_layer1_lag_within_budget,
+
+      :cluster_checkpoint_available,
+      :historical_cluster_lag_within_budget
+    ].freeze
+
+    COVERAGE_CONSTRAINTS = [
+      *LAYER1_STABLE_CONSTRAINTS,
+      *CLUSTER_STABLE_CONSTRAINTS,
+      *ACTOR_PROFILE_STABLE_CONSTRAINTS,
+      *ACTOR_LABELS_STABLE_CONSTRAINTS
+    ].freeze
+
+    PIPELINE_REGISTRY = {
+      bitcoin_core: {
+        priority: 0,
+        depends_on: [],
+        constraints: [],
+        realtime: true,
+        role: :external_source
+      },
+
+      layer1_realtime: {
+        priority: 1,
+        depends_on: [:bitcoin_core],
+        constraints: [:bitcoin_core_available],
+        realtime: true,
+        role: :source_of_truth
+      },
+
+      cluster: {
+        priority: 2,
+        depends_on: [:layer1_realtime],
+        constraints: LAYER1_STABLE_CONSTRAINTS,
+        realtime: true,
+        role: :identity_layer
+      },
+
+      actor_profile: {
+        priority: 3,
+        depends_on: [:cluster],
+        constraints: ACTOR_PROFILE_UPSTREAM_CONSTRAINTS,
+        realtime: false,
+        role: :profile_builder
+      },
+
+      actor_labels: {
+        priority: 5,
+        depends_on: [:actor_behavior],
+        constraints: [],
+        realtime: false,
+        role: :label_builder
+      },
+
+      actor_behavior: {
+        priority: 4,
+        depends_on: [:actor_profile],
+        constraints: [],
+        realtime: false,
+        role: :behavior_builder
+      },
+
+      layer1_audit: {
+        priority: 5,
+        depends_on: [:layer1_realtime, :cluster],
+        constraints: LAYER1_HEAVY_CONSTRAINTS,
+        realtime: false,
+        role: :layer1_heavy
+      },
+
+      tx_outputs_async: {
+        priority: 5,
+        depends_on: [:layer1_realtime, :cluster],
+        constraints: HISTORICAL_PROJECTION_CONSTRAINTS,
+        realtime: false,
+        role: :historical_projection
+      },
+
+      tx_output_projection: {
+        priority: 5,
+        depends_on: [:layer1_realtime, :cluster],
+        constraints: HISTORICAL_PROJECTION_CONSTRAINTS,
+        realtime: false,
+        role: :historical_projection
+      },
+
+      coverage: {
+        priority: 6,
+        depends_on: [:cluster],
+        constraints: COVERAGE_CONSTRAINTS,
+        realtime: false,
+        role: :maintenance
+      }
+    }.freeze
+
+    def self.snapshot
+      redis =
+        Redis.new(
+          url: ENV.fetch(
+            "REDIS_URL",
+            "redis://127.0.0.1:6379/0"
+          )
+        )
+
+      buffers = {
+        outputs:
+          redis
+            .llen(Blockchain::Buffers::OutputBuffer::KEY)
+            .to_i,
+
+        spent:
+          redis
+            .llen(Blockchain::Buffers::SpentOutputBuffer::KEY)
+            .to_i
+      }
+
+      bitcoin_core_available = true
+      bitcoin_core_error = nil
+
+      best =
+        begin
+          BitcoinRpc
+            .new
+            .getblockcount
+            .to_i
+        rescue StandardError => error
+          bitcoin_core_available = false
+          bitcoin_core_error = "#{error.class}: #{error.message}"
+          0
+        end
+
+      processed =
+        BlockBufferModel
+          .where(status: "processed")
+          .maximum(:height)
+          .to_i
+
+      processing_height =
+        BlockBufferModel
+          .where(status: "processing")
+          .minimum(:height)
+
+      lag =
+        [
+          best - processed,
+          0
+        ].max
+
+      buffers_empty =
+        buffers
+          .values
+          .none?(&:positive?)
+
+      processing =
+        processing_height.present?
+
+      layer1_strict_queue_size =
+        sidekiq_queue_size(LAYER1_STRICT_QUEUE)
+
+      layer1_strict_worker_busy =
+        sidekiq_worker_busy?(LAYER1_STRICT_QUEUE)
+
+      cluster_processed =
+        ClusterProcessedBlock
+          .where(status: "processed")
+          .maximum(:height)
+          .to_i
+
+      cluster_processing_height =
+        ClusterProcessedBlock
+          .where(status: "processing")
+          .minimum(:height)
+
+      cluster_lag =
+        [
+          processed - cluster_processed,
+          0
+        ].max
+
+      cluster_global_lag =
+        [
+          best - cluster_processed,
+          0
+        ].max
+
+      cluster_strict_queue_size =
+        sidekiq_queue_size(CLUSTER_STRICT_QUEUE)
+
+      cluster_strict_worker_busy =
+        sidekiq_worker_busy?(CLUSTER_STRICT_QUEUE) ||
+        sidekiq_work_active?(
+          queue_name: CLUSTER_STRICT_QUEUE,
+          job_class: "Clusters::StrictTipSyncJob"
+        )
+
+      cluster_processing =
+        cluster_processing_height.present? ||
+        cluster_strict_worker_busy
+
+      cluster_processing_height ||=
+        if cluster_strict_worker_busy && cluster_lag.positive?
+          cluster_processed + 1
+        end
+
+      actor_profile =
+        actor_profile_snapshot(
+          cluster_processed: cluster_processed
+        )
+
+      actor_labels =
+        actor_labels_snapshot
+
+      {
+        bitcoin_core: {
+          available: bitcoin_core_available,
+          best_height: best,
+          error: bitcoin_core_error
+        },
+
+        layer1: {
+          processed_height: processed,
+          lag: lag,
+
+          processing: processing,
+          processing_height: processing_height,
+
+          buffers: buffers,
+          buffers_empty: buffers_empty,
+
+          idle:
+            !processing &&
+            buffers_empty &&
+            layer1_strict_queue_size.to_i.zero? &&
+            !layer1_strict_worker_busy,
+
+          strict_queue_size:
+            layer1_strict_queue_size,
+
+          strict_worker_busy:
+            layer1_strict_worker_busy,
+
+          strict_active:
+            processing ||
+            layer1_strict_queue_size.to_i.positive? ||
+            layer1_strict_worker_busy,
+
+          checkpoint_available:
+            processed.positive?,
+
+          catching_up:
+            layer1_catching_up?(
+              lag: lag,
+              processing: processing,
+              buffers_empty: buffers_empty,
+              strict_queue_size: layer1_strict_queue_size,
+              strict_worker_busy: layer1_strict_worker_busy
+            )
+        },
+
+        cluster: {
+          processed_height: cluster_processed,
+          lag: cluster_lag,
+          global_lag: cluster_global_lag,
+
+          processing: cluster_processing,
+          processing_height: cluster_processing_height,
+
+          idle:
+            !cluster_processing &&
+            cluster_strict_queue_size.to_i.zero? &&
+            !cluster_strict_worker_busy,
+
+          strict_queue_size:
+            cluster_strict_queue_size,
+
+          strict_worker_busy:
+            cluster_strict_worker_busy,
+
+          checkpoint_available:
+            cluster_processed.positive?,
+
+          caught_up_to_layer1:
+            cluster_lag.zero?
+        },
+
+        actor_profile: actor_profile,
+        actor_labels: actor_labels
+      }
+    rescue => e
+      {
+        error: "#{e.class}: #{e.message}"
+      }
+    end
+
+    def self.allow?(module_name)
+      decision(module_name)[:allowed]
+    end
+
+    def self.status(module_name)
+      decision(module_name)
+    end
+
+    def self.bitcoin_core_status
+      status(:bitcoin_core)
+    end
+
+    def self.layer1_status
+      decision(:layer1_realtime)
+    end
+
+    def self.decision(module_name, current_snapshot: nil)
+      name =
+        canonical_module_name(module_name)
+
+      config =
+        PIPELINE_REGISTRY[name]
+
+      return unknown_module_decision(name) unless config
+
+      current_snapshot ||=
+        snapshot
+
+      return actor_behavior_decision(current_snapshot: current_snapshot) if name == :actor_behavior
+      return actor_labels_decision(current_snapshot: current_snapshot) if name == :actor_labels
+
+      failed =
+        failed_constraints(
+          config[:constraints],
+          current_snapshot
+        )
+
+      allowed =
+        failed.empty?
+
+      {
+        module: name,
+        allowed: allowed,
+        state: state_for(name, allowed, current_snapshot),
+        reason: reason_for_module(name, failed, current_snapshot),
+        retry_in: retry_in_for(name, failed),
+        priority: config[:priority],
+        depends_on: config[:depends_on],
+        constraints: config[:constraints],
+        failed_constraints: failed,
+        realtime: config[:realtime],
+        role: config[:role],
+        architecture_role: config[:role],
+        resources: resources(name),
+        snapshot: current_snapshot
+      }
+    end
+
+    def self.next_runnable_modules
+      PIPELINE_REGISTRY
+        .keys
+        .map { |name| decision(name) }
+        .select { |decision| decision[:allowed] }
+        .sort_by { |decision| [decision[:priority].to_i, decision[:module].to_s] }
+    end
+
+    def self.next_module
+      next_runnable_modules
+        .reject { |decision| decision[:module] == :bitcoin_core }
+        .select { |decision| work_available?(decision) }
+        .first
+    end
+
+    def self.work_available?(decision)
+      snapshot =
+        decision[:snapshot]
+
+      case decision[:module]
+      when :bitcoin_core
+        false
+
+      when :layer1_realtime
+        snapshot.dig(:layer1, :processing) == true ||
+          snapshot.dig(:layer1, :lag).to_i.positive?
+
+      when :cluster
+        snapshot.dig(:cluster, :lag).to_i.positive? ||
+          snapshot.dig(:cluster, :processing) == true
+
+      when :actor_profile
+        actor_profile_work_available?(snapshot)
+
+      when :actor_labels
+        actor_labels_work_available?(decision)
+
+      when :actor_behavior
+        actor_behavior_work_available?(decision)
+
+      when :layer1_audit
+        scheduler_only_work_available?(:layer1_audit)
+
+      when :tx_outputs_async
+        tx_outputs_async_work_available?
+
+      when :tx_output_projection
+        tx_output_projection_work_available?
+
+      when :coverage
+        coverage_work_available?
+
+      else
+        raise ArgumentError, "Unhandled pipeline role #{decision[:module].inspect}"
+      end
+    end
+
+    def self.actor_profile_work_available?(snapshot)
+      snapshot.dig(:actor_profile, :pending_work).to_i.positive? ||
+        snapshot.dig(:actor_profile, :processing) == true
+    end
+
+    def self.actor_labels_work_available?(decision)
+      decision.dig(:actor_labels, :work_available) == true &&
+        decision[:state] == :run
+    end
+
+    def self.actor_behavior_work_available?(decision)
+      decision.dig(:actor_behavior, :work_available) == true &&
+        decision[:state] == :run
+    end
+
+    def self.scheduler_only_work_available?(_role)
+      false
+    end
+
+    def self.tx_outputs_async_work_available?
+      Layer1::TxOutputsSpentSync::NextRecord
+        .call
+        .present?
+    rescue StandardError
+      true
+    end
+
+    def self.tx_output_projection_work_available?
+      Layer1::TxOutputProjection::NextRecord
+        .call
+        .present?
+    rescue StandardError
+      true
+    end
+
+    def self.coverage_work_available?
+      snapshot =
+        Clusters::Coverage::AddressHealthSnapshot.call
+
+      snapshot[:address_lag].to_i.positive? ||
+        snapshot[:null_after].to_i.positive?
+    rescue StandardError
+      true
+    end
+
+    def self.state_for(name, allowed, current_snapshot)
+      if name == :bitcoin_core
+        return :available if current_snapshot.dig(:bitcoin_core, :available)
+        return :unavailable
+      end
+      if name == :layer1_realtime
+        return :processing if current_snapshot.dig(:layer1, :processing)
+        return :catching_up if current_snapshot.dig(:layer1, :catching_up)
+        return :new_tip_available if current_snapshot.dig(:layer1, :lag).to_i.positive?
+
+        return :synced
+      end
+
+      allowed ? :runnable : :waiting
+    end
+
+    def self.reason_for_module(name, failed_constraints, current_snapshot)
+      if name == :bitcoin_core
+        return nil if current_snapshot.dig(:bitcoin_core, :available)
+        return :rpc_unavailable
+      end
+      if name == :layer1_realtime
+        return :processing if current_snapshot.dig(:layer1, :processing)
+        return :catching_up if current_snapshot.dig(:layer1, :catching_up)
+        return :new_tip_available if current_snapshot.dig(:layer1, :lag).to_i.positive?
+
+        return nil
+      end
+
+      return nil if failed_constraints.empty?
+
+      reason_for(failed_constraints)
+    end
+
+    def self.reason_for(failed_constraints)
+      return nil if failed_constraints.empty?
+
+      if failed_constraints.include?(:bitcoin_core_available)
+        :bitcoin_core_unavailable
+
+      elsif (
+        failed_constraints &
+          [
+            :layer1_checkpoint_available,
+            :layer1_not_processing,
+            :layer1_buffers_empty,
+            :layer1_strict_queue_idle,
+            :layer1_strict_worker_idle,
+            :layer1_not_catching_up,
+            :historical_layer1_lag_within_budget
+          ]
+      ).any?
+        :layer1_realtime_priority
+
+      elsif (
+        failed_constraints &
+          [
+            :cluster_checkpoint_available,
+            :cluster_not_processing,
+            :cluster_strict_queue_idle,
+            :cluster_strict_worker_idle,
+            :cluster_caught_up_to_layer1,
+            :historical_cluster_lag_within_budget
+          ]
+      ).any?
+        :cluster_strict_priority
+
+      elsif (
+        failed_constraints &
+          [
+            :actor_profile_checkpoint_available,
+            :actor_profile_not_processing,
+            :actor_profile_strict_queue_idle,
+            :actor_profile_strict_worker_idle,
+            :actor_profile_no_pending_work
+          ]
+      ).any?
+        :actor_profile_priority
+
+      elsif failed_constraints.include?(:actor_labels_strict_queue_idle) ||
+            failed_constraints.include?(:actor_labels_strict_worker_idle)
+        :actor_labels_priority
+
+      else
+        failed_constraints.first
+      end
+    end
+
+    def self.retry_in_for(module_name, failed_constraints)
+      return nil if failed_constraints.empty?
+
+      case priority(module_name)
+      when 2
+        30.seconds
+      when 3
+        60.seconds
+      else
+        120.seconds
+      end
+    end
+
+    def self.priority(module_name)
+      PIPELINE_REGISTRY
+        .dig(
+          canonical_module_name(module_name),
+          :priority
+        )
+    end
+
+    def self.resources(module_name)
+      case priority(module_name)
+      when 1
+        {
+          batch_size: :max,
+          concurrency: 1
+        }
+      when 2
+        {
+          batch_size: :normal,
+          concurrency: 1
+        }
+      when 3
+        {
+          batch_size: :reduced,
+          concurrency: 1
+        }
+      else
+        {
+          batch_size: :minimal,
+          concurrency: 1
+        }
+      end
+    end
+
+    def self.allow_layer1? = allow?(:layer1_realtime)
+    def self.allow_layer1_realtime? = allow?(:layer1_realtime)
+    def self.allow_cluster? = allow?(:cluster)
+    def self.allow_async? = allow?(:actor_profile)
+    def self.allow_actor_profile? = allow?(:actor_profile)
+    def self.allow_actor_behavior? = allow?(:actor_behavior)
+    def self.allow_actor_labels? = allow?(:actor_labels)
+    def self.allow_coverage? = allow?(:coverage)
+    def self.allow_layer1_audit? = allow?(:layer1_audit)
+    def self.allow_tx_outputs_async? = allow?(:tx_outputs_async)
+    def self.allow_tx_output_projection? = allow?(:tx_output_projection)
+
+    def self.failed_constraints(constraints, current_snapshot)
+      constraints.reject do |constraint|
+        constraint_met?(
+          constraint,
+          current_snapshot
+        )
+      end
+    end
+
+    def self.constraint_met?(constraint, current_snapshot)
+      case constraint.to_sym
+      when :bitcoin_core_available
+        current_snapshot.dig(
+          :bitcoin_core,
+          :available
+        ) == true
+
+      when :layer1_checkpoint_available
+        current_snapshot.dig(:layer1, :checkpoint_available) == true
+
+      when :layer1_not_processing
+        current_snapshot.dig(:layer1, :processing) != true
+
+      when :layer1_buffers_empty
+        current_snapshot.dig(:layer1, :buffers_empty) == true
+
+      when :historical_layer1_lag_within_budget
+        current_snapshot
+          .dig(:layer1, :lag)
+          .to_i <=
+          Layer1::HistoricalWorkConfig
+            .max_layer1_lag_blocks
+
+      when :actor_profile_layer1_lag_within_budget
+        current_snapshot
+          .dig(:layer1, :lag)
+          .to_i <= ACTOR_PROFILE_MAX_LAYER1_LAG
+
+      when :layer1_strict_queue_idle
+        current_snapshot.dig(:layer1, :strict_queue_size).to_i.zero?
+
+      when :layer1_strict_worker_idle
+        current_snapshot.dig(:layer1, :strict_worker_busy) != true
+
+      when :layer1_not_catching_up
+        current_snapshot.dig(:layer1, :catching_up) != true
+
+      when :cluster_checkpoint_available
+        current_snapshot.dig(:cluster, :checkpoint_available) == true
+
+      when :historical_cluster_lag_within_budget
+        current_snapshot
+          .dig(:cluster, :lag)
+          .to_i <=
+          Layer1::HistoricalWorkConfig
+            .max_cluster_lag_blocks
+
+      when :actor_profile_cluster_global_lag_within_budget
+        global_lag =
+          current_snapshot.dig(:cluster, :global_lag)
+
+        global_lag ||=
+          [
+            current_snapshot.dig(:bitcoin_core, :best_height).to_i -
+              current_snapshot.dig(:cluster, :processed_height).to_i,
+            0
+          ].max
+
+        global_lag.to_i <= ACTOR_PROFILE_MAX_CLUSTER_GLOBAL_LAG
+
+      when :cluster_not_processing
+        current_snapshot.dig(:cluster, :processing) != true
+
+      when :cluster_strict_queue_idle
+        current_snapshot.dig(:cluster, :strict_queue_size).to_i.zero?
+
+      when :cluster_strict_worker_idle
+        current_snapshot.dig(:cluster, :strict_worker_busy) != true
+
+      when :cluster_caught_up_to_layer1
+        current_snapshot.dig(:cluster, :caught_up_to_layer1) == true
+
+      when :actor_profile_checkpoint_available
+        current_snapshot.dig(:actor_profile, :checkpoint_available) == true
+
+      when :actor_profile_not_processing
+        current_snapshot.dig(:actor_profile, :processing) != true
+
+      when :actor_profile_strict_queue_idle
+        current_snapshot.dig(:actor_profile, :strict_queue_size).to_i.zero?
+
+      when :actor_profile_strict_worker_idle
+        current_snapshot.dig(:actor_profile, :strict_worker_busy) != true
+
+      when :actor_profile_no_pending_work
+        current_snapshot.dig(:actor_profile, :pending_work).to_i.zero? &&
+          current_snapshot.dig(:actor_profile, :caught_up_to_cluster) == true
+
+      when :actor_labels_strict_queue_idle
+        current_snapshot.dig(:actor_labels, :strict_queue_size).to_i.zero?
+
+      when :actor_labels_strict_worker_idle
+        current_snapshot.dig(:actor_labels, :strict_worker_busy) != true
+
+      else
+        false
+      end
+    end
+
+    def self.unknown_module_decision(name)
+      {
+        module: name,
+        allowed: false,
+        state: :blocked,
+        reason: :unknown_module,
+        retry_in: nil,
+        priority: nil,
+        depends_on: [],
+        constraints: [],
+        failed_constraints: [:unknown_module],
+        realtime: false,
+        role: nil,
+        architecture_role: nil,
+        resources: resources(name),
+        snapshot: snapshot
+      }
+    end
+
+    def self.canonical_module_name(module_name)
+      name = module_name.to_sym
+
+      ROLE_ALIASES.fetch(name, name)
+    end
+
+    def self.layer1_heavy_decision(role, current_snapshot: nil)
+      decision(role, current_snapshot: current_snapshot)
+    end
+
+    def self.actor_behavior_decision(current_snapshot: nil)
+      control =
+        current_snapshot&.dig(:actor_behavior) ||
+        ActorBehaviors::ControlSnapshot.call
+
+      actor_profile =
+        current_snapshot&.dig(:actor_profile) || {}
+
+      state, reason, failed =
+        actor_behavior_state_reason_constraints(
+          control: control,
+          actor_profile: actor_profile,
+          current_snapshot: current_snapshot || {}
+        )
+
+      allowed =
+        %i[idle run].include?(state)
+
+      snapshot =
+        (current_snapshot || {}).merge(
+          actor_behavior: control
+        )
+
+      {
+        module: :actor_behavior,
+        allowed: allowed,
+        state: state,
+        reason: reason,
+        retry_in: allowed ? nil : 60.seconds,
+        priority: priority(:actor_behavior),
+        depends_on: PIPELINE_REGISTRY.dig(:actor_behavior, :depends_on),
+        constraints: [],
+        failed_constraints: failed,
+        realtime: false,
+        role: :behavior_builder,
+        architecture_role: :behavior_builder,
+        resources: resources(:actor_behavior),
+        actor_behavior: {
+          mode: control[:mode],
+          auto_enabled: control[:auto_enabled],
+          local_auto_enabled: control[:local_auto_enabled],
+          scheduler_present: control[:scheduler_present],
+          scheduler_runtime_fresh: control[:scheduler_runtime_fresh],
+          scheduler_actor_behavior_auto_enabled:
+            control[:scheduler_actor_behavior_auto_enabled],
+          scheduler_enabled: control[:scheduler_enabled],
+          behavior_version: control[:behavior_version],
+          certified_profiles_available:
+            control[:certified_profiles_available],
+          work_available: control[:work_available],
+          missing_work_available:
+            control[:missing_work_available],
+          stale_work_available:
+            control[:stale_work_available],
+          batch_running: control[:batch_running],
+          stale_running_run:
+            control[:stale_running_run],
+          last_run_status:
+            control[:last_run_status],
+          last_run_finished_at:
+            control[:last_run_finished_at],
+          min_interval_seconds:
+            control[:min_interval_seconds],
+          last_terminal_run_finished_at:
+            control[:last_terminal_run_finished_at],
+          next_eligible_at:
+            control[:next_eligible_at],
+          cooldown_active:
+            control[:cooldown_active],
+          cooldown_remaining_seconds:
+            control[:cooldown_remaining_seconds]
+        },
+        snapshot: snapshot
+      }
+    end
+
+    def self.actor_behavior_state_reason_constraints(
+      control:,
+      actor_profile:,
+      current_snapshot:
+    )
+      upstream_failed =
+        failed_constraints(
+          STRICT_UPSTREAM_CONSTRAINTS,
+          current_snapshot
+        )
+
+      if upstream_failed.any?
+        return [
+          :blocked,
+          reason_for(upstream_failed),
+          upstream_failed
+        ]
+      end
+
+      unless control[:auto_enabled] == true
+        return [
+          :disabled,
+          :actor_behavior_auto_disabled,
+          [:actor_behavior_auto_enabled]
+        ]
+      end
+
+      if actor_profile.key?(:checkpoint_available) &&
+         actor_profile[:checkpoint_available] != true
+        return [
+          :blocked,
+          :actor_profile_unavailable,
+          [:actor_profile_checkpoint_available]
+        ]
+      end
+
+      unless control[:certified_profiles_available] == true
+        return [
+          :blocked,
+          :no_certified_actor_profiles,
+          [:certified_actor_profiles_available]
+        ]
+      end
+
+      if control[:stale_running_run] == true
+        return [
+          :blocked,
+          :stale_actor_behavior_run,
+          [:actor_behavior_no_stale_running_run]
+        ]
+      end
+
+      if control[:batch_running] == true
+        return [
+          :blocked,
+          :actor_behavior_batch_running,
+          [:actor_behavior_batch_not_running]
+        ]
+      end
+
+      unless control[:work_available] == true
+        return [
+          :idle,
+          :no_actor_behavior_work,
+          []
+        ]
+      end
+
+      if control[:cooldown_active] == true
+        return [
+          :idle,
+          :actor_behavior_cooldown,
+          [:actor_behavior_cooldown_elapsed]
+        ]
+      end
+
+      [
+        :run,
+        :actor_behavior_work_available,
+        []
+      ]
+    end
+
+    def self.actor_labels_decision(current_snapshot: nil)
+      control =
+        current_snapshot&.dig(:actor_labels) ||
+        ActorLabels::ControlSnapshot.call
+
+      actor_behavior =
+        current_snapshot&.dig(:actor_behavior) ||
+        ActorBehaviors::ControlSnapshot.call
+
+      actor_profile =
+        current_snapshot&.dig(:actor_profile) || {}
+
+      state, reason, failed =
+        actor_labels_state_reason_constraints(
+          control: control,
+          actor_behavior: actor_behavior,
+          actor_profile: actor_profile,
+          current_snapshot: current_snapshot || {}
+        )
+
+      allowed =
+        %i[idle run].include?(state)
+
+      snapshot =
+        (current_snapshot || {}).merge(
+          actor_labels: control,
+          actor_behavior: actor_behavior
+        )
+
+      {
+        module: :actor_labels,
+        allowed: allowed,
+        state: state,
+        reason: reason,
+        retry_in: state == :blocked ? 60.seconds : nil,
+        priority: priority(:actor_labels),
+        depends_on: PIPELINE_REGISTRY.dig(:actor_labels, :depends_on),
+        constraints: [],
+        failed_constraints: failed,
+        realtime: false,
+        role: :label_builder,
+        architecture_role: :label_builder,
+        resources: resources(:actor_labels),
+        actor_labels: {
+          source: control[:source],
+          rule_version: control[:rule_version],
+          required_behavior_version:
+            control[:required_behavior_version],
+          queue_name: control[:queue_name],
+          queue_size: control[:queue_size],
+          scheduled_size: control[:scheduled_size],
+          worker_busy: control[:worker_busy],
+          worker_present: control[:worker_present],
+          lock_present: control[:lock_present],
+          cursor: control[:cursor],
+          work_available: control[:work_available],
+          pending_for_labels: control[:pending_for_labels],
+          cooldown_active: control[:cooldown_active],
+          cooldown_remaining_seconds:
+            control[:cooldown_remaining_seconds],
+          next_eligible_at: control[:next_eligible_at],
+          last_run_status: control[:last_run_status],
+          last_run_finished_at:
+            control[:last_run_finished_at],
+          last_runtime_ms: control[:last_runtime_ms]
+        },
+        snapshot: snapshot
+      }
+    end
+
+    def self.actor_labels_state_reason_constraints(
+      control:,
+      actor_behavior:,
+      actor_profile:,
+      current_snapshot:
+    )
+      upstream_failed =
+        failed_constraints(
+          STRICT_UPSTREAM_CONSTRAINTS,
+          current_snapshot
+        )
+
+      if upstream_failed.any?
+        return [
+          :blocked,
+          reason_for(upstream_failed),
+          upstream_failed
+        ]
+      end
+
+      if actor_profile[:processing] == true ||
+         actor_profile[:strict_worker_busy] == true
+        return [
+          :blocked,
+          :actor_profile_priority,
+          [:actor_profile_not_processing]
+        ]
+      end
+
+      if actor_profile[:pending_work].to_i.positive? ||
+         actor_profile[:caught_up_to_cluster] == false
+        return [
+          :blocked,
+          :actor_profile_priority,
+          [:actor_profile_no_pending_work]
+        ]
+      end
+
+      unless actor_behavior[:certified_profiles_available] == true
+        return [
+          :blocked,
+          :actor_behavior_unavailable,
+          [:actor_behavior_certified_profiles_available]
+        ]
+      end
+
+      if control[:lock_present] == true ||
+         control[:worker_busy] == true ||
+         control[:queue_size].to_i.positive? ||
+         control[:scheduled_size].to_i.positive?
+        return [
+          :blocked,
+          :actor_labels_batch_present,
+          [:actor_labels_single_batch]
+        ]
+      end
+
+      unless control[:work_available] == true
+        return [
+          :idle,
+          :no_actor_labels_work,
+          []
+        ]
+      end
+
+      if control[:cooldown_active] == true
+        return [
+          :idle,
+          :actor_labels_cooldown,
+          [:actor_labels_cooldown_elapsed]
+        ]
+      end
+
+      [
+        :run,
+        :actor_labels_work_available,
+        []
+      ]
+    end
+
+    def self.layer1_catching_up?(
+      lag:,
+      processing:,
+      buffers_empty:,
+      strict_queue_size:,
+      strict_worker_busy:
+    )
+      return true if processing
+      return true unless buffers_empty
+      return true if strict_queue_size.to_i.positive?
+      return true if strict_worker_busy
+
+      lag.to_i > 1
+    end
+
+    def self.actor_profile_snapshot(cluster_processed:)
+      source =
+        ActorProfiles::OperationalSnapshot.read
+
+      progress =
+        source[:progress] || {}
+
+      sync =
+        source[:sync] || {}
+
+      automation =
+        source[:automation] || {}
+
+      queue_size =
+        automation[:queue_size].to_i
+
+      worker_busy =
+        automation[:busy_workers].to_i.positive?
+
+      pending =
+        progress[:pending_profiles].to_i
+
+      profile_height =
+        sync[:profile_max_height].to_i
+
+      {
+        checkpoint_height: profile_height,
+        checkpoint_available: profile_height.positive?,
+        caught_up_to_cluster:
+          profile_height.positive? &&
+          profile_height >= cluster_processed.to_i,
+        pending_work: pending,
+        processing: worker_busy || automation[:lock_ttl].to_i.positive?,
+        strict_queue_size: queue_size,
+        strict_worker_busy: worker_busy,
+        strict_active:
+          queue_size.positive? ||
+          worker_busy ||
+          automation[:lock_ttl].to_i.positive?
+      }
+    rescue StandardError
+      {
+        checkpoint_height: 0,
+        checkpoint_available: false,
+        caught_up_to_cluster: false,
+        pending_work: 0,
+        processing: false,
+        strict_queue_size: sidekiq_queue_size(ACTOR_PROFILE_STRICT_QUEUE),
+        strict_worker_busy: sidekiq_worker_busy?(ACTOR_PROFILE_STRICT_QUEUE),
+        strict_active: false
+      }
+    end
+
+    def self.actor_labels_snapshot
+      control =
+        ActorLabels::ControlSnapshot.call
+
+      control.merge(
+        checkpoint_available: true,
+        processing:
+          control[:worker_busy] == true ||
+          control[:lock_present] == true,
+        strict_queue_size: control[:queue_size].to_i,
+        strict_worker_busy: control[:worker_busy] == true,
+        scheduled_marker_present:
+          redis_key_present?(ActorLabels::StrictBatchJob::SCHEDULE_KEY),
+        strict_active:
+          control[:queue_size].to_i.positive? ||
+          control[:worker_busy] == true ||
+          control[:lock_present] == true ||
+          control[:scheduled_size].to_i.positive?
+      )
+    rescue StandardError
+      {
+        checkpoint_available: true,
+        processing: false,
+        strict_queue_size: sidekiq_queue_size(ACTOR_LABELS_STRICT_QUEUE),
+        strict_worker_busy: sidekiq_worker_busy?(ACTOR_LABELS_STRICT_QUEUE),
+        scheduled_marker_present: false,
+        strict_active: false
+      }
+    end
+
+    def self.sidekiq_queue_size(name)
+      require "sidekiq/api"
+
+      Sidekiq::Queue.new(name).size
+    rescue StandardError
+      0
+    end
+
+    def self.sidekiq_worker_busy?(queue_name)
+      require "sidekiq/api"
+
+      Sidekiq::ProcessSet.new.any? do |process|
+        Array(process["queues"]).include?(queue_name) &&
+          process["busy"].to_i.positive?
+      end
+    rescue StandardError
+      false
+    end
+
+    def self.sidekiq_work_active?(queue_name:, job_class:)
+      require "sidekiq/api"
+      require "json"
+
+      Sidekiq::WorkSet.new.any? do |_process_id, _thread_id, work|
+        payload =
+          sidekiq_work_payload(work)
+
+        payload["queue"].to_s == queue_name.to_s &&
+          sidekiq_payload_job_class(payload).to_s == job_class.to_s
+      end
+    rescue StandardError
+      false
+    end
+
+    def self.sidekiq_work_payload(work)
+      raw =
+        if work.respond_to?(:payload)
+          work.payload
+        else
+          work.instance_variable_get(:@hsh)
+        end
+
+      case raw
+      when Hash
+        raw
+      when String
+        JSON.parse(raw)
+      else
+        {}
+      end
+    end
+
+    def self.sidekiq_payload_job_class(payload)
+      first_arg =
+        Array(payload["args"]).first
+
+      if first_arg.is_a?(Hash)
+        first_arg["job_class"] ||
+          first_arg["wrapped"] ||
+          payload["class"]
+      else
+        payload["class"]
+      end
+    end
+
+    def self.redis_key_present?(key)
+      Sidekiq.redis do |redis|
+        redis.exists?(key)
+      end
+    rescue StandardError
+      false
+    end
+  end
+end

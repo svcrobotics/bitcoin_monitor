@@ -1,0 +1,434 @@
+<%
+  historical =
+    (snapshot || {}).with_indifferent_access
+
+  outputs =
+    (
+      historical[:outputs] ||
+      historical[:tx_output_projection] ||
+      {}
+    ).with_indifferent_access
+
+  spent_sync =
+    (
+      historical[:spent_sync] ||
+      historical[:tx_outputs_spent_sync] ||
+      (
+        historical[:outputs].present? ? {} : historical
+      )
+    ).with_indifferent_access
+
+  status_config = lambda do |status|
+    normalized =
+      status.to_s.presence || "unavailable"
+
+    case normalized
+    when "synced", "healthy"
+      {
+        label: "SYNCED",
+        badge:
+          "border-emerald-400/30 " \
+          "bg-emerald-400/10 " \
+          "text-emerald-200"
+      }
+
+    when "processing", "active"
+      {
+        label: "PROCESSING",
+        badge:
+          "border-cyan-400/30 " \
+          "bg-cyan-400/10 " \
+          "text-cyan-200"
+      }
+
+    when "waiting", "deferred"
+      {
+        label: "WAITING",
+        badge:
+          "border-amber-400/30 " \
+          "bg-amber-400/10 " \
+          "text-amber-200"
+      }
+
+    when "pending", "behind", "warning"
+      {
+        label: "BEHIND",
+        badge:
+          "border-amber-400/30 " \
+          "bg-amber-400/10 " \
+          "text-amber-200"
+      }
+
+    when "failed", "error", "critical"
+      {
+        label: "FAILED",
+        badge:
+          "border-rose-400/30 " \
+          "bg-rose-400/10 " \
+          "text-rose-200"
+      }
+
+    when "idle"
+      {
+        label: "IDLE",
+        badge:
+          "border-slate-700 " \
+          "bg-slate-900 " \
+          "text-slate-300"
+      }
+
+    when "disabled"
+      {
+        label: "DISABLED",
+        badge:
+          "border-slate-700 " \
+          "bg-slate-900 " \
+          "text-slate-300"
+      }
+
+    else
+      {
+        label: "UNAVAILABLE",
+        badge:
+          "border-slate-700 " \
+          "bg-slate-900 " \
+          "text-slate-300"
+      }
+    end
+  end
+
+  format_height = lambda do |value|
+    if value.present?
+      number_with_delimiter(
+        value.to_i,
+        delimiter: " "
+      )
+    else
+      "—"
+    end
+  end
+
+  blocks_label = lambda do |count|
+    next "—" if count.nil?
+
+    count = count.to_i
+
+    if count == 1
+      "1 bloc"
+    else
+      "#{number_with_delimiter(count, delimiter: ' ')} blocs"
+    end
+  end
+
+  work_label = lambda do |count|
+    count = count.to_i
+
+    case count
+    when 0
+      "aucun travail"
+    when 1
+      "1 bloc"
+    else
+      "#{number_with_delimiter(count, delimiter: ' ')} blocs"
+    end
+  end
+
+  failures_label = lambda do |count|
+    count = count.to_i
+    count.zero? ? "Aucun échec" : work_label.call(count)
+  end
+
+  count_label = lambda do |count|
+    number_with_delimiter(count.to_i, delimiter: " ")
+  end
+
+  seconds_label = lambda do |seconds|
+    next "—" if seconds.nil?
+
+    seconds = seconds.to_i
+
+    if seconds < 60
+      "#{seconds} s"
+    elsif seconds < 3600
+      "#{seconds / 60} min"
+    else
+      "#{seconds / 3600} h"
+    end
+  end
+
+  worker_label = lambda do |projection|
+    worker =
+      (projection[:worker] || {})
+        .with_indifferent_access
+
+    if worker[:busy].to_i.positive?
+      "actif"
+    elsif worker[:present]
+      "au repos"
+    else
+      "absent"
+    end
+  end
+
+  recovery_label = lambda do |data|
+    recovery =
+      (data[:recovery] || {}).with_indifferent_access
+
+    recovered =
+      recovery[:recovered].to_i
+
+    return "1 record récupéré" if recovered == 1
+    return "#{number_with_delimiter(recovered, delimiter: ' ')} records récupérés" if recovered.positive?
+
+    stale =
+      data[:stale_processing_count].to_i
+
+    processing =
+      data[:processing_count].to_i
+
+    failed =
+      data[:failed_count].to_i
+
+    return "à vérifier" if stale.positive? && recovery.blank?
+
+    if processing.zero? && stale.zero? && failed.zero?
+      "aucune nécessaire"
+    elsif recovery.present?
+      "aucune récupération"
+    else
+      "à vérifier"
+    end
+  end
+
+  projection_card =
+    lambda do |title:, role:, data:, height_key:|
+      status =
+        status_config.call(data[:status])
+
+      capture do
+%>
+        <div class="rounded-lg border border-slate-800 bg-black/20 p-4">
+          <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div>
+              <h3 class="text-sm font-semibold text-white">
+                <%= title %>
+              </h3>
+
+              <p class="mt-1 text-sm leading-6 text-slate-400">
+                <%= role %>
+              </p>
+            </div>
+
+            <span class="w-fit rounded-md border px-2.5 py-1.5 font-mono text-xs font-semibold <%= status[:badge] %>">
+              <%= status[:label] %>
+            </span>
+          </div>
+
+          <% if data[:status].to_s == "unavailable" ||
+                data[:error].present? %>
+            <p class="mt-4 rounded-md border border-slate-800 bg-slate-950/80 p-3 text-sm text-slate-300">
+              Données de projection indisponibles
+            </p>
+          <% end %>
+
+          <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Dernière hauteur
+              </p>
+
+              <p class="mt-1 font-mono text-sm text-slate-200">
+                <%= format_height.call(data[height_key]) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Retard
+              </p>
+
+              <p class="mt-1 font-mono text-sm text-slate-200">
+                <%= blocks_label.call(
+                      data[:projection_lag_blocks]
+                    ) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                En attente
+              </p>
+
+              <p class="mt-1 font-mono text-sm text-slate-200">
+                <%= work_label.call(data[:pending_count]) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                En cours
+              </p>
+
+              <p class="mt-1 font-mono text-sm <%= data[:processing_count].to_i.positive? ? 'text-cyan-200' : 'text-slate-200' %>">
+                <%= count_label.call(data[:processing_count]) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Traitements anciens
+              </p>
+
+              <p class="mt-1 font-mono text-sm <%= data[:stale_processing_count].to_i.positive? ? 'text-amber-200' : 'text-slate-200' %>">
+                <%= count_label.call(data[:stale_processing_count]) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Âge du plus ancien traitement
+              </p>
+
+              <p class="mt-1 font-mono text-sm text-slate-200">
+                <%= seconds_label.call(data[:oldest_processing_age_seconds]) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Échecs
+              </p>
+
+              <p class="mt-1 font-mono text-sm <%= data[:failed_count].to_i.positive? ? 'text-rose-200' : 'text-slate-200' %>">
+                <%= failures_label.call(data[:failed_count]) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                File
+              </p>
+
+              <p class="mt-1 font-mono text-sm text-slate-200">
+                <%= work_label.call(data[:queue_size]) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Worker
+              </p>
+
+              <p class="mt-1 font-mono text-sm text-slate-200">
+                <%= worker_label.call(data) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Verrou
+              </p>
+
+              <p class="mt-1 font-mono text-sm <%= data[:lock_present] ? 'text-amber-200' : 'text-slate-200' %>">
+                <%= data[:lock_present] ? "présent" : "absent" %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Prochain bloc
+              </p>
+
+              <p class="mt-1 font-mono text-sm text-slate-200">
+                <%= format_height.call(data[:next_record_height]) %>
+              </p>
+            </div>
+
+            <div>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Récupération
+              </p>
+
+              <p class="mt-1 font-mono text-sm text-slate-200">
+                <%= recovery_label.call(data) %>
+              </p>
+            </div>
+
+            <div class="sm:col-span-2 lg:col-span-3">
+              <% budget = (data[:historical_budget] || {}).with_indifferent_access %>
+              <p class="font-mono text-[11px] uppercase text-slate-500">
+                Budget historique
+              </p>
+
+              <p class="mt-1 text-sm text-slate-300">
+                Layer1
+                <span class="font-mono">
+                  <%= budget[:layer1_lag] || "—" %>/<%= budget[:layer1_lag_budget] || "—" %>
+                </span>
+                blocs,
+                Cluster
+                <span class="font-mono">
+                  <%= budget[:cluster_lag] || "—" %>/<%= budget[:cluster_lag_budget] || "—" %>
+                </span>
+                blocs.
+                <% if budget[:decision].present? %>
+                  Décision :
+                  <span class="font-mono">
+                    <%= budget.dig(:decision, :reason) || (budget.dig(:decision, :allowed) ? "autorisé" : "refusé") %>
+                  </span>
+                <% end %>
+              </p>
+            </div>
+          </div>
+        </div>
+<%
+      end
+    end
+
+  aggregate_status =
+    status_config.call(historical[:status])
+%>
+
+<section class="rounded-lg border border-slate-800 bg-slate-950 p-4 md:p-5">
+  <div class="flex flex-col gap-4 border-b border-slate-800 pb-4 md:flex-row md:items-start md:justify-between">
+    <div>
+      <p class="font-mono text-xs uppercase tracking-[0.18em] text-amber-300">
+        02 / Projections historiques
+      </p>
+
+      <h2 class="mt-2 text-lg font-semibold text-white">
+        Historique tx_outputs
+      </h2>
+
+      <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+        Les sorties historiques et leur état spent sont construits
+        en arrière-plan. Ces projections peuvent prendre du retard
+        sans bloquer Layer1 Realtime ni Cluster.
+      </p>
+    </div>
+
+    <span class="inline-flex w-fit rounded-md border px-3 py-1.5 font-mono text-xs font-semibold <%= aggregate_status[:badge] %>">
+      <%= aggregate_status[:label] %>
+    </span>
+  </div>
+
+  <div class="mt-4 grid gap-4 xl:grid-cols-2">
+    <%= projection_card.call(
+          title: "Création des sorties historiques",
+          role:
+            "Construit les lignes tx_outputs à partir " \
+            "des blocs déjà certifiés.",
+          data: outputs,
+          height_key: :last_projected_height
+        ) %>
+
+    <%= projection_card.call(
+          title: "Synchronisation des dépenses",
+          role:
+            "Reporte dans tx_outputs les dépenses déjà " \
+            "certifiées dans les faits stricts.",
+          data: spent_sync,
+          height_key: :last_synced_height
+        ) %>
+  </div>
+</section>

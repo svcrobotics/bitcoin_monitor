@@ -1,0 +1,191 @@
+# frozen_string_literal: true
+
+require "json"
+require "securerandom"
+require "sidekiq/api"
+
+module Layer1
+  module TxOutputsSpentSync
+    class Recovery
+      TARGET_JOB = "Layer1::TxOutputsSpentSyncJob"
+      STATUS_KEY = "layer1:tx_outputs_spent_sync:recovery:last"
+      LOCK_KEY = "layer1:tx_outputs_spent_sync:recovery:lock"
+      LOCK_TTL_SECONDS = 900
+
+      def self.call(limit: Config.recovery_batch_size, logger: Rails.logger)
+        new(limit: limit, logger: logger).call
+      end
+
+      def initialize(limit:, logger:)
+        @limit = [limit.to_i, 1].max
+        @logger = logger
+      end
+
+      def call
+        result = base_result
+
+        token = SecureRandom.hex(16)
+
+        unless acquire_lock(token)
+          result[:skipped_active] = true
+          result[:reason] = "spent_sync_recovery_lock_present"
+          return persist_result(result)
+        end
+
+        if job_active? || lock_present?
+          result[:skipped_active] = true
+          result[:reason] = "spent_sync_job_active_or_locked"
+          return persist_result(result)
+        end
+
+        records = stale_scope.limit(@limit).to_a
+        result[:checked] = records.size
+
+        records.each do |record|
+          recover_record(record, result)
+        end
+
+        persist_result(result)
+      ensure
+        release_lock(token) if defined?(token) && token.present?
+      end
+
+      private
+
+      def base_result
+        {
+          ok: true,
+          checked_at: Time.current,
+          stale_after_seconds: Config.recovery_stale_after_seconds,
+          checked: 0,
+          recovered: 0,
+          synced: 0,
+          pending: 0,
+          failed: 0,
+          skipped_active: false,
+          heights: [],
+          errors: {}
+        }
+      end
+
+      def stale_scope
+        Layer1TxOutputSync
+          .where(status: "processing")
+          .where("attempts < ?", Config.max_attempts)
+          .where(
+            "COALESCE(last_attempt_at, started_at, updated_at) < ?",
+            Config.recovery_stale_after_seconds.seconds.ago
+          )
+          .order(:height)
+      end
+
+      def recover_record(record, result)
+        sync_result =
+          SyncHeight.call(
+            sync_record: record,
+            logger: @logger
+          )
+
+        result[:recovered] += 1
+        result[:synced] += 1 if sync_result[:status].to_s == "synced"
+        result[:pending] += 1 if sync_result[:status].to_s == "pending"
+        result[:heights] << record.height
+      rescue StandardError => error
+        mark_failed(record, error)
+        result[:failed] += 1
+        result[:errors][record.height] =
+          "#{error.class}: #{error.message}".first(500)
+      end
+
+      def mark_failed(record, error)
+        record.update_columns(
+          status: "failed",
+          attempts: record.attempts.to_i + 1,
+          last_attempt_at: Time.current,
+          completed_at: nil,
+          last_error: "#{error.class}: #{error.message}".first(2_000),
+          updated_at: Time.current
+        )
+      end
+
+      def job_active?
+        Sidekiq::WorkSet.new.any? do |_process_id, _thread_id, work|
+          payload =
+            if work.respond_to?(:payload)
+              work.payload
+            else
+              work.to_h
+            end
+
+          payload.to_s.include?(TARGET_JOB)
+        end
+      rescue StandardError
+        false
+      end
+
+      def lock_present?
+        Sidekiq.redis do |redis|
+          value =
+            redis.call(
+              "EXISTS",
+              Layer1::TxOutputsSpentSyncJob::LOCK_KEY
+            )
+
+          value == true || value.to_i.positive?
+        end
+      rescue StandardError
+        false
+      end
+
+      def acquire_lock(token)
+        Sidekiq.redis do |redis|
+          !!redis.set(
+            LOCK_KEY,
+            token,
+            nx: true,
+            ex: LOCK_TTL_SECONDS
+          )
+        end
+      rescue StandardError
+        false
+      end
+
+      def release_lock(token)
+        Sidekiq.redis do |redis|
+          redis.del(LOCK_KEY) if redis.get(LOCK_KEY) == token
+        end
+      rescue StandardError => error
+        @logger.warn(
+          "[tx_outputs_spent_sync_recovery] lock_release_failed " \
+          "#{error.class}: #{error.message}"
+        )
+      end
+
+      def persist_result(result)
+        payload =
+          result.merge(
+            checked_at: result[:checked_at].iso8601(6)
+          )
+
+        Sidekiq.redis do |redis|
+          redis.set(
+            STATUS_KEY,
+            JSON.generate(payload),
+            ex: Config.recovery_status_ttl_seconds
+          )
+        end
+
+        @logger.info("[tx_outputs_spent_sync_recovery] #{result.inspect}")
+
+        result
+      rescue StandardError => error
+        @logger.warn(
+          "[tx_outputs_spent_sync_recovery] status_save_failed " \
+          "#{error.class}: #{error.message}"
+        )
+
+        result
+      end
+    end
+  end
+end

@@ -1,0 +1,1740 @@
+<%
+  dashboard ||= {}
+
+  read_value = lambda do |hash, key|
+    next nil unless hash.respond_to?(:[])
+
+    value =
+      hash[key]
+
+    value =
+      hash[key.to_s] if value.nil?
+
+    value
+  end
+
+  format_number = lambda do |value|
+    if value.nil?
+      "—"
+    else
+      number_with_delimiter(
+        value.to_i,
+        delimiter: " "
+      )
+    end
+  end
+
+  format_duration = lambda do |milliseconds|
+    value =
+      milliseconds.to_f
+
+    if value <= 0
+      "—"
+    elsif value < 1_000
+      "#{value.round} ms"
+    elsif value < 60_000
+      "#{number_with_precision(
+           value / 1_000,
+           precision: 1,
+           strip_insignificant_zeros: true
+         )} s"
+    else
+      "#{number_with_precision(
+           value / 60_000,
+           precision: 1,
+           strip_insignificant_zeros: true
+         )} min"
+    end
+  end
+
+  format_ratio = lambda do |value|
+    if value.nil?
+      "—"
+    else
+      number_with_precision(
+        value.to_f,
+        precision: 2,
+        strip_insignificant_zeros: true
+      )
+    end
+  end
+
+  format_blocks = lambda do |value|
+    count =
+      value.to_i
+
+    "#{format_number.call(count)} bloc#{'s' unless count == 1}"
+  end
+
+  boolean_label = lambda do |value|
+    case value
+    when true
+      "conforme"
+    when false
+      "non conforme"
+    else
+      "non mesuré"
+    end
+  end
+
+  status =
+    read_value.call(
+      dashboard,
+      :status
+    ).to_s.presence ||
+    "unknown"
+
+  status_label =
+    read_value.call(
+      dashboard,
+      :status_label
+    ).presence ||
+    "État Layer1 inconnu"
+
+  status_summary =
+    read_value.call(
+      dashboard,
+      :status_summary
+    ).presence ||
+    "Le snapshot Layer1 n’est pas disponible."
+
+  sync =
+    read_value.call(
+      dashboard,
+      :sync
+    ) || {}
+
+  buffers =
+    read_value.call(
+      dashboard,
+      :buffers
+    ) || {}
+
+  pipeline =
+    read_value.call(
+      dashboard,
+      :pipeline
+    ) || {}
+
+  automation =
+    read_value.call(
+      dashboard,
+      :automation
+    ) || {}
+
+  performance =
+    read_value.call(
+      dashboard,
+      :performance
+    ) || {}
+
+  last_block =
+    read_value.call(
+      performance,
+      :last_block
+    ) || {}
+
+  stage_timings =
+    read_value.call(
+      last_block,
+      :stage_timings
+    ) || {}
+
+  flush_metrics =
+    read_value.call(
+      last_block,
+      :flush_metrics
+    ) || {}
+
+  flush_outputs =
+    read_value.call(
+      flush_metrics,
+      :outputs
+    ) || {}
+
+  flush_spent =
+    read_value.call(
+      flush_metrics,
+      :spent
+    ) || {}
+
+  flush_iterations_count =
+    read_value.call(
+      flush_metrics,
+      :iterations_count
+    )
+
+  flush_details_available =
+    flush_outputs.present? ||
+    flush_spent.present?
+
+  flush_stage_labels = {
+    "pop_batch" =>
+      "Lecture du lot Redis",
+
+    "create_temp_table" =>
+      "Création de la table temporaire",
+
+    "copy_rows" =>
+      "Copie vers PostgreSQL",
+
+    "analyze_temp_table" =>
+      "Analyse de la table temporaire",
+
+    "insert_utxo_outputs" =>
+      "Insertion dans utxo_outputs",
+
+    "bulk_upsert_cluster_inputs" =>
+      "Écriture dans cluster_inputs",
+
+    "bulk_delete_utxo_outputs" =>
+      "Suppression des UTXO dépensés",
+
+    "bulk_update_tx_outputs" =>
+      "Mise à jour de tx_outputs",
+
+    "delete_utxo_outputs" =>
+      "Suppression des UTXO",
+
+    "register_async_projection" =>
+      "Enregistrement de la projection"
+  }
+
+  ignored_flush_stage_keys = %w[
+    realtime_insert_cluster_inputs
+  ].freeze
+
+  flush_stage_rows = []
+
+  [
+    [
+      "Outputs",
+      flush_outputs
+    ],
+    [
+      "Spent",
+      flush_spent
+    ]
+  ].each do |group_name, component|
+    timings =
+      read_value.call(
+        component,
+        :stage_timings
+      ) || {}
+
+    timings.each do |stage_name, duration|
+      stage_key =
+        stage_name.to_s
+
+      next if
+        ignored_flush_stage_keys.include?(
+          stage_key
+        )
+
+      flush_stage_rows << {
+        group:
+          group_name,
+
+        key:
+          stage_key,
+
+        label:
+          flush_stage_labels[
+            stage_key
+          ] ||
+          stage_key.humanize,
+
+        duration_ms:
+          duration.to_f
+      }
+    end
+  end
+
+  dominant_flush_stage =
+    flush_stage_rows.max_by do |row|
+      row[
+        :duration_ms
+      ]
+    end
+
+  proof =
+    read_value.call(
+      dashboard,
+      :proof
+    ) || {}
+
+  audit =
+    read_value.call(
+      dashboard,
+      :audit
+    ) || {}
+
+  pace =
+    read_value.call(
+      dashboard,
+      :pace
+    ) || {}
+
+  historical =
+    read_value.call(
+      dashboard,
+      :historical_projection
+    ) || {}
+
+  historical_outputs =
+    read_value.call(
+      historical,
+      :outputs
+    ) || {}
+
+  spent_sync =
+    read_value.call(
+      historical,
+      :spent_sync
+    ) || {}
+
+  counts =
+    read_value.call(
+      dashboard,
+      :counts
+    ) || {}
+
+  count_accuracy =
+    read_value.call(
+      counts,
+      :accuracy
+    ) || {}
+
+  cursors =
+    read_value.call(
+      dashboard,
+      :cursors
+    ) || {}
+
+  queues =
+    read_value.call(
+      dashboard,
+      :queues
+    ) || {}
+
+  current_block =
+    read_value.call(
+      dashboard,
+      :current_block
+    )
+
+  bitcoin_core_height =
+    read_value.call(
+      sync,
+      :bitcoin_core_height
+    )
+
+  processed_height =
+    read_value.call(
+      sync,
+      :processed_height
+    )
+
+  lag =
+    read_value.call(
+      sync,
+      :lag
+    ).to_i
+
+  outputs_buffer =
+    read_value.call(
+      buffers,
+      :outputs
+    ).to_i
+
+  spent_buffer =
+    read_value.call(
+      buffers,
+      :spent
+    ).to_i
+
+  current_height =
+    read_value.call(
+      current_block || {},
+      :height
+    )
+
+  last_height =
+    read_value.call(
+      last_block,
+      :height
+    )
+
+  last_duration_ms =
+    read_value.call(
+      last_block,
+      :duration_ms
+    ) ||
+    read_value.call(
+      performance,
+      :last_duration_ms
+    )
+
+  average_duration_ms =
+    read_value.call(
+      performance,
+      :average_duration_ms
+    )
+
+  strict_outputs_count =
+    read_value.call(
+      last_block,
+      :strict_outputs_count
+    )
+
+  cluster_inputs_count =
+    read_value.call(
+      last_block,
+      :cluster_inputs_count
+    )
+
+  node_inputs_count =
+    read_value.call(
+      last_block,
+      :node_inputs_count
+    )
+
+  db_inputs_count =
+    read_value.call(
+      last_block,
+      :db_inputs_count
+    )
+
+  expected_live_outputs_count =
+    read_value.call(
+      last_block,
+      :expected_live_outputs_count
+    )
+
+  actual_live_utxos_count =
+    read_value.call(
+      last_block,
+      :actual_live_utxos_count
+    )
+
+  audit_activity =
+    read_value.call(
+      audit,
+      :activity
+    )
+
+  if audit_activity.is_a?(Hash)
+    audit_activity =
+      read_value.call(
+        audit_activity,
+        :state
+      ) ||
+      read_value.call(
+        audit_activity,
+        :status
+      )
+  end
+
+  audit_activity =
+    audit_activity.to_s.presence ||
+    "unknown"
+
+  pace_comparison =
+    read_value.call(
+      pace,
+      :comparison
+    ) || {}
+
+  pace_trend =
+    read_value.call(
+      pace_comparison,
+      :trend
+    ).to_s.presence ||
+    "non mesuré"
+
+  status_classes =
+    case status
+    when "healthy"
+      "border-emerald-400/30 bg-emerald-400/10 text-emerald-200"
+    when "warning"
+      "border-amber-400/30 bg-amber-400/10 text-amber-200"
+    when "critical"
+      "border-red-400/30 bg-red-400/10 text-red-200"
+    else
+      "border-slate-600/40 bg-slate-800/60 text-slate-300"
+    end
+
+  realtime_stages = [
+    {
+      title: "Lecture Bitcoin Core",
+      description: "Récupération du hash, de l’en-tête et du bloc brut.",
+      keys: %i[
+        rpc_getblockhash
+        rpc_getblock_header
+      ]
+    },
+    {
+      title: "Préparation du bloc",
+      description: "Création ou reprise du block_buffer avant traitement.",
+      keys: %i[
+        prepare_block_buffer
+      ]
+    },
+    {
+      title: "Traitement des transactions",
+      description: "Lecture des transactions, sorties et prevouts stricts.",
+      keys: %i[
+        block_processor
+      ]
+    },
+    {
+      title: "Écriture UTXO et dépenses",
+      description: "Vidage des buffers outputs et spent vers PostgreSQL.",
+      keys: %i[
+        flush_buffers_until_empty
+      ]
+    },
+    {
+      title: "Réconciliation",
+      description: "Contrôle des dépenses et nettoyage des UTXO obsolètes.",
+      keys: %i[
+        reconcile_spent_outputs
+      ]
+    },
+    {
+      title: "Audits stricts",
+      description: "Comparaison outputs, inputs et état UTXO avec Bitcoin Core.",
+      keys: %i[
+        audit_outputs
+        audit_inputs
+        audit_utxo_state
+      ]
+    },
+    {
+      title: "Publication des faits",
+      description: "Calcul des outputs stricts et enregistrement des travaux asynchrones.",
+      keys: %i[
+        strict_output_facts
+        register_tx_output_projection
+        register_tx_outputs_async_sync
+        final_counts
+      ]
+    }
+  ]
+
+  realtime_stages.each do |stage|
+    stage[:duration_ms] =
+      stage[:keys].sum do |key|
+        read_value.call(
+          stage_timings,
+          key
+        ).to_f
+      end
+  end
+
+  pre_flush_stages =
+    realtime_stages.first(
+      3
+    )
+
+  flush_stage =
+    realtime_stages[
+      3
+    ]
+
+  post_flush_stages =
+    realtime_stages.last(
+      3
+    )
+
+  consumers = [
+    {
+      name: "Cluster",
+      state: lag.zero? ? "SOURCE À JOUR" : "ATTEND LE CHECKPOINT",
+      data: "cluster_inputs · spent_txid · spent_block_height",
+      description:
+        "Regroupe les adresses uniquement à partir des dépenses certifiées par Layer1."
+    },
+    {
+      name: "ActorProfile",
+      state: "SOURCE INDIRECTE",
+      data: "Layer1 → Cluster → ActorProfile",
+      description:
+        "Utilise les UTXO et les entrées certifiées après la construction Cluster."
+    },
+    {
+      name: "Modules analytiques",
+      state: "FAITS STRICTS",
+      data: "utxo_outputs · block_buffers · cluster_inputs",
+      description:
+        "Calculent les flux et états économiques depuis les tables certifiées."
+    },
+    {
+      name: "Moteur Tansa",
+      state: "DONNÉE CERTIFIÉE",
+      data: "checkpoint · provenance · audits",
+      description:
+        "Peut expliquer les faits Bitcoin en distinguant clairement données observées et projections."
+    }
+  ]
+
+  historical_cards = [
+    {
+      title: "Projection tx_outputs",
+      snapshot: historical_outputs,
+      description:
+        "Reconstitue les sorties historiques sans bloquer la certification temps réel."
+    },
+    {
+      title: "Synchronisation tx_outputs.spent",
+      snapshot: spent_sync,
+      description:
+        "Met à jour l’état spent historique depuis les dépenses déjà certifiées."
+    }
+  ]
+%>
+
+<section
+  data-module-pipeline="layer1"
+  class="overflow-hidden rounded-3xl border border-cyan-400/20 bg-[#080b13] text-slate-100 shadow-2xl shadow-black/30"
+>
+  <header class="border-b border-white/10 bg-gradient-to-r from-cyan-500/10 via-violet-500/5 to-transparent p-6">
+    <div class="flex flex-col justify-between gap-5 lg:flex-row lg:items-start">
+      <div class="max-w-3xl">
+        <p class="text-xs font-semibold uppercase tracking-[0.22em] text-cyan-300">
+          Layer1
+        </p>
+
+        <h1 class="mt-2 text-2xl font-semibold text-white">
+          Infrastructure Bitcoin stricte
+        </h1>
+
+        <p class="mt-3 text-sm leading-6 text-slate-400">
+          <%= status_summary %>
+        </p>
+      </div>
+
+      <span class="inline-flex w-fit rounded-full border px-3 py-1.5 text-xs font-semibold tracking-wide <%= status_classes %>">
+        <%= status_label.upcase %>
+      </span>
+    </div>
+
+    <div class="mt-6 grid grid-cols-2 gap-3 lg:grid-cols-4">
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Bitcoin Core
+        </div>
+
+        <div class="mt-2 text-2xl font-semibold text-cyan-300">
+          <%= format_number.call(
+                bitcoin_core_height
+              ) %>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Checkpoint Layer1
+        </div>
+
+        <div class="mt-2 text-2xl font-semibold text-emerald-300">
+          <%= format_number.call(
+                processed_height
+              ) %>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Retard
+        </div>
+
+        <div class="mt-2 text-2xl font-semibold <%= lag.zero? ? "text-emerald-300" : "text-amber-300" %>">
+          <%= format_blocks.call(
+                lag
+              ) %>
+        </div>
+      </div>
+
+      <div class="rounded-2xl border border-white/10 bg-black/20 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">
+          Bloc traité
+        </div>
+
+        <div class="mt-2 text-xl font-semibold text-violet-300">
+          <%= format_number.call(
+                last_height
+              ) %>
+        </div>
+
+        <div class="mt-1 text-xs text-slate-500">
+          <%= format_duration.call(
+                last_duration_ms
+              ) %>
+        </div>
+      </div>
+    </div>
+  </header>
+
+  <div class="space-y-5 p-6">
+    <!-- 1. ENTRÉES -->
+    <section class="rounded-3xl border border-cyan-400/20 bg-cyan-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-cyan-400/30 bg-cyan-400/10 text-sm font-bold text-cyan-200">
+          1
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-cyan-300">
+            Entrées
+          </p>
+
+          <h2 class="mt-1 text-lg font-semibold text-white">
+            Données reçues depuis Bitcoin Core
+          </h2>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Layer1 lit chaque bloc et ses transactions depuis le nœud Bitcoin,
+            puis prépare un buffer local avant toute écriture certifiée.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-3">
+        <article class="rounded-2xl border border-cyan-400/20 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-cyan-300">
+            Source directe
+          </p>
+
+          <h3 class="mt-1 font-mono font-semibold text-white">
+            Bitcoin Core RPC
+          </h3>
+
+          <p class="mt-3 text-sm leading-6 text-slate-400">
+            Hash du bloc, en-tête, transactions, outputs et prevouts
+            nécessaires à la résolution stricte des dépenses.
+          </p>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            Zone de préparation
+          </p>
+
+          <h3 class="mt-1 font-mono font-semibold text-white">
+            block_buffers
+          </h3>
+
+          <div class="mt-4 text-2xl font-semibold text-cyan-300">
+            <%= format_number.call(
+                  read_value.call(
+                    counts,
+                    :block_buffers
+                  )
+                ) %>
+          </div>
+
+          <p class="mt-1 text-xs text-slate-500">
+            enregistrements exacts
+          </p>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            Bloc actuellement traité
+          </p>
+
+          <div class="mt-2 text-2xl font-semibold text-white">
+            <%= format_number.call(
+                  current_height
+                ) %>
+          </div>
+
+          <p class="mt-2 text-xs text-slate-500">
+            <%= current_block.present? ?
+                  read_value.call(current_block, :status).to_s :
+                  "aucun traitement actif" %>
+          </p>
+        </article>
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-2">
+        <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+          <div class="text-xs text-slate-500">
+            Buffer outputs
+          </div>
+
+          <div class="mt-1 text-xl font-semibold <%= outputs_buffer.zero? ? "text-emerald-300" : "text-amber-300" %>">
+            <%= format_number.call(
+                  outputs_buffer
+                ) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+          <div class="text-xs text-slate-500">
+            Buffer spent
+          </div>
+
+          <div class="mt-1 text-xl font-semibold <%= spent_buffer.zero? ? "text-emerald-300" : "text-amber-300" %>">
+            <%= format_number.call(
+                  spent_buffer
+                ) %>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600">
+      ↓
+    </div>
+
+    <!-- 2. CALCULS -->
+    <section class="rounded-3xl border border-violet-400/20 bg-violet-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-violet-400/30 bg-violet-400/10 text-sm font-bold text-violet-200">
+          2
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-violet-300">
+            Calculs temps réel
+          </p>
+
+          <h2 class="mt-1 text-lg font-semibold text-white">
+            Certification stricte d’un bloc
+          </h2>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Le checkpoint n’est publié qu’après les écritures UTXO,
+            les dépenses, la réconciliation et les trois audits stricts.
+          </p>
+        </div>
+      </div>
+
+      <!-- Étapes rapides avant le flush -->
+      <div class="mt-5 grid gap-4 lg:grid-cols-3">
+        <% pre_flush_stages.each_with_index do |stage, index| %>
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wide text-violet-300">
+                  Étape <%= index + 1 %>
+                </p>
+
+                <h3 class="mt-1 font-semibold text-white">
+                  <%= stage[:title] %>
+                </h3>
+              </div>
+
+              <span class="shrink-0 font-mono text-sm text-violet-200">
+                <%= format_duration.call(
+                      stage[:duration_ms]
+                    ) %>
+              </span>
+            </div>
+
+            <p class="mt-3 text-sm leading-6 text-slate-400">
+              <%= stage[:description] %>
+            </p>
+          </article>
+        <% end %>
+      </div>
+
+      <!-- Étape 4 : panneau pleine largeur -->
+      <article class="mt-4 overflow-hidden rounded-2xl border border-violet-400/25 bg-black/25">
+        <header class="flex flex-col justify-between gap-4 border-b border-violet-400/15 bg-violet-400/[0.045] p-5 sm:flex-row sm:items-start">
+          <div>
+            <p class="text-xs uppercase tracking-wide text-violet-300">
+              Étape 4
+            </p>
+
+            <h3 class="mt-1 text-lg font-semibold text-white">
+              Matérialisation PostgreSQL
+            </h3>
+
+            <p class="mt-2 max-w-3xl text-sm leading-6 text-slate-400">
+              Écriture des outputs dans la table UTXO, résolution des
+              dépenses, création des entrées Cluster et suppression des
+              sorties désormais dépensées.
+            </p>
+          </div>
+
+          <div class="shrink-0 sm:text-right">
+            <p class="text-xs uppercase tracking-wide text-slate-500">
+              Durée totale
+            </p>
+
+            <p class="mt-1 font-mono text-2xl font-semibold text-violet-200">
+              <%= format_duration.call(
+                    flush_stage[:duration_ms]
+                  ) %>
+            </p>
+          </div>
+        </header>
+
+        <% if flush_details_available %>
+          <div class="p-5">
+            <!-- Résumé du flush -->
+            <div class="grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+              <div class="rounded-xl border border-white/10 bg-white/[0.025] p-4">
+                <p class="text-xs uppercase tracking-wide text-slate-500">
+                  Flux Outputs
+                </p>
+
+                <p class="mt-2 text-xl font-semibold text-white">
+                  <%= format_number.call(
+                        read_value.call(
+                          flush_outputs,
+                          :rows_flushed
+                        )
+                      ) %>
+                </p>
+
+                <p class="mt-1 text-xs text-slate-500">
+                  lignes ·
+                  <%= format_duration.call(
+                        read_value.call(
+                          flush_outputs,
+                          :duration_ms
+                        )
+                      ) %>
+                </p>
+              </div>
+
+              <div class="rounded-xl border border-white/10 bg-white/[0.025] p-4">
+                <p class="text-xs uppercase tracking-wide text-slate-500">
+                  Flux Spent
+                </p>
+
+                <p class="mt-2 text-xl font-semibold text-white">
+                  <%= format_number.call(
+                        read_value.call(
+                          flush_spent,
+                          :rows_flushed
+                        )
+                      ) %>
+                </p>
+
+                <p class="mt-1 text-xs text-slate-500">
+                  lignes ·
+                  <%= format_duration.call(
+                        read_value.call(
+                          flush_spent,
+                          :duration_ms
+                        )
+                      ) %>
+                </p>
+              </div>
+
+              <div class="rounded-xl border border-white/10 bg-white/[0.025] p-4">
+                <p class="text-xs uppercase tracking-wide text-slate-500">
+                  Itérations
+                </p>
+
+                <p class="mt-2 text-xl font-semibold text-white">
+                  <%= format_number.call(
+                        flush_iterations_count
+                      ) %>
+                </p>
+
+                <p class="mt-1 text-xs text-slate-500">
+                  passage<%= "s" unless flush_iterations_count.to_i == 1 %>
+                  des deux buffers
+                </p>
+              </div>
+
+              <div class="rounded-xl border border-amber-400/20 bg-amber-400/[0.04] p-4">
+                <p class="text-xs uppercase tracking-wide text-amber-300">
+                  Goulot principal
+                </p>
+
+                <% if dominant_flush_stage.present? %>
+                  <p class="mt-2 font-semibold text-white">
+                    <%= dominant_flush_stage[:label] %>
+                  </p>
+
+                  <p class="mt-1 font-mono text-sm text-amber-200">
+                    <%= format_duration.call(
+                          dominant_flush_stage[:duration_ms]
+                        ) %>
+                  </p>
+                <% else %>
+                  <p class="mt-2 text-sm text-slate-500">
+                    Non déterminé
+                  </p>
+                <% end %>
+              </div>
+            </div>
+
+            <!-- Deux grands flux séparés -->
+            <div class="mt-5 grid gap-5 xl:grid-cols-2">
+              <% [
+                   [
+                     "Outputs",
+                     "Création et matérialisation des nouvelles sorties UTXO.",
+                     flush_outputs,
+                     "text-cyan-300",
+                     "border-cyan-400/20"
+                   ],
+                   [
+                     "Spent",
+                     "Résolution des dépenses, alimentation de Cluster et suppression des UTXO consommés.",
+                     flush_spent,
+                     "text-amber-300",
+                     "border-amber-400/20"
+                   ]
+                 ].each do |group_name,
+                            group_description,
+                            component,
+                            accent_class,
+                            border_class| %>
+                <%
+                  component_timings =
+                    read_value.call(
+                      component,
+                      :stage_timings
+                    ) || {}
+
+                  visible_timings =
+                    component_timings.reject do |stage_name, _duration|
+                      ignored_flush_stage_keys.include?(
+                        stage_name.to_s
+                      )
+                    end
+
+                  rows_flushed =
+                    read_value.call(
+                      component,
+                      :rows_flushed
+                    )
+
+                  component_duration =
+                    read_value.call(
+                      component,
+                      :duration_ms
+                    )
+
+                  ms_per_row =
+                    read_value.call(
+                      component,
+                      :ms_per_row
+                    )
+
+                  unattributed_duration =
+                    read_value.call(
+                      component,
+                      :unattributed_duration_ms
+                    ).to_i
+                %>
+
+                <section class="rounded-2xl border <%= border_class %> bg-white/[0.02] p-5">
+                  <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
+                    <div>
+                      <p class="text-xs uppercase tracking-[0.16em] <%= accent_class %>">
+                        Flux <%= group_name %>
+                      </p>
+
+                      <p class="mt-2 text-sm leading-6 text-slate-400">
+                        <%= group_description %>
+                      </p>
+                    </div>
+
+                    <div class="shrink-0 sm:text-right">
+                      <p class="font-mono text-lg font-semibold text-white">
+                        <%= format_duration.call(
+                              component_duration
+                            ) %>
+                      </p>
+
+                      <p class="mt-1 text-xs text-slate-500">
+                        <%= format_number.call(
+                              rows_flushed
+                            ) %>
+                        lignes
+                      </p>
+                    </div>
+                  </div>
+
+                  <div class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+                    <div class="flex items-center justify-between gap-4">
+                      <span class="text-sm text-slate-400">
+                        Coût moyen par ligne
+                      </span>
+
+                      <strong class="font-mono text-white">
+                        <%= format_ratio.call(
+                              ms_per_row
+                            ) %>
+                        ms
+                      </strong>
+                    </div>
+                  </div>
+
+                  <dl class="mt-5 divide-y divide-white/10">
+                    <% visible_timings
+                         .sort_by { |_name, duration| -duration.to_f }
+                         .each do |stage_name, duration| %>
+                      <%
+                        stage_key =
+                          stage_name.to_s
+
+                        stage_label =
+                          flush_stage_labels[
+                            stage_key
+                          ] ||
+                          stage_key.humanize
+                      %>
+
+                      <div class="flex items-start justify-between gap-6 py-3 first:pt-0 last:pb-0">
+                        <dt class="text-sm leading-5 text-slate-400">
+                          <%= stage_label %>
+                        </dt>
+
+                        <dd class="shrink-0 font-mono text-sm font-semibold text-slate-200">
+                          <%= format_duration.call(
+                                duration
+                              ) %>
+                        </dd>
+                      </div>
+                    <% end %>
+
+                    <% if unattributed_duration.positive? %>
+                      <div class="flex items-start justify-between gap-6 py-3">
+                        <dt class="text-sm text-slate-500">
+                          Temps non attribué
+                        </dt>
+
+                        <dd class="shrink-0 font-mono text-sm text-slate-400">
+                          <%= format_duration.call(
+                                unattributed_duration
+                              ) %>
+                        </dd>
+                      </div>
+                    <% end %>
+                  </dl>
+                </section>
+              <% end %>
+            </div>
+
+            <% if dominant_flush_stage.present? %>
+              <div class="mt-5 flex flex-col justify-between gap-3 rounded-xl border border-amber-400/20 bg-amber-400/[0.035] p-4 sm:flex-row sm:items-center">
+                <div>
+                  <p class="text-xs uppercase tracking-wide text-amber-300">
+                    Analyse du bloc
+                  </p>
+
+                  <p class="mt-1 text-sm text-slate-300">
+                    La sous-étape la plus coûteuse est
+                    <strong class="text-white">
+                      <%= dominant_flush_stage[:label] %>
+                    </strong>
+                    dans le flux
+                    <%= dominant_flush_stage[:group] %>.
+                  </p>
+                </div>
+
+                <span class="shrink-0 font-mono text-lg font-semibold text-amber-200">
+                  <%= format_duration.call(
+                        dominant_flush_stage[:duration_ms]
+                      ) %>
+                </span>
+              </div>
+            <% end %>
+          </div>
+        <% else %>
+          <div class="p-5">
+            <p class="text-sm leading-6 text-slate-400">
+              Ce bloc a été certifié avant l’instrumentation détaillée.
+              Le temps total est disponible, mais le découpage Outputs et
+              Spent apparaîtra avec un bloc instrumenté.
+            </p>
+          </div>
+        <% end %>
+      </article>
+
+      <!-- Étapes rapides après le flush -->
+      <div class="mt-4 grid gap-4 lg:grid-cols-3">
+        <% post_flush_stages.each_with_index do |stage, index| %>
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start justify-between gap-4">
+              <div>
+                <p class="text-xs uppercase tracking-wide text-violet-300">
+                  Étape <%= index + 5 %>
+                </p>
+
+                <h3 class="mt-1 font-semibold text-white">
+                  <%= stage[:title] %>
+                </h3>
+              </div>
+
+              <span class="shrink-0 font-mono text-sm text-violet-200">
+                <%= format_duration.call(
+                      stage[:duration_ms]
+                    ) %>
+              </span>
+            </div>
+
+            <p class="mt-3 text-sm leading-6 text-slate-400">
+              <%= stage[:description] %>
+            </p>
+          </article>
+        <% end %>
+      </div>
+
+      <div class="mt-4 grid gap-3 sm:grid-cols-3">
+        <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+          <div class="text-xs text-slate-500">
+            Dernier bloc
+          </div>
+
+          <div class="mt-1 font-semibold text-violet-200">
+            <%= format_duration.call(
+                  last_duration_ms
+                ) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+          <div class="text-xs text-slate-500">
+            Moyenne récente
+          </div>
+
+          <div class="mt-1 font-semibold text-white">
+            <%= format_duration.call(
+                  average_duration_ms
+                ) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+          <div class="text-xs text-slate-500">
+            État du pipeline
+          </div>
+
+          <div class="mt-1 font-semibold text-white">
+            <%= read_value.call(
+                  pipeline,
+                  :label
+                ).presence || "inconnu" %>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600">
+      ↓
+    </div>
+
+    <!-- 3. SORTIES -->
+    <section class="rounded-3xl border border-emerald-400/20 bg-emerald-400/[0.035] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-emerald-400/30 bg-emerald-400/10 text-sm font-bold text-emerald-200">
+          3
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+            Sorties certifiées
+          </p>
+
+          <h2 class="mt-1 text-lg font-semibold text-white">
+            Faits Bitcoin publiés
+          </h2>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Layer1 publie uniquement les états ayant passé les contrôles
+            de cohérence avec Bitcoin Core.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <article class="rounded-2xl border border-emerald-400/20 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-emerald-300">
+            Tables strictes
+          </p>
+
+          <dl class="mt-4 space-y-3 text-sm">
+            <div class="flex justify-between gap-4">
+              <dt class="font-mono text-slate-500">
+                block_buffers
+              </dt>
+
+              <dd class="font-semibold text-white">
+                <%= format_number.call(
+                      read_value.call(
+                        counts,
+                        :block_buffers
+                      )
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="font-mono text-slate-500">
+                utxo_outputs
+              </dt>
+
+              <dd class="font-semibold text-white">
+                <%= format_number.call(
+                      read_value.call(
+                        counts,
+                        :utxo_outputs
+                      )
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="font-mono text-slate-500">
+                cluster_inputs
+              </dt>
+
+              <dd class="font-semibold text-white">
+                <%= format_number.call(
+                      read_value.call(
+                        counts,
+                        :cluster_inputs
+                      )
+                    ) %>
+              </dd>
+            </div>
+          </dl>
+
+          <p class="mt-4 text-xs leading-5 text-slate-500">
+            Les volumes UTXO et cluster_inputs sont signalés comme
+            <%= read_value.call(count_accuracy, :utxo_outputs) || "estimés" %>
+            dans le snapshot de santé.
+          </p>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-slate-500">
+            Dernier bloc certifié
+          </p>
+
+          <div class="mt-3 text-2xl font-semibold text-emerald-300">
+            <%= format_number.call(
+                  last_height
+                ) %>
+          </div>
+
+          <div class="mt-4 grid grid-cols-2 gap-3">
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <div class="text-xs text-slate-500">
+                Outputs stricts
+              </div>
+
+              <div class="mt-1 font-semibold text-white">
+                <%= format_number.call(
+                      strict_outputs_count
+                    ) %>
+              </div>
+            </div>
+
+            <div class="rounded-xl bg-white/[0.035] p-3">
+              <div class="text-xs text-slate-500">
+                Entrées Cluster
+              </div>
+
+              <div class="mt-1 font-semibold text-white">
+                <%= format_number.call(
+                      cluster_inputs_count
+                    ) %>
+              </div>
+            </div>
+          </div>
+        </article>
+      </div>
+
+      <div class="mt-4 grid gap-3 md:grid-cols-3">
+        <% [
+             ["Audit outputs", read_value.call(last_block, :outputs_audit_ok)],
+             ["Audit inputs", read_value.call(last_block, :inputs_audit_ok)],
+             ["Audit état UTXO", read_value.call(last_block, :utxo_audit_ok)]
+           ].each do |label, value| %>
+          <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+            <div class="text-xs text-slate-500">
+              <%= label %>
+            </div>
+
+            <div class="mt-1 font-semibold <%= value == true ? "text-emerald-300" : (value == false ? "text-red-300" : "text-slate-400") %>">
+              <%= boolean_label.call(
+                    value
+                  ) %>
+            </div>
+          </div>
+        <% end %>
+      </div>
+
+      <div class="mt-4 grid gap-3 md:grid-cols-2">
+        <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+          <div class="text-xs text-slate-500">
+            Inputs Bitcoin Core / base
+          </div>
+
+          <div class="mt-1 font-mono font-semibold text-white">
+            <%= format_number.call(
+                  node_inputs_count
+                ) %>
+            /
+            <%= format_number.call(
+                  db_inputs_count
+                ) %>
+          </div>
+        </div>
+
+        <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+          <div class="text-xs text-slate-500">
+            Outputs vivants attendus / UTXO
+          </div>
+
+          <div class="mt-1 font-mono font-semibold text-white">
+            <%= format_number.call(
+                  expected_live_outputs_count
+                ) %>
+            /
+            <%= format_number.call(
+                  actual_live_utxos_count
+                ) %>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <div class="flex justify-center text-2xl text-slate-600">
+      ↓
+    </div>
+
+    <!-- 4. UTILISÉ PAR -->
+    <section class="rounded-3xl border border-pink-400/20 bg-pink-400/[0.03] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-pink-400/30 bg-pink-400/10 text-sm font-bold text-pink-200">
+          4
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-pink-300">
+            Utilisé par
+          </p>
+
+          <h2 class="mt-1 text-lg font-semibold text-white">
+            Modules alimentés par Layer1
+          </h2>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <% consumers.each do |consumer| %>
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start justify-between gap-3">
+              <h3 class="font-semibold text-white">
+                <%= consumer[:name] %>
+              </h3>
+
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold text-slate-400">
+                <%= consumer[:state] %>
+              </span>
+            </div>
+
+            <div class="mt-2 font-mono text-xs text-pink-300">
+              <%= consumer[:data] %>
+            </div>
+
+            <p class="mt-3 text-sm leading-6 text-slate-400">
+              <%= consumer[:description] %>
+            </p>
+          </article>
+        <% end %>
+      </div>
+    </section>
+
+    <!-- 5. TRAVAUX ASYNCHRONES -->
+    <section class="rounded-3xl border border-amber-400/20 bg-amber-400/[0.03] p-5">
+      <div class="flex items-start gap-4">
+        <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-amber-400/30 bg-amber-400/10 text-sm font-bold text-amber-200">
+          5
+        </span>
+
+        <div>
+          <p class="text-xs font-semibold uppercase tracking-[0.18em] text-amber-300">
+            Travaux asynchrones
+          </p>
+
+          <h2 class="mt-1 text-lg font-semibold text-white">
+            Historique et audits lourds
+          </h2>
+
+          <p class="mt-1 text-sm leading-6 text-slate-400">
+            Ces traitements utilisent les faits déjà certifiés et cèdent
+            toujours la priorité au chemin temps réel.
+          </p>
+        </div>
+      </div>
+
+      <div class="mt-5 grid gap-4 lg:grid-cols-2">
+        <% historical_cards.each do |card| %>
+          <%
+            component =
+              card[:snapshot]
+
+            component_state =
+              read_value.call(
+                component,
+                :state
+              ).to_s.presence ||
+              "unknown"
+          %>
+
+          <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+            <div class="flex items-start justify-between gap-3">
+              <h3 class="font-semibold text-white">
+                <%= card[:title] %>
+              </h3>
+
+              <span class="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-semibold uppercase text-amber-200">
+                <%= component_state %>
+              </span>
+            </div>
+
+            <p class="mt-3 text-sm leading-6 text-slate-400">
+              <%= read_value.call(
+                    component,
+                    :description
+                  ).presence ||
+                  card[:description] %>
+            </p>
+
+            <div class="mt-4 grid grid-cols-3 gap-3">
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  Retard
+                </div>
+
+                <div class="mt-1 font-semibold text-white">
+                  <%= format_number.call(
+                        read_value.call(
+                          component,
+                          :projection_lag_blocks
+                        )
+                      ) %>
+                </div>
+              </div>
+
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  En attente
+                </div>
+
+                <div class="mt-1 font-semibold text-white">
+                  <%= format_number.call(
+                        read_value.call(
+                          component,
+                          :pending_count
+                        )
+                      ) %>
+                </div>
+              </div>
+
+              <div class="rounded-xl bg-white/[0.035] p-3">
+                <div class="text-xs text-slate-500">
+                  Échecs
+                </div>
+
+                <div class="mt-1 font-semibold <%= read_value.call(component, :failed_count).to_i.zero? ? "text-emerald-300" : "text-red-300" %>">
+                  <%= format_number.call(
+                        read_value.call(
+                          component,
+                          :failed_count
+                        )
+                      ) %>
+                </div>
+              </div>
+            </div>
+          </article>
+        <% end %>
+
+        <article class="rounded-2xl border border-violet-400/20 bg-black/20 p-5">
+          <div class="flex items-start justify-between gap-3">
+            <h3 class="font-semibold text-white">
+              Audit lourd indépendant
+            </h3>
+
+            <span class="rounded-full border border-violet-400/20 px-2.5 py-1 text-[10px] font-semibold uppercase text-violet-200">
+              <%= read_value.call(
+                    audit,
+                    :status
+                  ).to_s.presence ||
+                  "unknown" %>
+            </span>
+          </div>
+
+          <p class="mt-3 text-sm leading-6 text-slate-400">
+            Vérifie indépendamment les blocs déjà certifiés sans bloquer
+            le pipeline temps réel.
+          </p>
+
+          <dl class="mt-4 space-y-2 text-sm">
+            <div class="flex justify-between gap-4">
+              <dt class="text-slate-500">
+                Activité
+              </dt>
+
+              <dd class="font-mono text-white">
+                <%= audit_activity %>
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="text-slate-500">
+                Dernier bloc sain
+              </dt>
+
+              <dd class="font-mono text-white">
+                <%= format_number.call(
+                      read_value.call(
+                        audit,
+                        :last_healthy_height
+                      )
+                    ) %>
+              </dd>
+            </div>
+
+            <div class="flex justify-between gap-4">
+              <dt class="text-slate-500">
+                Plus haut sain
+              </dt>
+
+              <dd class="font-mono text-white">
+                <%= format_number.call(
+                      read_value.call(
+                        audit,
+                        :highest_healthy_height
+                      )
+                    ) %>
+              </dd>
+            </div>
+          </dl>
+
+          <div class="mt-4">
+            <%= button_to(
+                  "Lancer un audit",
+                  system_layer1_audit_run_path,
+                  method: :post,
+                  data: {
+                    turbo_stream: true
+                  },
+                  class:
+                    "rounded-xl border border-violet-400/30 " \
+                    "bg-violet-400/10 px-4 py-2 text-xs " \
+                    "font-semibold text-violet-100 " \
+                    "hover:bg-violet-400/20"
+                ) %>
+          </div>
+        </article>
+
+        <article class="rounded-2xl border border-white/10 bg-black/20 p-5">
+          <p class="text-xs uppercase tracking-wide text-amber-300">
+            Cadence récente
+          </p>
+
+          <h3 class="mt-1 font-semibold text-white">
+            Rythme de certification
+          </h3>
+
+          <div class="mt-4 text-2xl font-semibold text-amber-200">
+            <%= pace_trend.humanize %>
+          </div>
+
+          <p class="mt-2 text-sm leading-6 text-slate-400">
+            La cadence décrit la vitesse observée, sans modifier le niveau
+            de certification des blocs.
+          </p>
+        </article>
+      </div>
+    </section>
+
+    <!-- DÉTAILS TECHNIQUES -->
+    <details class="rounded-2xl border border-white/10 bg-black/20">
+      <summary class="cursor-pointer select-none px-5 py-4 text-sm font-semibold text-slate-300">
+        Voir les détails techniques
+      </summary>
+
+      <div class="border-t border-white/10 p-5">
+        <dl class="grid gap-3 text-sm md:grid-cols-2 xl:grid-cols-3">
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Worker Layer1
+            </dt>
+
+            <dd class="mt-1 text-slate-200">
+              <%= read_value.call(
+                    automation,
+                    :worker_label
+                  ).presence ||
+                  "inconnu" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Scheduler
+            </dt>
+
+            <dd class="mt-1 text-slate-200">
+              <%= read_value.call(
+                    automation,
+                    :scheduler_status
+                  ).presence ||
+                  "inconnu" %>
+            </dd>
+          </div>
+
+          <div class="rounded-xl bg-white/[0.025] p-3">
+            <dt class="text-slate-500">
+              Queue stricte
+            </dt>
+
+            <dd class="mt-1 font-mono text-slate-200">
+              <%= format_number.call(
+                    read_value.call(
+                      automation,
+                      :queue_size
+                    )
+                  ) %>
+            </dd>
+          </div>
+
+          <% cursors.each do |name, value| %>
+            <div class="rounded-xl bg-white/[0.025] p-3">
+              <dt class="font-mono text-xs text-slate-500">
+                <%= name %>
+              </dt>
+
+              <dd class="mt-1 font-mono text-slate-200">
+                <%= format_number.call(
+                      value
+                    ) %>
+              </dd>
+            </div>
+          <% end %>
+
+          <% queues.each do |name, value| %>
+            <div class="rounded-xl bg-white/[0.025] p-3">
+              <dt class="font-mono text-xs text-slate-500">
+                queue.<%= name %>
+              </dt>
+
+              <dd class="mt-1 font-mono text-slate-200">
+                <%= format_number.call(
+                      value
+                    ) %>
+              </dd>
+            </div>
+          <% end %>
+        </dl>
+      </div>
+    </details>
+  </div>
+</section>
