@@ -79,6 +79,16 @@ module ActorLabels
               result[:expected_labels]
             )
 
+          expected_upsert_labels =
+            Array(
+              result[:expected_upsert_labels]
+            )
+
+          expected_deleted_labels =
+            Array(
+              result[:expected_deleted_labels]
+            )
+
           written_labels =
             Array(
               result[:written_labels]
@@ -103,6 +113,12 @@ module ActorLabels
           else
             counters[:snapshots_without_labels] += 1
           end
+
+          counters[:expected_upserts] +=
+            expected_upsert_labels.size
+
+          counters[:expected_deletions] +=
+            expected_deleted_labels.size
 
           counters[:written_labels] +=
             written_labels.size
@@ -218,6 +234,12 @@ module ActorLabels
 
           expected_by_label:
             expected_by_label(counters),
+
+          expected_upserts:
+            counters[:expected_upserts],
+
+          expected_deletions:
+            counters[:expected_deletions],
 
           written_labels:
             counters[:written_labels],

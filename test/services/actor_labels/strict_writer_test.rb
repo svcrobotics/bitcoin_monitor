@@ -24,6 +24,11 @@ module ActorLabels
         result[:expected_labels]
       )
 
+      assert_equal(
+        %w[exchange_like service_like],
+        result[:expected_upsert_labels]
+      )
+
       assert_empty result[:written_labels]
 
       assert_equal(
@@ -32,6 +37,33 @@ module ActorLabels
           source:
             ActorLabels::StrictRuleSet::SOURCE
         ).count
+      )
+    end
+
+    test "dry run reports no upsert for current labels" do
+      snapshot =
+        create_snapshot(
+          exchange: true,
+          service: true
+        )
+
+      ActorLabels::StrictWriter.call(
+        snapshot: snapshot,
+        dry_run: false
+      )
+
+      result =
+        ActorLabels::StrictWriter.call(
+          snapshot: snapshot,
+          dry_run: true
+        )
+
+      assert_empty(
+        result[:expected_upsert_labels]
+      )
+
+      assert_empty(
+        result[:expected_deleted_labels]
       )
     end
 
@@ -150,6 +182,25 @@ module ActorLabels
           source:
             "legacy_test_source"
         )
+
+      audit =
+        ActorLabels::StrictWriter.call(
+          snapshot: snapshot,
+          dry_run: true
+        )
+
+      assert_equal(
+        ["exchange_like"],
+        audit[:expected_deleted_labels]
+      )
+
+      assert ActorLabel.exists?(
+        cluster_id:
+          snapshot.cluster_id,
+
+        source:
+          ActorLabels::StrictRuleSet::SOURCE
+      )
 
       result =
         ActorLabels::StrictWriter.call(

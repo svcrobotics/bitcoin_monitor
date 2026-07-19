@@ -48,6 +48,16 @@ module ActorLabels
       )
 
       assert_equal(
+        2,
+        result.dig(:batch, :expected_upserts)
+      )
+
+      assert_equal(
+        0,
+        result.dig(:batch, :expected_deletions)
+      )
+
+      assert_equal(
         1,
         result.dig(
           :batch,

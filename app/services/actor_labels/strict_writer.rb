@@ -39,6 +39,24 @@ module ActorLabels
           source: SOURCE
         )
 
+      existing_by_label =
+        existing_scope.index_by(&:label)
+
+      expected_upsert_labels =
+        expected_labels.filter_map do |label_data|
+          label_name =
+            label_data.fetch(:label)
+
+          existing_label =
+            existing_by_label[label_name]
+
+          label_name unless
+            current_label?(
+              existing_label,
+              label_data
+            )
+        end
+
       obsolete_scope =
         if expected_names.empty?
           existing_scope
@@ -89,6 +107,9 @@ module ActorLabels
         expected_labels:
           expected_names,
 
+        expected_upsert_labels:
+          expected_upsert_labels,
+
         expected_deleted_labels:
           expected_deleted_labels,
 
@@ -103,6 +124,26 @@ module ActorLabels
     private
 
     attr_reader :snapshot, :dry_run
+
+    def current_label?(label, label_data)
+      return false unless label
+
+      metadata =
+        label.metadata.to_h
+
+      label.actor_profile_id ==
+        snapshot.actor_profile_id &&
+        label.confidence.to_i ==
+          label_data.fetch(:confidence).to_i &&
+        metadata[
+          "actor_behavior_snapshot_id"
+        ].to_i ==
+          snapshot.id &&
+        metadata[
+          "rule_version"
+        ].to_s ==
+          label_data.fetch(:rule_version).to_s
+    end
 
     def ineligible_result(result)
       {
@@ -121,6 +162,7 @@ module ActorLabels
           snapshot&.cluster_id,
 
         expected_labels: [],
+        expected_upsert_labels: [],
         expected_deleted_labels: [],
         written_labels: [],
         deleted_labels: []
