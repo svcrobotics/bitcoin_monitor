@@ -126,6 +126,49 @@ module ActorLabels
       end
     end
 
+    test "reports no incremental work after the cursor" do
+      filtered_scope =
+        Object.new
+
+      filtered_scope.define_singleton_method(
+        :exists?
+      ) do
+        false
+      end
+
+      current_scope =
+        Object.new
+
+      current_scope.define_singleton_method(
+        :where
+      ) do |*_arguments|
+        filtered_scope
+      end
+
+      current_scope.define_singleton_method(
+        :exists?
+      ) do
+        true
+      end
+
+      snapshot =
+        ActorLabels::ControlSnapshot.new(
+          now: Time.current
+        )
+
+      snapshot.define_singleton_method(
+        :sql_current_scope
+      ) do
+        current_scope
+      end
+
+      assert_equal false,
+                   snapshot.send(
+                     :work_available?,
+                     123
+                   )
+    end
+
     test "does not write actor labels or actor behavior snapshots" do
       assert_no_difference -> { ActorLabel.count } do
         assert_no_difference -> { ActorBehaviorSnapshot.count } do

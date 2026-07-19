@@ -139,6 +139,30 @@ module ActorLabels
       refute_match(/StrictWriter\.call/, source)
     end
 
+    test "completed cycle keeps the last id as incremental cursor" do
+      snapshot =
+        create_behavior(
+          address_count: 1,
+          tx_count: 1
+        )
+
+      result =
+        ActorLabels::StrictBatch.call(
+          limit: 10,
+          after_id: 0,
+          dry_run: true
+        )
+
+      assert_equal false,
+                   result.dig(:cursor, :has_more)
+
+      assert_equal snapshot.id,
+                   result.dig(:cursor, :last_id)
+
+      assert_equal snapshot.id,
+                   result.dig(:cursor, :next_after_id)
+    end
+
     private
 
     def create_behavior(

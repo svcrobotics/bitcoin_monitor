@@ -177,7 +177,7 @@ module ActorLabels
             has_more,
 
           next_after_id:
-            has_more ? last_id : 0
+            last_id
         },
 
         heights: {

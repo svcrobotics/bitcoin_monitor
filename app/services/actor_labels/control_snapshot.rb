@@ -125,8 +125,7 @@ module ActorLabels
           "actor_behavior_snapshots.id > ?",
           cursor.to_i
         )
-        .exists? ||
-        cursor.to_i.positive? && sql_current_scope.exists?
+        .exists?
     end
 
     def pending_for_labels(cursor)
