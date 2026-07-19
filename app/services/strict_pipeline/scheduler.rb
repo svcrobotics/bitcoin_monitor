@@ -114,7 +114,12 @@ module StrictPipeline
         kind: :active_job,
         args: [
           {
-            limit: 25,
+            limit: Integer(
+              ENV.fetch(
+                "ACTOR_LABEL_STRICT_BATCH_LIMIT",
+                "25"
+              )
+            ),
             persist_cursor: true
           }
         ]

@@ -105,6 +105,27 @@ module ActorLabels
       end
     end
 
+    test "reports the strict batch Redis lock" do
+      Sidekiq.redis do |redis|
+        redis.set(
+          ActorLabels::StrictBatchJob::LOCK_KEY,
+          "test-lock"
+        )
+      end
+
+      snapshot =
+        ActorLabels::ControlSnapshot.call
+
+      assert_equal true,
+                   snapshot[:lock_present]
+    ensure
+      Sidekiq.redis do |redis|
+        redis.del(
+          ActorLabels::StrictBatchJob::LOCK_KEY
+        )
+      end
+    end
+
     test "does not write actor labels or actor behavior snapshots" do
       assert_no_difference -> { ActorLabel.count } do
         assert_no_difference -> { ActorBehaviorSnapshot.count } do

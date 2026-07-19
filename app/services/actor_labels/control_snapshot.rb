@@ -176,7 +176,7 @@ module ActorLabels
     def lock_present?
       Sidekiq.redis do |redis|
         value =
-          redis.exists?(ActorLabels::StrictBatchJob::LOCK_KEY)
+          redis.exists(ActorLabels::StrictBatchJob::LOCK_KEY)
 
         value == true || value.to_i.positive?
       end
