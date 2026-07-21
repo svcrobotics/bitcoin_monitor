@@ -163,7 +163,7 @@ module StrictPipeline
     end
 
     def call
-      @strict_io_owner_scheduled = nil
+      @strict_io_owners_scheduled = []
       @actor_behavior_heavy_scheduled = false
 
       publish_runtime_status
@@ -686,8 +686,14 @@ module StrictPipeline
 
     def acquire_strict_io_lease(spec)
       return nil unless strict_io_role?(spec)
-      return nil if @strict_io_owner_scheduled.present?
-      return nil if opposite_strict_io_worker_active?(spec)
+      return nil unless
+        StrictPipeline::StrictIoLease.compatible_owners?(
+          spec.name,
+          @strict_io_owners_scheduled
+        )
+      return nil if
+        !StrictPipeline::StrictIoMode.concurrent_ssd? &&
+        opposite_strict_io_worker_active?(spec)
 
       if spec.name == :layer1 &&
          development_backfill_alternating_enabled? &&
@@ -698,7 +704,7 @@ module StrictPipeline
       lease =
         StrictPipeline::StrictIoLease.acquire(spec.name)
 
-      @strict_io_owner_scheduled = lease.owner if lease
+      @strict_io_owners_scheduled << lease.owner if lease
 
       lease
     end
@@ -727,6 +733,13 @@ module StrictPipeline
     end
 
     def development_backfill_downstream_worker_active?
+      queues =
+        DEVELOPMENT_BACKFILL_DOWNSTREAM_QUEUES
+
+      if StrictPipeline::StrictIoMode.concurrent_ssd?
+        queues = queues - ["cluster_strict"]
+      end
+
       Sidekiq::Workers
         .new
         .any? do |_pid, _tid, work|
@@ -735,7 +748,7 @@ module StrictPipeline
               :@hsh
             )
 
-          DEVELOPMENT_BACKFILL_DOWNSTREAM_QUEUES
+          queues
             .include?(
               h["queue"].to_s
             )
@@ -750,7 +763,7 @@ module StrictPipeline
         token: lease.token
       )
 
-      @strict_io_owner_scheduled = nil
+      @strict_io_owners_scheduled.delete(lease.owner)
     end
 
     def args_with_lease(spec, lease)
@@ -812,12 +825,14 @@ module StrictPipeline
 
     def strict_lock_present?(spec)
       if strict_io_role?(spec)
-        return true if @strict_io_owner_scheduled.present?
+        return true unless
+          StrictPipeline::StrictIoLease.compatible_owners?(
+            spec.name,
+            @strict_io_owners_scheduled
+          )
 
-        owner =
-          StrictPipeline::StrictIoLease.current&.owner
-
-        return owner.present?
+        return !StrictPipeline::StrictIoLease
+          .compatible_with_current?(spec.name)
       end
 
       key =

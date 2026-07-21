@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "test_helper"
+require "minitest/mock"
 
 module System
   class PipelineControllerDevelopmentBackfillTest <
@@ -489,6 +490,125 @@ module System
       end
     end
 
+    test "concurrent ssd makes lag one available to layer1" do
+      with_pipeline_mode(strict_io_mode: "concurrent_ssd") do
+        snapshot =
+          base_snapshot.deep_merge(
+            layer1: {
+              lag: 1,
+              processing: false,
+              strict_queue_size: 0,
+              strict_worker_busy: false
+            }
+          )
+
+        decision =
+          PipelineController.decision(
+            :layer1_realtime,
+            current_snapshot: snapshot
+          )
+
+        assert PipelineController.work_available?(decision)
+      end
+    end
+
+    test "concurrent ssd lets cluster consume certified checkpoint while layer1 is active" do
+      with_pipeline_mode(strict_io_mode: "concurrent_ssd") do
+        snapshot =
+          base_snapshot.deep_merge(
+            development_backfill: {
+              enabled: true,
+              phase: "layer1_catchup"
+            },
+            layer1: {
+              processing: true,
+              strict_queue_size: 1,
+              strict_worker_busy: true,
+              buffers_empty: true,
+              checkpoint_available: true
+            },
+            cluster: {
+              lag: 2,
+              processing: false,
+              strict_queue_size: 0,
+              strict_worker_busy: false
+            },
+            strict_io: {
+              owner: "layer1",
+              owners: ["layer1"]
+            }
+          )
+
+        decision =
+          PipelineController.decision(
+            :cluster,
+            current_snapshot: snapshot
+          )
+
+        assert decision[:allowed]
+        assert_empty decision[:failed_constraints]
+        assert PipelineController.work_available?(decision)
+        assert_includes decision[:constraints], :layer1_buffers_empty
+        refute_includes decision[:constraints], :layer1_not_processing
+        refute_includes decision[:constraints], :layer1_strict_worker_idle
+        refute_includes decision[:constraints], :strict_io_not_layer1
+      end
+    end
+
+    test "concurrent ssd keeps the layer1 buffer guard for cluster" do
+      with_pipeline_mode(strict_io_mode: "concurrent_ssd") do
+        snapshot =
+          base_snapshot.deep_merge(
+            layer1: {
+              processing: true,
+              buffers_empty: false,
+              strict_worker_busy: true
+            },
+            cluster: {
+              lag: 2
+            }
+          )
+
+        decision =
+          PipelineController.decision(
+            :cluster,
+            current_snapshot: snapshot
+          )
+
+        refute decision[:allowed]
+        assert_includes decision[:failed_constraints], :layer1_buffers_empty
+      end
+    end
+
+    test "snapshot exposes both concurrent owners and keeps legacy owner field" do
+      with_pipeline_mode(strict_io_mode: "concurrent_ssd") do
+        now = Time.current
+        leases =
+          %w[layer1 cluster].map do |owner|
+            StrictPipeline::StrictIoLease::Lease.new(
+              owner: owner,
+              token: "#{owner}-token",
+              acquired_at: now,
+              expires_at: now + 5.minutes
+            )
+          end
+
+        rpc = Struct.new(:getblockcount).new(956_761)
+
+        StrictPipeline::StrictIoLease.stub(:currents, leases) do
+          BitcoinRpc.stub(:new, rpc) do
+            snapshot = PipelineController.snapshot
+
+            refute snapshot[:error], snapshot[:error]
+            assert_equal %w[layer1 cluster], snapshot.dig(:strict_io, :owners)
+            assert_equal "layer1", snapshot.dig(:strict_io, :owner)
+            assert_equal leases.first.acquired_at.iso8601(6),
+              snapshot.dig(:strict_io, :acquired_at)
+          end
+        end
+      end
+    end
+
     private
 
     def base_snapshot
@@ -556,10 +676,12 @@ module System
     end
 
     def with_pipeline_mode(
-      mode = "development_backfill"
+      mode = "development_backfill",
+      strict_io_mode: "serialized"
     )
       keys = {
         "TANSA_PIPELINE_MODE" => mode,
+        "TANSA_STRICT_IO_MODE" => strict_io_mode,
         "TANSA_BACKFILL_MAX_LAYER1_LAG" => "20",
         "TANSA_BACKFILL_MAX_CLUSTER_GLOBAL_LAG" => "30"
       }

@@ -11,6 +11,10 @@ module StrictPipeline
     # advisory locks à une seule clé déjà utilisés par Cluster Coverage.
     LOCK_NAMESPACE = 1_946_071_541
     LOCK_RESOURCE = 1
+    CONCURRENT_SSD_LOCK_RESOURCES = {
+      "layer1" => 1,
+      "cluster" => 2
+    }.freeze
 
     class LockUnavailable < StandardError; end
     class UnlockFailed < StandardError; end
@@ -32,6 +36,7 @@ module StrictPipeline
       @owner = normalize_owner(owner)
       @logger = logger
       @connection_pool = connection_pool
+      @lock_resource = lock_resource
     end
 
     def with_lock
@@ -47,7 +52,7 @@ module StrictPipeline
           @logger.info(
             "[postgres_write_barrier] " \
             "denied owner=#{@owner} " \
-            "namespace=#{LOCK_NAMESPACE} resource=#{LOCK_RESOURCE}"
+            "namespace=#{LOCK_NAMESPACE} resource=#{@lock_resource}"
           )
 
           raise(
@@ -59,7 +64,7 @@ module StrictPipeline
         @logger.info(
           "[postgres_write_barrier] " \
           "acquired owner=#{@owner} " \
-          "namespace=#{LOCK_NAMESPACE} resource=#{LOCK_RESOURCE}"
+          "namespace=#{LOCK_NAMESPACE} resource=#{@lock_resource}"
         )
 
         begin
@@ -79,11 +84,19 @@ module StrictPipeline
       raise ArgumentError, "unknown PostgreSQL strict writer owner #{owner.inspect}"
     end
 
+    def lock_resource
+      return LOCK_RESOURCE unless StrictIoMode.concurrent_ssd?(
+        logger: @logger
+      )
+
+      CONCURRENT_SSD_LOCK_RESOURCES.fetch(@owner)
+    end
+
     def try_lock_sql
       <<~SQL.squish
         SELECT pg_try_advisory_lock(
           #{LOCK_NAMESPACE},
-          #{LOCK_RESOURCE}
+          #{@lock_resource}
         )
       SQL
     end
@@ -92,7 +105,7 @@ module StrictPipeline
       <<~SQL.squish
         SELECT pg_advisory_unlock(
           #{LOCK_NAMESPACE},
-          #{LOCK_RESOURCE}
+          #{@lock_resource}
         )
       SQL
     end
@@ -109,7 +122,7 @@ module StrictPipeline
         @logger.error(
           "[postgres_write_barrier] " \
           "release_denied owner=#{@owner} " \
-          "namespace=#{LOCK_NAMESPACE} resource=#{LOCK_RESOURCE}"
+          "namespace=#{LOCK_NAMESPACE} resource=#{@lock_resource}"
         )
 
         raise(
@@ -121,7 +134,7 @@ module StrictPipeline
       @logger.info(
         "[postgres_write_barrier] " \
         "released owner=#{@owner} " \
-        "namespace=#{LOCK_NAMESPACE} resource=#{LOCK_RESOURCE}"
+        "namespace=#{LOCK_NAMESPACE} resource=#{@lock_resource}"
       )
 
       true

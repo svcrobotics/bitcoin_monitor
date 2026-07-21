@@ -120,6 +120,13 @@ module System
       :strict_io_not_layer1
     ].freeze
 
+    CONCURRENT_SSD_CLUSTER_INACTIVITY_CONSTRAINTS = %i[
+      layer1_not_processing
+      layer1_strict_queue_idle
+      layer1_strict_worker_idle
+      strict_io_not_layer1
+    ].freeze
+
     # AddressSpendProjection rattrape le dernier checkpoint Cluster
     # certifié avec une marge stricte. ActorProfile consomme ensuite
     # cette projection certifiée au checkpoint Cluster, sans exiger que
@@ -366,8 +373,11 @@ module System
           .values
           .none?(&:positive?)
 
+      strict_io_leases =
+        StrictPipeline::StrictIoLease.currents
+
       strict_io_owner =
-        StrictPipeline::StrictIoLease.current
+        strict_io_leases.first
 
       processing =
         processing_height.present?
@@ -530,6 +540,7 @@ module System
 
         strict_io: {
           owner: strict_io_owner&.owner,
+          owners: strict_io_leases.map(&:owner),
           acquired_at: strict_io_owner&.acquired_at&.iso8601(6),
           expires_at: strict_io_owner&.expires_at&.iso8601(6)
         }
@@ -725,6 +736,8 @@ module System
         snapshot.dig(:layer1, :buffers, :spent).to_i.positive? ||
         snapshot.dig(:layer1, :strict_queue_size).to_i.positive? ||
         snapshot.dig(:layer1, :strict_worker_busy) == true
+
+      return normal_work if StrictPipeline::StrictIoMode.concurrent_ssd?
 
       if development_backfill_alternating_enabled?(
         snapshot
@@ -1930,6 +1943,11 @@ module System
           current_snapshot
         )
 
+      if StrictPipeline::StrictIoMode.concurrent_ssd? &&
+         %i[layer1_realtime cluster].include?(name)
+        return nil
+      end
+
       phase =
         current_snapshot.dig(
           :development_backfill,
@@ -2027,21 +2045,32 @@ module System
     end
 
     def self.constraints_for(name, config)
-      return config[:constraints] unless development_backfill_mode?
+      constraints =
+        if development_backfill_mode?
+          case name
+          when :cluster
+            DEVELOPMENT_BACKFILL_CLUSTER_CONSTRAINTS
 
-      case name
-      when :cluster
-        DEVELOPMENT_BACKFILL_CLUSTER_CONSTRAINTS
+          when :address_spend_projection
+            DEVELOPMENT_BACKFILL_ADDRESS_SPEND_CONSTRAINTS
 
-      when :address_spend_projection
-        DEVELOPMENT_BACKFILL_ADDRESS_SPEND_CONSTRAINTS
+          when :actor_profile
+            DEVELOPMENT_BACKFILL_ACTOR_PROFILE_CONSTRAINTS
 
-      when :actor_profile
-        DEVELOPMENT_BACKFILL_ACTOR_PROFILE_CONSTRAINTS
+          else
+            config[:constraints]
+          end
+        else
+          config[:constraints]
+        end
 
-      else
-        config[:constraints]
+      if name == :cluster &&
+         StrictPipeline::StrictIoMode.concurrent_ssd?
+        return constraints -
+          CONCURRENT_SSD_CLUSTER_INACTIVITY_CONSTRAINTS
       end
+
+      constraints
     end
 
     def self.cluster_lag_for(current_snapshot)

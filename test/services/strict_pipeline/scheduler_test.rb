@@ -494,33 +494,139 @@ module StrictPipeline
       assert_equal [[:cluster, "cluster"]], enqueued
     end
 
-    test "scheduler never enqueues two strict io owners in one pass" do
-      scheduler =
-        scheduler_without_sidekiq_counts
+    test "serialized scheduler never enqueues two strict io owners in one pass" do
+      with_env("TANSA_STRICT_IO_MODE" => "serialized") do
+        scheduler =
+          scheduler_without_sidekiq_counts
 
-      enqueued = []
-      lease_for = method(:lease)
+        enqueued = []
+        lease_for = method(:lease)
 
-      stub_instance(
-        scheduler,
-        :enqueue,
-        ->(spec, lease: nil) { enqueued << [spec.name, lease&.owner] }
-      ) do
-        with_stubbed(
-          StrictPipeline::StrictIoLease,
-          :acquire,
-          ->(owner, **_kwargs) { lease_for.call(owner) }
+        stub_instance(
+          scheduler,
+          :enqueue,
+          ->(spec, lease: nil) { enqueued << [spec.name, lease&.owner] }
         ) do
-          with_scheduler_decisions_for(
-            layer1: runnable_decision(:layer1_realtime),
-            cluster: runnable_decision(:cluster)
+          with_stubbed(
+            StrictPipeline::StrictIoLease,
+            :acquire,
+            ->(owner, **_kwargs) { lease_for.call(owner) }
           ) do
-            scheduler.call
+            with_scheduler_decisions_for(
+              layer1: runnable_decision(:layer1_realtime),
+              cluster: runnable_decision(:cluster)
+            ) do
+              scheduler.call
+            end
           end
         end
-      end
 
-      assert_equal [[:layer1, "layer1"]], enqueued
+        assert_equal [[:layer1, "layer1"]], enqueued
+      end
+    end
+
+    test "concurrent ssd scheduler enqueues layer1 and cluster in one pass" do
+      with_env("TANSA_STRICT_IO_MODE" => "concurrent_ssd") do
+        scheduler =
+          scheduler_without_sidekiq_counts
+
+        enqueued = []
+        lease_for = method(:lease)
+
+        stub_instance(
+          scheduler,
+          :enqueue,
+          ->(spec, lease: nil) { enqueued << [spec.name, lease&.owner] }
+        ) do
+          with_stubbed(
+            StrictPipeline::StrictIoLease,
+            :acquire,
+            ->(owner, **_kwargs) { lease_for.call(owner) }
+          ) do
+            with_scheduler_decisions_for(
+              layer1: runnable_decision(:layer1_realtime),
+              cluster: runnable_decision(:cluster)
+            ) do
+              scheduler.call
+            end
+          end
+        end
+
+        assert_equal(
+          [[:layer1, "layer1"], [:cluster, "cluster"]],
+          enqueued
+        )
+      end
+    end
+
+    test "concurrent ssd scheduler does not refuse cluster only because layer1 worker is active" do
+      with_env("TANSA_STRICT_IO_MODE" => "concurrent_ssd") do
+        scheduler =
+          scheduler_without_sidekiq_counts(
+            active: {
+              "layer1_strict" => 1
+            }
+          )
+
+        enqueued = []
+        lease_for = method(:lease)
+
+        stub_instance(
+          scheduler,
+          :enqueue,
+          ->(spec, lease: nil) { enqueued << [spec.name, lease&.owner] }
+        ) do
+          with_stubbed(
+            StrictPipeline::StrictIoLease,
+            :acquire,
+            ->(owner, **_kwargs) { lease_for.call(owner) }
+          ) do
+            with_scheduler_decisions_for(
+              layer1: idle_decision(:layer1, stable_snapshot),
+              cluster: runnable_decision(:cluster)
+            ) do
+              scheduler.call
+            end
+          end
+        end
+
+        assert_equal [[:cluster, "cluster"]], enqueued
+      end
+    end
+
+    test "concurrent ssd scheduler does not refuse layer1 only because cluster worker is active" do
+      with_env("TANSA_STRICT_IO_MODE" => "concurrent_ssd") do
+        scheduler =
+          scheduler_without_sidekiq_counts(
+            active: {
+              "cluster_strict" => 1
+            }
+          )
+
+        enqueued = []
+        lease_for = method(:lease)
+
+        stub_instance(
+          scheduler,
+          :enqueue,
+          ->(spec, lease: nil) { enqueued << [spec.name, lease&.owner] }
+        ) do
+          with_stubbed(
+            StrictPipeline::StrictIoLease,
+            :acquire,
+            ->(owner, **_kwargs) { lease_for.call(owner) }
+          ) do
+            with_scheduler_decisions_for(
+              layer1: runnable_decision(:layer1_realtime),
+              cluster: idle_decision(:cluster, stable_snapshot)
+            ) do
+              scheduler.call
+            end
+          end
+        end
+
+        assert_equal [[:layer1, "layer1"]], enqueued
+      end
     end
 
     test "scheduler refuses cluster while layer1 worker remains active even with expired redis lease" do
@@ -857,8 +963,8 @@ module StrictPipeline
       ) do
         with_stubbed(
           StrictPipeline::StrictIoLease,
-          :current,
-          lease(:layer1)
+          :compatible_with_current?,
+          false
         ) do
           with_layer1_scheduler_snapshot(snapshot) do
             result =

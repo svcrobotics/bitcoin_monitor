@@ -3,6 +3,20 @@
 require "test_helper"
 
 class StrictPipeline::PostgresWriteBarrierTest < ActiveSupport::TestCase
+  setup do
+    @previous_mode = ENV[StrictPipeline::StrictIoMode::ENV_KEY]
+    ENV[StrictPipeline::StrictIoMode::ENV_KEY] =
+      StrictPipeline::StrictIoMode::SERIALIZED
+  end
+
+  teardown do
+    if @previous_mode.nil?
+      ENV.delete(StrictPipeline::StrictIoMode::ENV_KEY)
+    else
+      ENV[StrictPipeline::StrictIoMode::ENV_KEY] = @previous_mode
+    end
+  end
+
   class FakeConnection
     attr_reader :queries, :disconnected
 
@@ -127,5 +141,51 @@ class StrictPipeline::PostgresWriteBarrierTest < ActiveSupport::TestCase
         :completed
       end
     end
+  end
+
+  test "serialized keeps the same advisory resource for layer1 and cluster" do
+    layer1 = FakeConnection.new([true, true])
+    cluster = FakeConnection.new([true, true])
+
+    StrictPipeline::PostgresWriteBarrier.with_lock(
+      owner: "layer1",
+      connection_pool: FakePool.new(layer1)
+    ) { true }
+
+    StrictPipeline::PostgresWriteBarrier.with_lock(
+      owner: "cluster",
+      connection_pool: FakePool.new(cluster)
+    ) { true }
+
+    assert_equal lock_arguments(layer1.queries.first), lock_arguments(cluster.queries.first)
+  end
+
+  test "concurrent ssd gives layer1 and cluster distinct advisory resources" do
+    ENV[StrictPipeline::StrictIoMode::ENV_KEY] =
+      StrictPipeline::StrictIoMode::CONCURRENT_SSD
+
+    layer1 = FakeConnection.new([true, true])
+    cluster = FakeConnection.new([true, true])
+
+    StrictPipeline::PostgresWriteBarrier.with_lock(
+      owner: "layer1",
+      connection_pool: FakePool.new(layer1)
+    ) { true }
+
+    StrictPipeline::PostgresWriteBarrier.with_lock(
+      owner: "cluster",
+      connection_pool: FakePool.new(cluster)
+    ) { true }
+
+    assert_equal [StrictPipeline::PostgresWriteBarrier::LOCK_NAMESPACE, 1],
+      lock_arguments(layer1.queries.first)
+    assert_equal [StrictPipeline::PostgresWriteBarrier::LOCK_NAMESPACE, 2],
+      lock_arguments(cluster.queries.first)
+  end
+
+  private
+
+  def lock_arguments(sql)
+    sql.scan(/-?\d+/).map(&:to_i).last(2)
   end
 end
