@@ -1,11 +1,5 @@
 ENV["RAILS_ENV"] ||= "test"
 
-ENV["REDIS_URL"] =
-  ENV.fetch(
-    "TEST_REDIS_URL",
-    "redis://127.0.0.1:6379/15"
-  )
-
 require_relative "../config/environment"
 require "rails/test_help"
 

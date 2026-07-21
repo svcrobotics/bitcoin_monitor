@@ -3,6 +3,49 @@
 # your test database is "scratch space" for the test suite and is wiped
 # and recreated between test runs. Don't rely on the data there!
 
+require "uri"
+
+module TestRedisConfiguration
+  DEFAULT_URL = "redis://127.0.0.1:6379/15"
+  DB_ZERO_ERROR =
+    "Unsafe Redis configuration: RAILS_ENV=test cannot use Redis DB 0"
+  INVALID_URL_ERROR =
+    "Unsafe Redis configuration: RAILS_ENV=test requires a valid redis " \
+    "or rediss URL with an explicit non-zero database number"
+
+  module_function
+
+  def resolve(environment = ENV)
+    configured_url = environment["TEST_REDIS_URL"]
+    candidate =
+      if configured_url.nil? || configured_url.empty?
+        DEFAULT_URL
+      else
+        configured_url
+      end
+
+    validate!(candidate)
+  end
+
+  def validate!(candidate)
+    uri = URI.parse(candidate)
+
+    raise ArgumentError, INVALID_URL_ERROR unless %w[redis rediss].include?(uri.scheme)
+
+    database_match = %r{\A/(\d+)\z}.match(uri.path.to_s)
+    raise ArgumentError, INVALID_URL_ERROR unless database_match
+
+    database = Integer(database_match[1], 10)
+    raise ArgumentError, DB_ZERO_ERROR if database.zero?
+
+    candidate
+  rescue URI::InvalidURIError, TypeError
+    raise ArgumentError, INVALID_URL_ERROR
+  end
+end
+
+ENV["REDIS_URL"] = TestRedisConfiguration.resolve
+
 Rails.application.configure do
   # Settings specified here will take precedence over those in config/application.rb.
 
