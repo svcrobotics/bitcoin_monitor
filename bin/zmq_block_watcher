@@ -1,65 +1,88 @@
 #!/usr/bin/env ruby
 # frozen_string_literal: true
+
 $stdout.sync = true
 $stderr.sync = true
 
 require_relative "../config/environment"
 require "ffi-rzmq"
 
-context = ZMQ::Context.new
-socket  = context.socket(ZMQ::SUB)
+module ZmqBlockWatcher
+  def self.broadcast_block_event(height:, blockhash:, created_at:)
+    Realtime::BlockEventBroadcaster.call(
+      height: height,
+      blockhash: blockhash,
+      created_at: created_at
+    )
+  rescue StandardError => error
+    Rails.logger.error(
+      "[zmq] turbo_broadcast_failed " \
+      "error_class=#{error.class} error_message=#{error.message.inspect} " \
+      "height=#{height} hash=#{blockhash}"
+    )
 
-socket.connect("tcp://127.0.0.1:28332")
-socket.setsockopt(ZMQ::SUBSCRIBE, "hashblock")
+    false
+  end
 
-puts "[zmq] block watcher started"
-Rails.logger.info("[zmq] block watcher started")
+  def self.run
+    context = ZMQ::Context.new
+    socket  = context.socket(ZMQ::SUB)
 
-loop do
-  topic = String.new
-  payload = String.new
-  sequence = String.new
+    socket.connect("tcp://127.0.0.1:28332")
+    socket.setsockopt(ZMQ::SUBSCRIBE, "hashblock")
 
-  socket.recv_string(topic)
-  socket.recv_string(payload)
-  socket.recv_string(sequence)
+    puts "[zmq] block watcher started"
+    Rails.logger.info("[zmq] block watcher started")
 
-  next unless topic == "hashblock"
+    loop do
+      topic = String.new
+      payload = String.new
+      sequence = String.new
 
-  blockhash = payload.unpack1("H*")
+      socket.recv_string(topic)
+      socket.recv_string(payload)
+      socket.recv_string(sequence)
 
-  puts "[zmq] new_block hash=#{blockhash}"
-  Rails.logger.info("[zmq] new_block hash=#{blockhash}")
+      next unless topic == "hashblock"
 
-  cursor = ScannerCursor.find_or_create_by!(name: "zmq_block_watcher")
-  rpc = BitcoinRpc.new(wallet: nil)
-  height = rpc.getblockcount.to_i
+      blockhash = payload.unpack1("H*")
 
-  cursor.update!(
-    last_blockheight: height,
-    last_blockhash: blockhash,
-    updated_at: Time.current
-  )
+      puts "[zmq] new_block hash=#{blockhash}"
+      Rails.logger.info("[zmq] new_block hash=#{blockhash}")
 
-  event_id = Realtime::BlockEventProducer.call(
-    height: height,
-    blockhash: blockhash
-  )
+      cursor = ScannerCursor.find_or_create_by!(name: "zmq_block_watcher")
+      rpc = BitcoinRpc.new(wallet: nil)
+      height = rpc.getblockcount.to_i
 
-  Realtime::BlockEventBroadcaster.call(
-    height: height,
-    blockhash: blockhash,
-    created_at: Time.current
-  )
-  
-  Rails.logger.info(
-    "[zmq] block_event_published stream=bitcoin.blocks " \
-    "event_id=#{event_id} height=#{height} hash=#{blockhash}"
-  )
+      cursor.update!(
+        last_blockheight: height,
+        last_blockhash: blockhash,
+        updated_at: Time.current
+      )
 
-  Realtime::BlockStreamConsumerJob.perform_later
+      event_id = Realtime::BlockEventProducer.call(
+        height: height,
+        blockhash: blockhash
+      )
 
-  Rails.logger.info(
-    "[zmq] block_stream_consumer_enqueued height=#{height} event_id=#{event_id}"
-  )
+      broadcast_block_event(
+        height: height,
+        blockhash: blockhash,
+        created_at: Time.current
+      )
+
+      Rails.logger.info(
+        "[zmq] block_event_published stream=bitcoin.blocks " \
+        "event_id=#{event_id} height=#{height} hash=#{blockhash}"
+      )
+
+      Realtime::BlockStreamConsumerJob.perform_later
+
+      Rails.logger.info(
+        "[zmq] block_stream_consumer_enqueued height=#{height} event_id=#{event_id}"
+      )
+    end
+  end
 end
+
+ZmqBlockWatcher.run if $PROGRAM_NAME == __FILE__

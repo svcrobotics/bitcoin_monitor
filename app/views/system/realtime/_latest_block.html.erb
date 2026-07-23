@@ -1,0 +1,17 @@
+<div id="latest_block_live" class="rounded-2xl border border-slate-800 bg-slate-950/80 p-4">
+  <p class="text-xs uppercase tracking-wider text-slate-500">Dernier bloc reçu</p>
+
+  <div class="mt-2 flex flex-wrap items-baseline gap-x-4 gap-y-1 text-sm text-slate-300">
+    <strong class="text-base text-slate-100">
+      Bloc <%= number_with_delimiter(block[:height], delimiter: " ") %>
+    </strong>
+
+    <span class="font-mono" title="<%= block[:blockhash] %>">
+      <%= truncate(block[:blockhash], length: 15, omission: "…") %>
+    </span>
+
+    <time datetime="<%= block[:created_at].iso8601 %>">
+      Reçu à <%= block[:created_at].in_time_zone.strftime("%H:%M:%S") %>
+    </time>
+  </div>
+</div>
