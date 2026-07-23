@@ -29,16 +29,12 @@ if defined?(Sidekiq)
 
         Rails.logger.info(
           "[cluster_coverage_startup] " \
-          "enqueue maintenance"
+          "enqueue maintenance requested"
         )
 
-        Clusters::Coverage::MaintenanceJob
-          .perform_later(
-            {
-              "reschedule" => true,
-              "lock" => true
-            }
-          )
+        Clusters::Coverage::MaintenanceJob.enqueue_once(
+          source: "startup"
+        )
       rescue StandardError => error
         Rails.logger.error(
           "[cluster_coverage_startup] " \
