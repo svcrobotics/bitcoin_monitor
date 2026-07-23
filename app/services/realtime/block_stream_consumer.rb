@@ -73,6 +73,10 @@ module Realtime
         "[block_stream_consumer] new_block id=#{id} height=#{height} hash=#{blockhash}"
       )
 
+      StrictPipeline::SchedulerWakeup.request!(
+        reason: "bitcoin_block_event"
+      )
+
       enqueue_once("realtime", "Realtime::ProcessLatestBlockJob") do
         Realtime::ProcessLatestBlockJob.perform_later
       end

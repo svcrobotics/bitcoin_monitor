@@ -892,6 +892,23 @@ module StrictPipeline
           ex: LAYER1_LAST_ENQUEUE_TTL_SECONDS
         )
       end
+
+      snapshot = decision&.fetch(:snapshot, nil) || {}
+      best_height =
+        snapshot.dig(:bitcoin_core, :best_height)
+      processed_height =
+        snapshot.dig(:layer1, :processed_height)
+      lag =
+        snapshot.dig(:layer1, :lag).to_i
+
+      Rails.logger.info(
+        "[layer1_continuous_catchup] " \
+        "best_height=#{best_height} " \
+        "processed_height=#{processed_height} " \
+        "lag=#{lag} " \
+        "action=#{lag > 1 ? 'continue' : 'enqueue'} " \
+        "next_height=#{processed_height.to_i + 1}"
+      )
     rescue StandardError => error
       Rails.logger.warn(
         "[strict_pipeline_scheduler] " \

@@ -21,88 +21,38 @@ module System
       end
     end
 
-    test "keeps layer1 priority while layer1 lag is critical" do
+    test "keeps layer1 priority for every positive lag" do
       now = Time.zone.parse("2026-07-13 12:00:00")
-      redis =
-        phase_redis(
-          phase: "layer1_catchup",
-          changed_at: now - 30.minutes,
-          entered_layer1_lag: 12
-        )
 
-      with_development_backfill_env(
-        "TANSA_BACKFILL_LAYER1_MAX_PHASE_SECONDS" => "60"
-      ) do
-        state =
-          DevelopmentBackfillPhase.resolve(
-            layer1_lag: 12,
-            redis: redis,
-            now: now
+      [ 1, 2, 4, 9, 100 ].each do |lag|
+        redis =
+          phase_redis(
+            phase: "downstream_catchup",
+            changed_at: now - 30.seconds,
+            entered_layer1_lag: 0
           )
 
-        assert_equal "layer1_catchup", state[:phase]
-        assert_equal "hysteresis_hold", state[:reason]
+        with_development_backfill_env do
+          state =
+            DevelopmentBackfillPhase.resolve(
+              layer1_lag: lag,
+              redis: redis,
+              now: now
+            )
+
+          assert_equal "layer1_catchup", state[:phase],
+                       "expected Layer1 priority at lag #{lag}"
+          assert_equal "layer1_lag_detected", state[:reason]
+        end
       end
     end
 
-    test "keeps layer1 catchup at lag nine despite exhausted phase budget" do
+    test "continues layer1 catchup below legacy thresholds" do
       now = Time.zone.parse("2026-07-13 12:00:00")
       redis =
         phase_redis(
           phase: "layer1_catchup",
           changed_at: now - 2.minutes,
-          entered_layer1_lag: 10
-        )
-
-      with_development_backfill_env(
-        "TANSA_BACKFILL_LAYER1_MAX_PHASE_SECONDS" => "60"
-      ) do
-        state =
-          DevelopmentBackfillPhase.resolve(
-            layer1_lag: 9,
-            redis: redis,
-            now: now
-          )
-
-        assert_equal "layer1_catchup", state[:phase]
-        assert_equal "hysteresis_hold", state[:reason]
-        assert_equal 120, state[:phase_elapsed_seconds]
-      end
-    end
-
-    test "keeps layer1 catchup at lag three despite exhausted phase budget" do
-      started_at =
-        Time.zone.parse("2026-07-13 12:00:00")
-
-      redis =
-        phase_redis(
-          phase: "layer1_catchup",
-          changed_at: started_at,
-          entered_layer1_lag: 10
-        )
-
-      with_development_backfill_env(
-        "TANSA_BACKFILL_LAYER1_MAX_PHASE_SECONDS" => "60"
-      ) do
-        state =
-          DevelopmentBackfillPhase.resolve(
-            layer1_lag: 3,
-            redis: redis,
-            now: started_at + 61.seconds
-          )
-
-        assert_equal "layer1_catchup", state[:phase]
-        assert_equal "hysteresis_hold", state[:reason]
-        assert_equal 61, state[:phase_elapsed_seconds]
-      end
-    end
-
-    test "closes layer1 catchup only at configured stop lag" do
-      now = Time.zone.parse("2026-07-13 12:00:00")
-      redis =
-        phase_redis(
-          phase: "layer1_catchup",
-          changed_at: now - 30.seconds,
           entered_layer1_lag: 10
         )
 
@@ -114,52 +64,53 @@ module System
             now: now
           )
 
-        assert_equal "downstream_catchup", state[:phase]
-        assert_equal "layer1_lag_reached_stop_threshold", state[:reason]
-      end
-    end
-
-    test "inactive phase stays downstream below start lag" do
-      now = Time.zone.parse("2026-07-13 12:00:00")
-      redis =
-        phase_redis(
-          phase: "downstream_catchup",
-          changed_at: now - 30.seconds,
-          entered_layer1_lag: 1
-        )
-
-      with_development_backfill_env do
-        state =
-          DevelopmentBackfillPhase.resolve(
-            layer1_lag: 9,
-            redis: redis,
-            now: now
-          )
-
-        assert_equal "downstream_catchup", state[:phase]
-        assert_equal "hysteresis_hold", state[:reason]
-      end
-    end
-
-    test "opens layer1 catchup when lag reaches start threshold" do
-      now = Time.zone.parse("2026-07-13 12:00:00")
-      redis =
-        phase_redis(
-          phase: "downstream_catchup",
-          changed_at: now - 30.seconds,
-          entered_layer1_lag: 1
-        )
-
-      with_development_backfill_env do
-        state =
-          DevelopmentBackfillPhase.resolve(
-            layer1_lag: 10,
-            redis: redis,
-            now: now
-          )
-
         assert_equal "layer1_catchup", state[:phase]
-        assert_equal "layer1_lag_reached_start_threshold", state[:reason]
+        assert_equal "layer1_continuous_catchup", state[:reason]
+        assert_equal 120, state[:phase_elapsed_seconds]
+      end
+    end
+
+    test "releases layer1 priority only at lag zero" do
+      now = Time.zone.parse("2026-07-13 12:00:00")
+      redis =
+        phase_redis(
+          phase: "layer1_catchup",
+          changed_at: now - 30.seconds,
+          entered_layer1_lag: 10
+        )
+
+      with_development_backfill_env do
+        state =
+          DevelopmentBackfillPhase.resolve(
+            layer1_lag: 0,
+            redis: redis,
+            now: now
+          )
+
+        assert_equal "downstream_catchup", state[:phase]
+        assert_equal "layer1_caught_up", state[:reason]
+      end
+    end
+
+    test "stays downstream while layer1 is caught up" do
+      now = Time.zone.parse("2026-07-13 12:00:00")
+      redis =
+        phase_redis(
+          phase: "downstream_catchup",
+          changed_at: now - 30.seconds,
+          entered_layer1_lag: 1
+        )
+
+      with_development_backfill_env do
+        state =
+          DevelopmentBackfillPhase.resolve(
+            layer1_lag: 0,
+            redis: redis,
+            now: now
+          )
+
+        assert_equal "downstream_catchup", state[:phase]
+        assert_equal "layer1_caught_up", state[:reason]
       end
     end
 

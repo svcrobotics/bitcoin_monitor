@@ -61,7 +61,7 @@ module Layer1
       ], events
     end
 
-    test "successful final available block does not request immediate wakeup" do
+    test "successful final available block hands off to scheduler" do
       requests = []
       job =
         Layer1::StrictTipSyncJob.new
@@ -106,7 +106,114 @@ module Layer1
         end
       end
 
-      assert_empty requests
+      assert_equal 1, requests.size
+      assert_equal "layer1_caught_up",
+                   requests.first[:reason]
+      assert_equal 2, requests.first[:wait].to_i
+    end
+
+    test "fresh height error uses complete fallback with positive lag" do
+      requests = []
+      job =
+        Layer1::StrictTipSyncJob.new
+
+      with_successful_sync(
+        job: job,
+        requests: requests,
+        best_height: 102,
+        continuous_tip: 101
+      ) do
+        with_object_stubbed(
+          job,
+          :fresh_bitcoin_core_height,
+          ->(**_kwargs) { raise RuntimeError, "rpc unavailable" }
+        ) do
+          job.perform("lease-token")
+        end
+      end
+
+      assert_equal 1, requests.size
+      assert_equal "layer1_block_completed_with_backlog",
+                   requests.first[:reason]
+      assert_equal 2, requests.first[:wait].to_i
+    end
+
+    test "fresh height error uses complete fallback with zero lag" do
+      requests = []
+      job =
+        Layer1::StrictTipSyncJob.new
+
+      with_successful_sync(
+        job: job,
+        requests: requests,
+        best_height: 102,
+        continuous_tip: 102
+      ) do
+        with_object_stubbed(
+          job,
+          :fresh_bitcoin_core_height,
+          103
+        ) do
+          with_object_stubbed(
+            job,
+            :fresh_layer1_processed_height,
+            ->(**_kwargs) { raise RuntimeError, "checkpoint unavailable" }
+          ) do
+            job.perform("lease-token")
+          end
+        end
+      end
+
+      assert_equal 1, requests.size
+      assert_equal "layer1_caught_up",
+                   requests.first[:reason]
+      assert_equal 2, requests.first[:wait].to_i
+    end
+
+    test "unknown heights request safety wakeup without caught up log" do
+      requests = []
+      log_messages = []
+      job =
+        Layer1::StrictTipSyncJob.new
+
+      with_successful_sync(
+        job: job,
+        requests: requests,
+        best_height: nil,
+        continuous_tip: nil
+      ) do
+        with_object_stubbed(
+          job,
+          :fresh_bitcoin_core_height,
+          ->(**_kwargs) { raise RuntimeError, "rpc unavailable" }
+        ) do
+          with_stubbed(
+            Rails.logger,
+            :info,
+            ->(message) { log_messages << message }
+          ) do
+            catchup =
+              job.send(
+                :layer1_catchup_state,
+                {
+                  best_height: nil,
+                  continuous_tip: nil
+                }
+              )
+
+            assert_equal false, catchup[:known]
+            assert_nil catchup[:lag]
+
+            job.perform("lease-token")
+          end
+        end
+      end
+
+      assert_equal 1, requests.size
+      assert_equal "layer1_catchup_state_unknown",
+                   requests.first[:reason]
+      assert_equal 30, requests.first[:wait].to_i
+      refute log_messages.any? { |message| message.include?("state=caught_up") }
     end
 
     test "non successful result requests deferred scheduler wakeup" do
@@ -194,6 +301,38 @@ module Layer1
     end
 
     private
+
+    def with_successful_sync(
+      job:,
+      requests:,
+      best_height:,
+      continuous_tip:
+    )
+      with_layer1_lease_granted do
+        with_stubbed(
+          Layer1::StrictTipSyncer,
+          :call,
+          {
+            ok: true,
+            status: "synced_segment",
+            best_height: best_height,
+            continuous_tip: continuous_tip,
+            processed: 1
+          }
+        ) do
+          with_stubbed(
+            StrictPipeline::SchedulerWakeup,
+            :request!,
+            lambda do |**kwargs|
+              requests << kwargs
+              { enqueued: true }
+            end
+          ) do
+            yield
+          end
+        end
+      end
+    end
 
     def with_layer1_lease_granted(events: nil)
       with_stubbed(

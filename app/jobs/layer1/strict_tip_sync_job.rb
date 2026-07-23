@@ -82,15 +82,27 @@ module Layer1
     private
 
     def scheduler_wakeup_after_result(result)
-      if result[:ok] &&
-         layer1_backlog_remaining?(result)
+      if result[:ok]
+        catchup =
+          layer1_catchup_state(result)
+
+        log_continuous_catchup(catchup)
+
+        unless catchup[:known]
+          return {
+            reason: "layer1_catchup_state_unknown",
+            wait: 30.seconds
+          }
+        end
+
         return {
-          reason: "layer1_block_completed_with_backlog",
+          reason:
+            catchup[:lag].positive? ?
+              "layer1_block_completed_with_backlog" :
+              "layer1_caught_up",
           wait: POST_COMPLETION_HANDOFF_DELAY
         }
       end
-
-      return nil if result[:ok]
 
       {
         reason: "layer1_failed",
@@ -108,7 +120,7 @@ module Layer1
       )
     end
 
-    def layer1_backlog_remaining?(result)
+    def layer1_catchup_state(result)
       best_height =
         fresh_bitcoin_core_height(
           fallback: result[:best_height]
@@ -119,16 +131,72 @@ module Layer1
           fallback: result[:continuous_tip]
         )
 
-      return false unless best_height && processed_height
-
-      processed_height.to_i < best_height.to_i
+      build_layer1_catchup_state(
+        best_height: best_height,
+        processed_height: processed_height
+      )
     rescue StandardError => error
       Rails.logger.warn(
         "[layer1_strict_tip_sync_job] " \
         "backlog_check_failed #{error.class}: #{error.message}"
       )
 
-      false
+      build_layer1_catchup_state(
+        best_height: result[:best_height],
+        processed_height: result[:continuous_tip]
+      )
+    end
+
+    def build_layer1_catchup_state(best_height:, processed_height:)
+      unless best_height.nil? || processed_height.nil?
+        return {
+          known: true,
+          best_height: best_height,
+          processed_height: processed_height,
+          lag: [
+            best_height.to_i - processed_height.to_i,
+            0
+          ].max
+        }
+      end
+
+      {
+        known: false,
+        best_height: best_height,
+        processed_height: processed_height,
+        lag: nil
+      }
+    end
+
+    def log_continuous_catchup(catchup)
+      unless catchup[:known]
+        Rails.logger.warn(
+          "[layer1_continuous_catchup] " \
+          "best_height=#{catchup[:best_height].inspect} " \
+          "processed_height=#{catchup[:processed_height].inspect} " \
+          "lag=unknown state=unknown"
+        )
+
+        return
+      end
+
+      if catchup[:lag].positive?
+        Rails.logger.info(
+          "[layer1_continuous_catchup] " \
+          "best_height=#{catchup[:best_height]} " \
+          "processed_height=#{catchup[:processed_height]} " \
+          "lag=#{catchup[:lag]} " \
+          "action=continue " \
+          "next_height=#{catchup[:processed_height].to_i + 1}"
+        )
+      else
+        Rails.logger.info(
+          "[layer1_continuous_catchup] " \
+          "best_height=#{catchup[:best_height]} " \
+          "processed_height=#{catchup[:processed_height]} " \
+          "lag=0 state=caught_up"
+        )
+      end
     end
 
     def fresh_bitcoin_core_height(fallback:)
@@ -136,8 +204,6 @@ module Layer1
         .new
         .getblockcount
         .to_i
-    rescue StandardError
-      fallback&.to_i
     end
 
     def fresh_layer1_processed_height(fallback:)

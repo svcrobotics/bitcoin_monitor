@@ -93,35 +93,63 @@ module System
       end
     end
 
-    test "development backfill keeps layer1 thresholded but wakes cluster when behind layer1" do
+    test "development backfill keeps layer1 ahead of cluster for every positive lag" do
+      with_pipeline_mode do
+        [ 1, 2, 4, 9, 100 ].each do |lag|
+          snapshot =
+            alternating_snapshot.deep_merge(
+              layer1: {
+                lag: lag
+              },
+              cluster: {
+                lag: 2,
+                global_lag: lag + 2
+              }
+            )
+
+          layer1_decision =
+            PipelineController.decision(
+              :layer1_realtime,
+              current_snapshot: snapshot
+            )
+
+          cluster_decision =
+            PipelineController.decision(
+              :cluster,
+              current_snapshot: snapshot
+            )
+
+          assert(
+            PipelineController.work_available?(
+              layer1_decision
+            ),
+            "expected Layer1 work at lag #{lag}"
+          )
+
+          refute cluster_decision[:allowed],
+                 "expected Cluster to wait at Layer1 lag #{lag}"
+          assert_equal(
+            :development_backfill_layer1_catchup,
+            cluster_decision[:reason]
+          )
+        end
+      end
+    end
+
+    test "development backfill releases cluster when layer1 lag is zero" do
       with_pipeline_mode do
         snapshot =
-          base_snapshot.deep_merge(
-            layer1: {
-              lag: 3,
-              processing: false,
-              buffers: {
-                outputs: 0,
-                spent: 0
-              },
-              buffers_empty: true,
-              strict_queue_size: 0,
-              strict_worker_busy: false,
-              checkpoint_available: true
+          alternating_snapshot.deep_merge(
+            development_backfill: {
+              phase: "layer1_catchup"
             },
-
+            layer1: {
+              lag: 0,
+              processed_height: 956_761
+            },
             cluster: {
               lag: 2,
-              global_lag: 5,
-              processing: false,
-              strict_queue_size: 0,
-              strict_worker_busy: false,
-              checkpoint_available: true,
-              caught_up_to_layer1: false
-            },
-
-            strict_io: {
-              owner: nil
+              global_lag: 2
             }
           )
 
@@ -145,12 +173,42 @@ module System
 
         assert cluster_decision[:allowed]
         assert_empty cluster_decision[:failed_constraints]
-
         assert(
           PipelineController.work_available?(
             cluster_decision
           )
         )
+      end
+    end
+
+    test "caught up layer1 leaves downstream module decisions unchanged" do
+      with_pipeline_mode do
+        snapshot =
+          alternating_snapshot.deep_merge(
+            layer1: {
+              lag: 0,
+              processed_height: 956_761
+            }
+          )
+
+        %i[
+          actor_profile
+          actor_behavior
+          actor_labels
+        ].each do |name|
+          config =
+            PipelineController::PIPELINE_REGISTRY.fetch(name)
+
+          assert_nil(
+            PipelineController.send(
+              :development_backfill_phase_decision,
+              name,
+              config,
+              snapshot
+            ),
+            "expected no Layer1 phase override for #{name}"
+          )
+        end
       end
     end
 
@@ -512,15 +570,17 @@ module System
       end
     end
 
-    test "concurrent ssd lets cluster consume certified checkpoint while layer1 is active" do
+    test "concurrent ssd still holds cluster until layer1 is caught up" do
       with_pipeline_mode(strict_io_mode: "concurrent_ssd") do
         snapshot =
           base_snapshot.deep_merge(
             development_backfill: {
               enabled: true,
+              config_valid: true,
               phase: "layer1_catchup"
             },
             layer1: {
+              lag: 1,
               processing: true,
               strict_queue_size: 1,
               strict_worker_busy: true,
@@ -545,13 +605,11 @@ module System
             current_snapshot: snapshot
           )
 
-        assert decision[:allowed]
-        assert_empty decision[:failed_constraints]
-        assert PipelineController.work_available?(decision)
-        assert_includes decision[:constraints], :layer1_buffers_empty
-        refute_includes decision[:constraints], :layer1_not_processing
-        refute_includes decision[:constraints], :layer1_strict_worker_idle
-        refute_includes decision[:constraints], :strict_io_not_layer1
+        refute decision[:allowed]
+        assert_equal(
+          :development_backfill_layer1_catchup,
+          decision[:reason]
+        )
       end
     end
 
@@ -610,6 +668,35 @@ module System
     end
 
     private
+
+    def alternating_snapshot
+      base_snapshot.deep_merge(
+        development_backfill: {
+          enabled: true,
+          config_valid: true,
+          phase: "downstream_catchup"
+        },
+        layer1: {
+          processing: false,
+          buffers: {
+            outputs: 0,
+            spent: 0
+          },
+          buffers_empty: true,
+          strict_queue_size: 0,
+          strict_worker_busy: false
+        },
+        cluster: {
+          processing: false,
+          strict_queue_size: 0,
+          strict_worker_busy: false,
+          caught_up_to_layer1: false
+        },
+        strict_io: {
+          owner: nil
+        }
+      )
+    end
 
     def base_snapshot
       {

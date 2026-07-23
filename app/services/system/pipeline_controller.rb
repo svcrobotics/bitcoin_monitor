@@ -742,13 +742,7 @@ module System
       if development_backfill_alternating_enabled?(
         snapshot
       )
-        return (
-          snapshot.dig(
-            :development_backfill,
-            :phase
-          ).to_s == "layer1_catchup" &&
-            normal_work
-        )
+        return normal_work
       end
 
       return normal_work unless development_backfill_mode?
@@ -1943,25 +1937,13 @@ module System
           current_snapshot
         )
 
-      if StrictPipeline::StrictIoMode.concurrent_ssd? &&
-         %i[layer1_realtime cluster].include?(name)
-        return nil
-      end
-
-      phase =
-        current_snapshot.dig(
-          :development_backfill,
-          :phase
-        ).to_s
-
       reason =
-        if name == :layer1_realtime &&
-           phase == "downstream_catchup"
-          :development_backfill_downstream_catchup
-
-        elsif DEVELOPMENT_BACKFILL_DOWNSTREAM_MODULES
-                .include?(name) &&
-              phase == "layer1_catchup"
+        if DEVELOPMENT_BACKFILL_DOWNSTREAM_MODULES
+             .include?(name) &&
+           current_snapshot
+             .dig(:layer1, :lag)
+             .to_i
+             .positive?
           :development_backfill_layer1_catchup
         end
 

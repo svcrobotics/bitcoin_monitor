@@ -60,24 +60,9 @@ module System
             stored["changed_at"],
             now: now
           )
-        layer1_time_budget_exhausted =
-          layer1_time_budget_exhausted?(
-            current_phase: current_phase,
-            layer1_lag: lag,
-            start_lag: config[:start_lag],
-            elapsed_seconds: elapsed_seconds,
-            max_layer1_phase_seconds:
-              config[:max_layer1_phase_seconds]
-          )
-
         resolved_phase =
           next_phase(
-            current_phase: current_phase,
-            layer1_lag: lag,
-            start_lag: config[:start_lag],
-            stop_lag: config[:stop_lag],
-            layer1_time_budget_exhausted:
-              layer1_time_budget_exhausted
+            layer1_lag: lag
           )
 
         changed =
@@ -101,9 +86,7 @@ module System
               transition_reason(
                 current_phase: current_phase,
                 resolved_phase: resolved_phase,
-                changed: changed,
-                layer1_time_budget_exhausted:
-                  layer1_time_budget_exhausted
+                changed: changed
               ),
             observed_layer1_lag: lag,
             phase_elapsed_seconds:
@@ -194,31 +177,13 @@ module System
         }
       end
 
-      def next_phase(
-        current_phase:,
-        layer1_lag:,
-        start_lag:,
-        stop_lag:,
-        layer1_time_budget_exhausted: false
-      )
-        lag = layer1_lag.to_i
-
-        case valid_phase(current_phase)
-        when "layer1_catchup"
-          lag <= stop_lag ?
-            "downstream_catchup" :
-            "layer1_catchup"
-
-        when "downstream_catchup"
-          lag >= start_lag ?
-            "layer1_catchup" :
-            "downstream_catchup"
-
-        else
-          lag >= start_lag ?
-            "layer1_catchup" :
-            "downstream_catchup"
-        end
+      # Layer1 owns the strict pipeline for every missing Bitcoin block.
+      # The legacy start/stop thresholds remain configuration telemetry only;
+      # they no longer create an intentional lag window.
+      def next_phase(layer1_lag:)
+        layer1_lag.to_i.positive? ?
+          "layer1_catchup" :
+          "downstream_catchup"
       end
 
       private
@@ -291,18 +256,20 @@ module System
       def transition_reason(
         current_phase:,
         resolved_phase:,
-        changed:,
-        layer1_time_budget_exhausted: false
+        changed:
       )
-        return "hysteresis_hold" unless changed
+        unless changed
+          return resolved_phase == "layer1_catchup" ?
+            "layer1_continuous_catchup" :
+            "layer1_caught_up"
+        end
+
         return "initial_phase" if current_phase.blank?
 
         if resolved_phase == "layer1_catchup"
-          "layer1_lag_reached_start_threshold"
-        elsif layer1_time_budget_exhausted
-          "layer1_phase_time_budget_reached"
+          "layer1_lag_detected"
         else
-          "layer1_lag_reached_stop_threshold"
+          "layer1_caught_up"
         end
       end
 
@@ -318,19 +285,6 @@ module System
         ].max.to_i
       rescue ArgumentError, TypeError
         0
-      end
-
-      def layer1_time_budget_exhausted?(
-        current_phase:,
-        layer1_lag:,
-        start_lag:,
-        elapsed_seconds:,
-        max_layer1_phase_seconds:
-      )
-        valid_phase(current_phase) == "layer1_catchup" &&
-          layer1_lag.to_i < start_lag.to_i &&
-          elapsed_seconds.to_i >=
-            max_layer1_phase_seconds.to_i
       end
 
       def log_transition(
