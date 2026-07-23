@@ -558,6 +558,19 @@
           "etf_candidate"
         )
 
+      behavioral_extension_counts =
+        begin
+          ActorLabel
+            .where(
+              source:
+                ActorLabels::BehavioralExtensionRuleSet::SOURCE
+            )
+            .group(:label)
+            .count
+        rescue StandardError
+          {}
+        end
+
       output_contracts = [
         {
           title:
@@ -717,6 +730,70 @@
 
           description:
             "ETF Flow peut être construit dès maintenant autour du contrat etf_like. Le compteur restera à zéro jusqu’à la confirmation d’une identité ETF."
+        },
+
+        {
+          title:
+            "Retention Flow",
+
+          count:
+            behavioral_extension_counts.fetch(
+              "high_retention_behavior",
+              0
+            ),
+
+          unit:
+            "comportement(s) de forte rétention",
+
+          contract:
+            "high_retention_behavior",
+
+          producer:
+            "Behavioral Extension v1",
+
+          state:
+            "Shadow · observation active",
+
+          badge_classes:
+            "border-amber-400/25 bg-amber-400/10 text-amber-200",
+
+          count_classes:
+            "text-amber-300",
+
+          description:
+            "Au checkpoint strict certifié, au moins 80 % du volume BTC reçu demeure dans les UTXO du cluster, avec au moins 20 transactions reçues. Ce comportement décrit une forte rétention observée, pas une identité de dépositaire."
+        },
+
+        {
+          title:
+            "Spend-Through Flow",
+
+          count:
+            behavioral_extension_counts.fetch(
+              "high_spend_through_behavior",
+              0
+            ),
+
+          unit:
+            "comportement(s) de forte redépense",
+
+          contract:
+            "high_spend_through_behavior",
+
+          producer:
+            "Behavioral Extension v1",
+
+          state:
+            "Shadow · observation active",
+
+          badge_classes:
+            "border-amber-400/25 bg-amber-400/10 text-amber-200",
+
+          count_classes:
+            "text-amber-300",
+
+          description:
+            "Au checkpoint strict certifié, au moins 95 % du volume BTC reçu a déjà été consommé par des transactions de dépense, avec au moins 20 transactions de dépense. Ce comportement décrit une forte redépense historique, pas une distribution vérifiée vers plusieurs bénéficiaires."
         }
       ]
     %>

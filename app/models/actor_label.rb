@@ -13,6 +13,8 @@ class ActorLabel < ApplicationRecord
     retail_like
     etf_like
     etf_candidate
+    high_retention_behavior
+    high_spend_through_behavior
   ].freeze
 
   validates :label, presence: true, inclusion: { in: LABELS }
